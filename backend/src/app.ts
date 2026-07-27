@@ -44,7 +44,16 @@ export function createApp(): Express {
   );
 
   // Body parsers com limite explícito (10mb para uploads JSON ainda razoáveis).
-  app.use(express.json({ limit: '10mb' }));
+  // `verify` guarda o body bruto em req.rawBody — assinaturas HMAC de webhook
+  // precisam ser validadas sobre os bytes originais, não sobre o JSON re-serializado.
+  app.use(
+    express.json({
+      limit: '10mb',
+      verify: (req, _res, buf) => {
+        (req as express.Request).rawBody = buf;
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Logger leve só em dev/test (em produção use pino/winston).

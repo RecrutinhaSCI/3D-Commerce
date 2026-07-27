@@ -13,6 +13,7 @@ import { testimonialsRouter } from '../modules/testimonials/testimonials.routes'
 import { couponsRouter } from '../modules/coupons/coupons.routes';
 import { scriptsRouter } from '../modules/scripts/scripts.routes';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes';
+import { paymentsRouter } from '../modules/payments/payments.routes';
 
 /**
  * Router raiz. Os routers internos por enquanto estão vazios (R1).
@@ -36,4 +37,7 @@ apiRouter.use('/api', bannersRouter);
 apiRouter.use('/api', testimonialsRouter);
 apiRouter.use('/api', couponsRouter);
 apiRouter.use('/api', scriptsRouter);
+// Payments ANTES do dashboard: o dashboardRouter aplica auth+admin com
+// `router.use()` sem path, o que intercepta qualquer rota registrada depois.
+apiRouter.use('/api', paymentsRouter);
 apiRouter.use('/api', dashboardRouter);

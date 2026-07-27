@@ -38,6 +38,15 @@ export const uploadRateLimiter = rateLimit({
   handler,
 });
 
+/** Webhooks de pagamento — 120 / 5 min por IP (PSPs reenviam em rajada; brute force de assinatura não). */
+export const webhookRateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+});
+
 /** Validação pública de cupom — 30 tentativas / 10 min por IP (evita brute force de códigos). */
 export const couponValidateRateLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
