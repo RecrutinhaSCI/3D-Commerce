@@ -2,7 +2,7 @@ import express, { type Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'node:path';
-import { env, corsOrigins } from './config/env';
+import { env, isOriginAllowed } from './config/env';
 import { requestLogger } from './middlewares/requestLogger';
 import { errorHandler } from './middlewares/errorHandler';
 import { notFoundHandler } from './middlewares/notFoundHandler';
@@ -30,16 +30,33 @@ export function createApp(): Express {
     }),
   );
 
-  // CORS — lista vinda do .env (CORS_ORIGIN, separado por vírgula).
+  // CORS — origens fixas via CORS_ORIGINS (ou CORS_ORIGIN legado, CSV) +
+  // regex opcional para previews da Vercel (ver env.ts).
+  //
+  // Bloqueio: NUNCA lançamos Error dentro do callback. Se lançássemos, o
+  // middleware do `cors` chamaria `next(err)`, cairia no errorHandler e
+  // devolveria 500 ao browser (mesmo em preflight OPTIONS) — poluindo logs
+  // e mascarando o erro real. Em vez disso respondemos `false`: o `cors`
+  // apenas omite o `Access-Control-Allow-Origin`, o browser aplica sua
+  // política padrão de bloqueio e nós logamos o warn uma única vez.
   app.use(
     cors({
       origin(origin, callback) {
-        // Permite requests sem Origin (curl, server-to-server, health check).
+        // Requests sem Origin (curl, server-to-server, health checks do
+        // Render, mesma-origem) — sempre permitidos.
         if (!origin) return callback(null, true);
-        if (corsOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
+        if (isOriginAllowed(origin)) return callback(null, true);
+        // eslint-disable-next-line no-console
+        console.warn(`[cors] Origem bloqueada: ${origin}`);
+        return callback(null, false);
       },
       credentials: true,
+      // Preflight completa: garantimos que Authorization, Content-Type e
+      // outros headers comuns passem, e que o método OPTIONS retorne 204.
+      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Webhook-Signature'],
+      optionsSuccessStatus: 204,
+      maxAge: 600,
     }),
   );
 
