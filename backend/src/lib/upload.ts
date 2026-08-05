@@ -13,6 +13,25 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/webp': '.webp',
 };
 
+/**
+ * R20 — Galeria do PRODUTO: além de imagens tradicionais, aceita GIF e MP4
+ * para animar/demonstrar o produto. Limites diferentes por tipo mantêm o
+ * bundle da página leve mesmo com vídeo.
+ */
+export const PRODUCT_MEDIA_MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+export const PRODUCT_MEDIA_MAX_VIDEO_BYTES = 8 * 1024 * 1024; // 8 MB
+const PRODUCT_MEDIA_EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'video/mp4': '.mp4',
+};
+export const PRODUCT_MEDIA_ALLOWED_MIMES = new Set(Object.keys(PRODUCT_MEDIA_EXT_BY_MIME));
+export function classifyProductMedia(mime: string): 'image' | 'video' {
+  return mime.startsWith('video/') ? 'video' : 'image';
+}
+
 /** Diretório absoluto para imagens de produtos. Criado se não existir. */
 const productsDir = path.resolve(process.cwd(), env.UPLOAD_DIR, 'products');
 fs.mkdirSync(productsDir, { recursive: true });
@@ -47,6 +66,40 @@ export const productImagesUpload = multer({
   storage,
   fileFilter,
   limits: { fileSize: MAX_SIZE_BYTES, files: MAX_FILES },
+});
+
+// -------------------------------------------------------------------------
+// Produto — MÍDIA (imagem + GIF + MP4). Compartilha o diretório e as regras
+// de nome imprevisível; troca o filtro e aplica limite por tipo.
+// -------------------------------------------------------------------------
+const productMediaStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, productsDir),
+  filename: (_req, file, cb) => {
+    const rand = crypto.randomBytes(16).toString('hex');
+    const ext = PRODUCT_MEDIA_EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase();
+    cb(null, `${rand}${ext}`);
+  },
+});
+
+function productMediaFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+  if (!PRODUCT_MEDIA_ALLOWED_MIMES.has(file.mimetype)) {
+    return cb(HttpError.badRequest('Formato não suportado. Envie JPG, PNG, WEBP, GIF ou MP4.'));
+  }
+  const ext = path.extname(file.originalname).toLowerCase();
+  const expected = PRODUCT_MEDIA_EXT_BY_MIME[file.mimetype];
+  // .jpeg é sinônimo de .jpg — aceito.
+  if (ext && ext !== expected && !(ext === '.jpeg' && expected === '.jpg')) {
+    return cb(HttpError.badRequest('Extensão do arquivo não confere com o formato.'));
+  }
+  cb(null, true);
+}
+
+export const productMediaUpload = multer({
+  storage: productMediaStorage,
+  fileFilter: productMediaFilter,
+  // Limite mais folgado (vídeo): o service ainda valida o tamanho por tipo
+  // antes de persistir, para bloquear imagem >5MB mesmo que <8MB.
+  limits: { fileSize: PRODUCT_MEDIA_MAX_VIDEO_BYTES, files: MAX_FILES },
 });
 
 /** Constrói a URL pública servida por `/uploads/products/<filename>`. */

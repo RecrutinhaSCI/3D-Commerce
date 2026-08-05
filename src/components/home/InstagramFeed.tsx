@@ -24,7 +24,7 @@ export function InstagramFeed() {
     <section className="container-x pb-8 pt-16">
       <div className="mb-6 flex items-end justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-ink-mute">Comunidade</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-ink-mute">Instagram</p>
           <h2 className="mt-1 text-3xl font-bold">{settings.communityInstagramTitle}</h2>
           {settings.communityInstagramSubtitle && (
             <p className="mt-1 text-sm text-ink-mute">{settings.communityInstagramSubtitle}</p>

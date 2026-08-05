@@ -87,8 +87,12 @@ export default function ProductForm() {
   const [showPreview, setShowPreview] = useState(false);
   // Cada imagem carrega o id do backend para permitir remoção real.
   // Se `id === null`, é placeholder local (produto ainda não persistido).
-  const [images, setImages] = useState<Array<{ id: string | null; url: string }>>(
-    existing ? existing.images.map((u) => ({ id: null, url: u })) : [],
+  const [images, setImages] = useState<Array<{ id: string | null; url: string; mediaType?: 'image' | 'video' }>>(
+    existing
+      ? existing.media && existing.media.length > 0
+        ? existing.media.map((m) => ({ id: m.id ?? null, url: m.url, mediaType: m.mediaType }))
+        : existing.images.map((u) => ({ id: null, url: u }))
+      : [],
   );
 
   // Especificações = pares chave/valor (product.attributes). Editáveis aqui.
@@ -161,7 +165,11 @@ export default function ProductForm() {
         const { product } = await productService.getPublicBySlug(existing.slug);
         if (cancelled) return;
         if (product.images.length > 0) {
-          setImages(product.images.map((img) => ({ id: img.id, url: img.url })));
+          setImages(product.images.map((img) => ({
+            id: img.id,
+            url: img.url,
+            mediaType: img.mediaType,
+          })));
         }
       } catch {
         // mantém as imagens do store como fallback
@@ -214,6 +222,11 @@ export default function ProductForm() {
         material: d.material as Product['material'],
         categoryIds: [d.categoryId],
         images: finalImages,
+        media: finalImages.map((url) => ({
+          url,
+          mediaType: /\.mp4($|\?)/i.test(url) ? 'video' : 'image',
+          mimeType: null,
+        })),
         price: d.price,
         promoPrice: d.promoPrice,
         stock: d.stock,
@@ -495,31 +508,37 @@ export default function ProductForm() {
 
         <aside className="space-y-5">
           <div className="card p-5">
-            <h2 className="text-base font-bold">Imagens do produto</h2>
+            <h2 className="text-base font-bold">Mídias do produto</h2>
             {!isEdit && (
               <p className="mt-1 text-[11px] text-ink-mute">
-                Salve o produto primeiro para poder enviar imagens ao servidor.
+                Salve o produto primeiro para poder enviar mídias ao servidor.
               </p>
             )}
             <div className="mt-4">
               <RemoteImageUploader
                 multiple
-                max={6}
+                allowVideo
+                max={10}
                 value={images.map((i) => i.url)}
+                mediaTypes={images.map((i) => i.mediaType ?? (/\.mp4($|\?)/i.test(i.url) ? 'video' : 'image'))}
                 onUploadMany={async (files) => {
                   if (!isEdit || !existing) {
-                    throw new Error('Salve o produto antes de enviar imagens.');
+                    throw new Error('Salve o produto antes de enviar mídias.');
                   }
                   try {
                     const { product } = await productService.addImages(existing.id, files);
-                    const next = product.images.map((img) => ({ id: img.id, url: img.url }));
+                    const next = product.images.map((img) => ({
+                      id: img.id,
+                      url: img.url,
+                      mediaType: img.mediaType,
+                    }));
                     setImages(next);
                     // Atualiza cache no store também.
                     const internal = apiProductToInternal(product);
-                    updateProduct(existing.id, { images: internal.images });
+                    updateProduct(existing.id, { images: internal.images, media: internal.media });
                     return next.map((n) => n.url);
                   } catch (err) {
-                    const msg = err instanceof ApiError ? err.message : 'Falha ao enviar imagens.';
+                    const msg = err instanceof ApiError ? err.message : 'Falha ao enviar mídias.';
                     throw new Error(msg);
                   }
                 }}
@@ -530,12 +549,12 @@ export default function ProductForm() {
                     try {
                       await productService.removeImage(img.id);
                     } catch (err) {
-                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover imagem.');
+                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover mídia.');
                     }
                   }
                   setImages((prev) => prev.filter((_, i) => i !== idx));
                 }}
-                hint="JPG/PNG/WEBP até 5MB. Primeira imagem vira a principal."
+                hint="JPG/PNG/WEBP/GIF até 5MB · MP4 até 8MB. A primeira mídia vira a principal."
               />
             </div>
           </div>

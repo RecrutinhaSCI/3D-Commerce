@@ -20,6 +20,14 @@ export interface ProductVariation {
   swatch?: string;
 }
 
+/** R20 — item da galeria do produto (imagem ou vídeo MP4). */
+export interface ProductMediaItem {
+  url: string;
+  mediaType: 'image' | 'video';
+  mimeType?: string | null;
+  id?: string;
+}
+
 export interface Product {
   id: string;
   slug: string;
@@ -29,7 +37,11 @@ export interface Product {
   categoryIds: string[];
   brand: string;
   material?: 'PLA' | 'PETG' | 'ABS' | 'Resina' | '-';
+  /** URLs simples (compat com código antigo — sempre em ordem). */
   images: string[];
+  /** R20 — mídias com tipo (fonte da verdade para galeria/uploads).
+   *  Opcional: mocks locais e criação otimista continuam válidos sem preencher. */
+  media?: ProductMediaItem[];
   price: number;
   promoPrice?: number;
   pixPrice?: number;

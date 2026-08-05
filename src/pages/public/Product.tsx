@@ -28,6 +28,16 @@ export default function Product() {
   const navigate = useNavigate();
 
   const [imageIdx, setImageIdx] = useState(0);
+  // R20 — Galeria com mídias tipadas (imagem/vídeo). Fallback para o array
+  // de URLs legado quando `media` ainda não veio (produto do cache antigo).
+  const gallery = product?.media && product.media.length > 0
+    ? product.media
+    : (product?.images ?? []).map((url) => ({
+        url,
+        mediaType: /\.mp4($|\?)/i.test(url) ? ('video' as const) : ('image' as const),
+        mimeType: null,
+      }));
+  const currentMedia = gallery[imageIdx];
   const [qty, setQty] = useState(1);
   const [selectedVar, setSelectedVar] = useState<string | undefined>(product?.variations[0]?.id);
 
@@ -54,7 +64,7 @@ export default function Product() {
           '@type': 'Product',
           name: product.name,
           description: product.shortDescription || product.name,
-          image: product.images.filter((i) => /^https?:/i.test(i)),
+          image: product.images.filter((i) => /^https?:/i.test(i) && !/\.mp4($|\?)/i.test(i)),
           brand: { '@type': 'Brand', name: product.brand },
           offers: {
             '@type': 'Offer',
@@ -155,26 +165,62 @@ export default function Product() {
                 <Badge key={b} type={b} />
               ))}
             </div>
-            <img
-              src={product.images[imageIdx]}
-              alt={product.name}
-              loading="eager"
-              onError={(e) => {
-                // Fallback elegante: some com a imagem quebrada e revela o fundo do card.
-                (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-              }}
-              className="h-full w-full object-cover"
-            />
+            {currentMedia?.mediaType === 'video' ? (
+              // MP4: `muted + playsInline` liberam autoplay silencioso no iOS.
+              // `preload="metadata"` evita baixar o arquivo inteiro antes de o
+              // usuário chegar na tela do produto.
+              <video
+                key={currentMedia.url}
+                src={currentMedia.url}
+                autoPlay
+                muted
+                loop
+                playsInline
+                controls
+                preload="metadata"
+                className="h-full w-full object-cover"
+                aria-label={`${product.name} — vídeo`}
+              />
+            ) : (
+              <img
+                src={currentMedia?.url}
+                alt={product.name}
+                loading="eager"
+                onError={(e) => {
+                  // Fallback elegante: some com a imagem quebrada e revela o fundo do card.
+                  (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+                }}
+                className="h-full w-full object-cover"
+              />
+            )}
           </motion.div>
-          {product.images.length > 1 && (
+          {gallery.length > 1 && (
             <div className="mt-3 grid grid-cols-5 gap-2">
-              {product.images.map((img, i) => (
+              {gallery.map((m, i) => (
                 <button
                   key={i}
+                  type="button"
                   onClick={() => setImageIdx(i)}
-                  className={`overflow-hidden rounded-xl border-2 ${i === imageIdx ? 'border-ink' : 'border-transparent'}`}
+                  aria-label={m.mediaType === 'video' ? `Vídeo ${i + 1}` : `Imagem ${i + 1}`}
+                  className={`relative overflow-hidden rounded-xl border-2 ${i === imageIdx ? 'border-ink' : 'border-transparent'}`}
                 >
-                  <img src={img} alt="" className="aspect-square w-full object-cover" />
+                  {m.mediaType === 'video' ? (
+                    <>
+                      <video
+                        src={m.url}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="aspect-square w-full object-cover"
+                      />
+                      {/* Selo visual para diferenciar vídeo de imagem na miniatura */}
+                      <span className="absolute bottom-1 right-1 rounded bg-ink/80 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-bg">
+                        Vídeo
+                      </span>
+                    </>
+                  ) : (
+                    <img src={m.url} alt="" className="aspect-square w-full object-cover" />
+                  )}
                 </button>
               ))}
             </div>

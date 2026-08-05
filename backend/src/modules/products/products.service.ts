@@ -3,7 +3,12 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { generateUniqueSlug } from '../../utils/slug';
 import { decimalToNumber } from '../../utils/decimal';
-import { safeUnlinkProductImage } from '../../lib/upload';
+import {
+  PRODUCT_MEDIA_MAX_IMAGE_BYTES,
+  PRODUCT_MEDIA_MAX_VIDEO_BYTES,
+  classifyProductMedia,
+  safeUnlinkProductImage,
+} from '../../lib/upload';
 import type {
   AdminListQuery,
   CreateProductInput,
@@ -42,7 +47,14 @@ export interface ProductDTO {
   purchaseMode: ProductPurchaseMode;
   createdAt: string;
   updatedAt: string;
-  images: Array<{ id: string; url: string; alt: string | null; position: number }>;
+  images: Array<{
+    id: string;
+    url: string;
+    alt: string | null;
+    position: number;
+    mediaType: 'image' | 'video';
+    mimeType: string | null;
+  }>;
 }
 
 function toDTO(p: ProductWithRelations): ProductDTO {
@@ -74,7 +86,16 @@ function toDTO(p: ProductWithRelations): ProductDTO {
     updatedAt: p.updatedAt.toISOString(),
     images: [...p.images]
       .sort((a, b) => a.position - b.position)
-      .map((i) => ({ id: i.id, url: i.url, alt: i.alt, position: i.position })),
+      .map((i) => ({
+        id: i.id,
+        url: i.url,
+        alt: i.alt,
+        position: i.position,
+        // Compat: linhas antigas (default do schema) já vêm como "image"; se o
+        // cliente do banco devolveu string arbitrária, normalizamos.
+        mediaType: i.mediaType === 'video' ? 'video' : 'image',
+        mimeType: i.mimeType,
+      })),
   };
 }
 
@@ -328,6 +349,20 @@ export const productsService = {
       throw HttpError.notFound('Produto não encontrado.');
     }
 
+    // Segunda camada de validação além do Multer: bloqueia imagem >5MB
+    // mesmo que o limite geral (8MB, cobrindo vídeo) tenha deixado passar.
+    for (const file of files) {
+      const mediaType = classifyProductMedia(file.mimetype);
+      const limit = mediaType === 'video' ? PRODUCT_MEDIA_MAX_VIDEO_BYTES : PRODUCT_MEDIA_MAX_IMAGE_BYTES;
+      if (file.size > limit) {
+        // Rollback: apaga tudo que já veio antes de propagar o erro.
+        files.forEach((f) => safeUnlinkProductImage(f.filename));
+        const kind = mediaType === 'video' ? 'vídeo' : 'imagem';
+        const mb = Math.round(limit / (1024 * 1024));
+        throw HttpError.badRequest(`Arquivo "${file.originalname}": ${kind} acima de ${mb}MB.`);
+      }
+    }
+
     const startPos = product.images.length
       ? Math.max(...product.images.map((i) => i.position)) + 1
       : 0;
@@ -340,6 +375,8 @@ export const productsService = {
             url: `/uploads/products/${file.filename}`,
             alt: product.name,
             position: startPos + index,
+            mediaType: classifyProductMedia(file.mimetype),
+            mimeType: file.mimetype,
           },
         }),
       ),

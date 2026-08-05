@@ -285,6 +285,8 @@ async function main() {
       whatsapp: '5554992752253',
       email: 'commerce3d@outlook.com',
       instagram: 'https://www.instagram.com/3dcommerce_bg/',
+      // Endereço textual da loja física. Só aplicado na primeira criação do
+      // registro — upsert não sobrescreve o valor já cadastrado pelo admin.
       address:
         "L'América Shopping Center — Rua 13 de Maio, 877, São Bento, Bento Gonçalves/RS",
       cnpj: '66.771.571/0001-38',

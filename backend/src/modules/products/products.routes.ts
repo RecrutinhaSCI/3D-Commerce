@@ -3,7 +3,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
 import { uploadRateLimiter } from '../../middlewares/rateLimiters';
-import { productImagesUpload } from '../../lib/upload';
+import { productMediaUpload } from '../../lib/upload';
 import { productsController } from './products.controller';
 
 /**
@@ -42,7 +42,9 @@ productsRouter.delete(
 productsRouter.post(
   '/admin/products/:id/images',
   uploadRateLimiter,
-  productImagesUpload.array('images', 10),
+  // R20: campo continua "images" (compat com frontend), mas agora aceita
+  // imagens + GIF + MP4 via productMediaUpload (validação por tipo no service).
+  productMediaUpload.array('images', 10),
   asyncHandler(productsController.addImages),
 );
 productsRouter.put('/admin/products/:id', asyncHandler(productsController.update));

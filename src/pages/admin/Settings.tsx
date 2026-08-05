@@ -309,8 +309,27 @@ export default function Settings() {
                 <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                   <Input placeholder="Título" value={v.title} onChange={(e) => { const arr = [...content.youtubeVideos]; arr[i] = { ...v, title: e.target.value }; setC('youtubeVideos', arr); }} />
                   <Input placeholder="URL do vídeo" value={v.url} onChange={(e) => { const arr = [...content.youtubeVideos]; arr[i] = { ...v, url: e.target.value }; setC('youtubeVideos', arr); }} error={v.title.trim() && !isSafeUrlOrEmpty(v.url) ? 'URL inválida' : undefined} />
-                  <Input placeholder="Thumbnail (URL, opcional)" value={v.thumbnail ?? ''} onChange={(e) => { const arr = [...content.youtubeVideos]; arr[i] = { ...v, thumbnail: e.target.value }; setC('youtubeVideos', arr); }} />
                   <Input placeholder="Descrição curta (opcional)" value={v.description ?? ''} onChange={(e) => { const arr = [...content.youtubeVideos]; arr[i] = { ...v, description: e.target.value }; setC('youtubeVideos', arr); }} />
+                  <Input placeholder="Thumbnail (URL, opcional — se preferir colar direto)" value={v.thumbnail ?? ''} onChange={(e) => { const arr = [...content.youtubeVideos]; arr[i] = { ...v, thumbnail: e.target.value }; setC('youtubeVideos', arr); }} />
+                </div>
+                <div className="mt-3 border-t border-ink-line pt-3">
+                  <RemoteImageUploader
+                    label="Thumbnail (upload)"
+                    hint="JPG/PNG/WEBP até 5MB. Se vazio, usamos a thumbnail automática do YouTube."
+                    value={v.thumbnail ? (v.thumbnail.startsWith('http') ? v.thumbnail : v.thumbnail) : null}
+                    onUpload={async (file) => {
+                      const { url } = await settingsService.uploadImage(file);
+                      const arr = [...content.youtubeVideos];
+                      arr[i] = { ...v, thumbnail: url };
+                      setC('youtubeVideos', arr);
+                      return url;
+                    }}
+                    onRemove={() => {
+                      const arr = [...content.youtubeVideos];
+                      arr[i] = { ...v, thumbnail: '' };
+                      setC('youtubeVideos', arr);
+                    }}
+                  />
                 </div>
               </div>
             ))}

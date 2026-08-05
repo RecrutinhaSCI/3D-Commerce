@@ -86,6 +86,15 @@ export function apiProductToInternal(p: ApiProduct): Product {
     images: p.images.length
       ? p.images.map((img) => apiAssetUrl(img.url))
       : [productSvg(p.name, 'generic', p.slug.length)],
+    media: p.images.length
+      ? p.images.map((img) => ({
+          id: img.id,
+          url: apiAssetUrl(img.url),
+          // Se o backend não enviou (rota antiga em cache), inferimos pela extensão.
+          mediaType: img.mediaType ?? (/\.mp4($|\?)/i.test(img.url) ? 'video' : 'image'),
+          mimeType: img.mimeType ?? null,
+        }))
+      : [{ url: productSvg(p.name, 'generic', p.slug.length), mediaType: 'image', mimeType: null }],
     price: p.price,
     promoPrice: p.promotionalPrice ?? undefined,
     stock: p.stock,

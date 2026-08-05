@@ -22,6 +22,17 @@ export const settingsController = {
     return ok(res, { settings });
   },
 
+  /**
+   * Upload de imagem "solta" do site — usada para thumbnails de vídeo do YouTube
+   * (o admin cola a URL retornada no campo `youtubeVideos[].thumbnail`). Reusa o
+   * mesmo pipeline do logo: JPG/PNG/WEBP, 5MB, SVG bloqueado, extensão↔MIME.
+   */
+  async uploadImage(req: Request, res: Response) {
+    const file = req.file as Express.Multer.File | undefined;
+    if (!file) throw HttpError.badRequest('Envie um arquivo no campo "image".');
+    return ok(res, { url: `/uploads/site/${file.filename}` });
+  },
+
   async uploadLogo(req: Request, res: Response) {
     const file = req.file as Express.Multer.File | undefined;
     if (!file) throw HttpError.badRequest('Envie um arquivo no campo "logo".');

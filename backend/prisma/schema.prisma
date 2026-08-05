@@ -214,6 +214,11 @@ model ProductImage {
   url       String
   alt       String?
   position  Int      @default(0)
+  // R20 — permite GIF/MP4 na galeria.
+  // "image" cobre JPG/PNG/WEBP/GIF; "video" cobre MP4. Produtos antigos
+  // (sem valor no banco) usam o default "image" via migration.
+  mediaType String   @default("image") @map("media_type")
+  mimeType  String?  @map("mime_type")
   createdAt DateTime @default(now()) @map("created_at")
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)

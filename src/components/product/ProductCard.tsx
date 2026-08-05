@@ -56,12 +56,31 @@ export function ProductCard({ product }: { product: Product }) {
             </span>
           )}
         </div>
-        <img
-          src={product.images[0]}
-          alt={product.name}
-          loading="lazy"
-          className="aspect-square w-full object-cover transition-transform duration-[600ms] ease-out group-hover:scale-[1.06]"
-        />
+        {(() => {
+          // R20 — Prefere a 1ª IMAGEM (miniatura estática); só usa vídeo
+          // se o produto só tiver MP4 na galeria (evita autoplay em massa
+          // na listagem, que ficaria pesado).
+          const firstImage = product.media?.find((m) => m.mediaType === 'image');
+          const src = firstImage?.url ?? product.images[0];
+          const isVideo = !firstImage && /\.mp4($|\?)/i.test(src ?? '');
+          return isVideo ? (
+            <video
+              src={src}
+              muted
+              playsInline
+              preload="metadata"
+              className="aspect-square w-full object-cover transition-transform duration-[600ms] ease-out group-hover:scale-[1.06]"
+              aria-label={product.name}
+            />
+          ) : (
+            <img
+              src={src}
+              alt={product.name}
+              loading="lazy"
+              className="aspect-square w-full object-cover transition-transform duration-[600ms] ease-out group-hover:scale-[1.06]"
+            />
+          );
+        })()}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-ink/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       </Link>
 

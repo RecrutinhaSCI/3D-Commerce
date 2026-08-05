@@ -50,6 +50,9 @@ export interface ApiProductImage {
   url: string;
   alt: string | null;
   position: number;
+  /** R20 — "image" cobre JPG/PNG/WEBP/GIF; "video" cobre MP4. Antigos → "image". */
+  mediaType: 'image' | 'video';
+  mimeType: string | null;
 }
 
 export interface ApiProduct {

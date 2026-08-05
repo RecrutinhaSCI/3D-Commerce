@@ -30,3 +30,10 @@ settingsRouter.post(
   siteImageUpload.single('logo'),
   asyncHandler(settingsController.uploadLogo),
 );
+// Upload avulso: usado para thumbnails dos vídeos do YouTube (retorna só a URL).
+settingsRouter.post(
+  '/admin/settings/upload-image',
+  uploadRateLimiter,
+  siteImageUpload.single('image'),
+  asyncHandler(settingsController.uploadImage),
+);
