@@ -49,3 +49,7 @@ productsRouter.post(
 );
 productsRouter.put('/admin/products/:id', asyncHandler(productsController.update));
 productsRouter.delete('/admin/products/:id', asyncHandler(productsController.remove));
+
+// R19-A — Import em lote. Idempotente, nunca deleta, matching feito no banco
+// (id → sku → slug explícito → conflito seguro em ambiguidade de nome).
+productsRouter.post('/admin/products/import', asyncHandler(productsController.bulkImport));

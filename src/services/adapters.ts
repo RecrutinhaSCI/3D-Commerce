@@ -81,7 +81,10 @@ export function apiProductToInternal(p: ApiProduct): Product {
     description: p.description ?? '',
     shortDescription: p.shortDescription ?? '',
     categoryIds: p.categoryId ? [p.categoryId] : [],
-    brand: p.material ?? '3DCommerce',
+    // R19-B — Marca vem SOMENTE do campo `brand` do backend. Nunca cair para
+    // `material` (isso era o bug: mostrar o material como se fosse marca).
+    // Vazio é exibido como vazio; nada de default artificial "3DCommerce".
+    brand: p.brand ?? '',
     material: (p.material as Product['material']) ?? '-',
     images: p.images.length
       ? p.images.map((img) => apiAssetUrl(img.url))

@@ -106,6 +106,9 @@ export default function Products() {
             <tr>
               <th className="px-4 py-3">Produto</th>
               <th className="px-4 py-3">Marca</th>
+              {/* R19-B — coluna Material separada de Marca. Some em telas
+                  menores para preservar layout; o card interno rola horizontal. */}
+              <th className="hidden px-4 py-3 md:table-cell">Material</th>
               <th className="px-4 py-3">Preço</th>
               <th className="px-4 py-3">Estoque</th>
               <th className="px-4 py-3">Modo</th>
@@ -120,7 +123,11 @@ export default function Products() {
                   <img src={p.images[0]} alt="" className="h-10 w-10 rounded-lg object-cover" />
                   <span className="font-semibold">{p.name}</span>
                 </td>
-                <td className="px-4 py-3 text-ink-mute">{p.brand}</td>
+                {/* R19-B — marca real (nunca deriva de material). Vazio = "—" */}
+                <td className="px-4 py-3 text-ink-mute">{p.brand?.trim() || '—'}</td>
+                <td className="hidden px-4 py-3 text-ink-mute md:table-cell">
+                  {p.material && p.material !== '-' ? p.material : '—'}
+                </td>
                 <td className="px-4 py-3">{formatBRL(p.promoPrice ?? p.price)}</td>
                 <td className="px-4 py-3">{p.stock}</td>
                 <td className="px-4 py-3 text-ink-mute capitalize">{p.purchaseMode}</td>
@@ -151,7 +158,7 @@ export default function Products() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-mute">Nenhum produto encontrado.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-mute">Nenhum produto encontrado.</td></tr>
             )}
           </tbody>
         </table>
@@ -160,8 +167,6 @@ export default function Products() {
       <ProductImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        products={products}
-        categories={categories}
         onDone={() => refresh()}
       />
 

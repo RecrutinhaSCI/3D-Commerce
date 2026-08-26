@@ -56,4 +56,51 @@ export const productService = {
   removeImage(imageId: string) {
     return api.del(`/api/admin/products/images/${imageId}`);
   },
+  /**
+   * R19-A — Import em lote. Matching feito no backend (id → sku → slug
+   * explícito → conflito seguro). Nunca deleta produtos existentes.
+   */
+  bulkImport(rows: BulkImportRow[]) {
+    return api.post<BulkImportReport>('/api/admin/products/import', { rows });
+  },
 };
+
+// R19-A — Contrato do bulk import (espelha `backend/src/modules/products/products.schemas.ts`).
+export interface BulkImportRow {
+  line: number;
+  id?: string;
+  sku?: string;
+  slug?: string;
+  name?: string;
+  categoryName?: string;
+  shortDescription?: string;
+  description?: string;
+  price?: number;
+  promotionalPrice?: number;
+  stock?: number;
+  active?: boolean;
+  featured?: boolean;
+  // R19-B — brand e material independentes.
+  brand?: string;
+  material?: string;
+  // R19-C — imagem principal por URL (opcional). Bloqueia protocolos inseguros no backend.
+  imageUrl?: string;
+}
+
+export interface BulkImportItem {
+  line: number;
+  id?: string;
+  name?: string;
+  reason?: string;
+  identifier?: string;
+  /** R19-C — true quando a linha também alterou a imagem principal do produto. */
+  imageUpdated?: boolean;
+}
+
+export interface BulkImportReport {
+  created: BulkImportItem[];
+  updated: BulkImportItem[];
+  skipped: BulkImportItem[];
+  conflicts: BulkImportItem[];
+  summary: { total: number; created: number; updated: number; skipped: number; conflicts: number };
+}

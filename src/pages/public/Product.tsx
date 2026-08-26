@@ -65,7 +65,11 @@ export default function Product() {
           name: product.name,
           description: product.shortDescription || product.name,
           image: product.images.filter((i) => /^https?:/i.test(i) && !/\.mp4($|\?)/i.test(i)),
-          brand: { '@type': 'Brand', name: product.brand },
+          // R19-B — só emite `brand` no JSON-LD quando há marca real. Nunca
+          // publica estrutura vazia como { name: "" } (invalida o schema).
+          ...(product.brand?.trim()
+            ? { brand: { '@type': 'Brand', name: product.brand.trim() } }
+            : {}),
           offers: {
             '@type': 'Offer',
             price: getEffectivePrice(product),

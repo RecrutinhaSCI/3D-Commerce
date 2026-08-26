@@ -42,6 +42,8 @@ export const createProductSchema = z.object({
   width: nullableNumber(),
   height: nullableNumber(),
   depth: nullableNumber(),
+  // R19-B — brand (fabricante) e material são independentes.
+  brand: z.string().trim().max(80).optional().nullable(),
   material: z.string().trim().max(80).optional().nullable(),
   color: z.string().trim().max(80).optional().nullable(),
   printTime: z.string().trim().max(60).optional().nullable(),
@@ -78,5 +80,53 @@ export type FeaturedQuery = z.infer<typeof featuredQuerySchema>;
 export const adminListQuerySchema = publicListQuerySchema.extend({
   active: parseBool,
   lowStock: parseBool,
+  // R19-A: admin precisa listar o catálogo inteiro para operações em massa
+  // (importar/exportar). O cap do público (100) fica só na parte pública.
+  limit: z.coerce.number().int().min(1).max(500).default(20),
 });
 export type AdminListQuery = z.infer<typeof adminListQuerySchema>;
+
+// -----------------------------------------------------------------------------
+// Bulk import (R19-A)
+//
+// Uma linha bruta da planilha. TODOS os campos são opcionais: célula vazia
+// vira `undefined` (não `null`/`""`/`0`) e o backend NUNCA sobrescreve dado
+// existente com valor não informado. `estoque = 0` explicitamente digitado
+// continua valendo — a diferença entre "vazio" e "zero" é preservada porque
+// o parser só envia a chave quando o valor está presente.
+// -----------------------------------------------------------------------------
+const importRowSchema = z.object({
+  // Identificadores (na ordem de precedência do matching).
+  id: z.string().trim().min(1).optional(),
+  sku: z.string().trim().regex(skuRegex).max(60).optional(),
+  slug: z.string().trim().regex(slugRegex).optional(),
+
+  // Payload — todos opcionais. `undefined` = preservar.
+  name: z.string().trim().min(2).max(200).optional(),
+  categoryName: z.string().trim().min(1).max(120).optional(),
+  shortDescription: z.string().trim().max(500).optional(),
+  description: z.string().trim().max(10000).optional(),
+  price: z.number().positive().optional(),
+  promotionalPrice: z.number().positive().optional(),
+  stock: z.number().int().nonnegative().optional(),
+  active: z.boolean().optional(),
+  featured: z.boolean().optional(),
+  // R19-B — brand e material são independentes no bulk import também.
+  brand: z.string().trim().max(80).optional(),
+  material: z.string().trim().max(80).optional(),
+
+  // R19-C — URL da imagem principal. Validação sintática detalhada acontece
+  // POR LINHA dentro do service (`isSafeImageUrl`), NÃO aqui, para que uma
+  // única URL malformada não derrube o REQUEST inteiro do Zod: linhas boas
+  // são processadas normalmente e as ruins viram conflito individual.
+  imageUrl: z.string().trim().max(2000).optional(),
+
+  // Só metadado (linha na planilha) para relatório.
+  line: z.number().int().positive(),
+});
+export type ImportRow = z.infer<typeof importRowSchema>;
+
+export const bulkImportSchema = z.object({
+  rows: z.array(importRowSchema).min(1, 'Envie ao menos 1 linha.').max(500, 'Máx. 500 linhas por importação.'),
+});
+export type BulkImportInput = z.infer<typeof bulkImportSchema>;

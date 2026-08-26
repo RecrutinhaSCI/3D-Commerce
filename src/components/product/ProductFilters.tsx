@@ -22,7 +22,12 @@ interface Props {
 }
 
 export function ProductFilters({ products, filters, setFilters }: Props) {
-  const brands = useMemo(() => Array.from(new Set(products.map((p) => p.brand))), [products]);
+  // R19-B — filtro só considera marcas realmente preenchidas. Nunca cai para
+  // `material` como marca; strings vazias não viram opção "sem nome".
+  const brands = useMemo(
+    () => Array.from(new Set(products.map((p) => p.brand?.trim()).filter((b): b is string => !!b))),
+    [products],
+  );
 
   function toggle<K extends 'materials' | 'brands' | 'categories'>(field: K, value: string) {
     const list = filters[field];

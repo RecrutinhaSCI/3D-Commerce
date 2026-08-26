@@ -73,6 +73,8 @@ export interface ApiProduct {
   width: number | null;
   height: number | null;
   depth: number | null;
+  // R19-B — brand (fabricante) e material são independentes no backend.
+  brand: string | null;
   material: string | null;
   color: string | null;
   printTime: string | null;

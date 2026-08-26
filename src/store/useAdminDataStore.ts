@@ -158,8 +158,11 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
   async refreshAdmin() {
     try {
       // Só faz sentido se admin token existir.
+      // R19-A: limit ampliado 100 → 500 (era o motivo de produtos "sumirem"
+      // da tela do admin quando o catálogo passava de 100). Dívida técnica:
+      // catálogos >500 pedem paginação real na listagem — fora do escopo.
       const [prod, cats, banners, orders] = await Promise.all([
-        productService.listAdmin({ limit: 100 }).catch(() => null),
+        productService.listAdmin({ limit: 500 }).catch(() => null),
         categoryService.listAdmin().catch(() => null),
         bannerService.listAdmin().catch(() => null),
         orderService.listAdmin({ limit: 100 }).catch(() => null),
@@ -190,6 +193,9 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
         active: p.active,
         featured: p.isHighlight || p.isBestSeller,
         purchaseMode: purchaseModeToApi(p.purchaseMode),
+        // R19-B — brand e material persistidos SEPARADAMENTE. Nunca derivar
+        // um do outro. String vazia vira null (não há valor real informado).
+        brand: p.brand?.trim() ? p.brand.trim() : null,
         material: p.material === '-' ? null : p.material ?? null,
       });
       const created = apiProductToInternal(product);
@@ -214,6 +220,9 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     }
     if (patch.purchaseMode !== undefined) payload.purchaseMode = purchaseModeToApi(patch.purchaseMode);
     if (patch.categoryIds !== undefined && patch.categoryIds[0]) payload.categoryId = patch.categoryIds[0];
+    // R19-B — brand e material são independentes. Cada um só entra no payload
+    // quando explicitamente definido no patch; um NUNCA altera o outro.
+    if (patch.brand !== undefined) payload.brand = patch.brand?.trim() ? patch.brand.trim() : null;
     if (patch.material !== undefined) payload.material = patch.material === '-' ? null : patch.material;
 
     try {

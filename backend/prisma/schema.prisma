@@ -190,6 +190,9 @@ model Product {
   width            Decimal?            @db.Decimal(10, 2) // cm
   height           Decimal?            @db.Decimal(10, 2) // cm
   depth            Decimal?            @db.Decimal(10, 2) // cm
+  // R19-B — Marca (fabricante) SEPARADA de material. Ambas são texto livre e
+  // independentes. Nenhum código deve derivar uma da outra.
+  brand            String?
   material         String?
   color            String?
   printTime        String?             @map("print_time")
