@@ -2,7 +2,7 @@ import { Prisma, type SiteSettings } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { decimalToNumber } from '../../utils/decimal';
 import { safeUnlinkSiteImage, siteImageUrl } from '../../lib/upload';
-import type { TrustItem, UpdateSettingsInput, YoutubeVideo } from './settings.schemas';
+import type { InstagramItem, TrustItem, UpdateSettingsInput, YoutubeVideo } from './settings.schemas';
 
 /** Existe UM registro só. id fixo `main`. */
 const SETTINGS_ID = 'main';
@@ -54,6 +54,7 @@ export interface SettingsDTO {
   communityInstagramEnabled: boolean;
   communityInstagramTitle: string | null;
   communityInstagramSubtitle: string | null;
+  instagramItemsJson: InstagramItem[];
   youtubeSectionEnabled: boolean;
   youtubeSectionTitle: string | null;
   youtubeSectionSubtitle: string | null;
@@ -106,6 +107,7 @@ function toDTO(s: SiteSettings): SettingsDTO {
     communityInstagramEnabled: s.communityInstagramEnabled,
     communityInstagramTitle: s.communityInstagramTitle,
     communityInstagramSubtitle: s.communityInstagramSubtitle,
+    instagramItemsJson: asArray<InstagramItem>(s.instagramItemsJson),
     youtubeSectionEnabled: s.youtubeSectionEnabled,
     youtubeSectionTitle: s.youtubeSectionTitle,
     youtubeSectionSubtitle: s.youtubeSectionSubtitle,
@@ -151,13 +153,16 @@ export const settingsService = {
   async update(input: UpdateSettingsInput): Promise<SettingsDTO> {
     await ensureSettings();
     // Campos Json precisam de tratamento explícito de null (Prisma.JsonNull).
-    const { youtubeVideosJson, trustItemsJson, ...rest } = input;
+    const { youtubeVideosJson, trustItemsJson, instagramItemsJson, ...rest } = input;
     const data: Prisma.SiteSettingsUpdateInput = { ...rest };
     if (youtubeVideosJson !== undefined) {
       data.youtubeVideosJson = youtubeVideosJson === null ? Prisma.JsonNull : youtubeVideosJson;
     }
     if (trustItemsJson !== undefined) {
       data.trustItemsJson = trustItemsJson === null ? Prisma.JsonNull : trustItemsJson;
+    }
+    if (instagramItemsJson !== undefined) {
+      data.instagramItemsJson = instagramItemsJson === null ? Prisma.JsonNull : instagramItemsJson;
     }
     const updated = await prisma.siteSettings.update({ where: { id: SETTINGS_ID }, data });
     return toDTO(updated);

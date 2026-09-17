@@ -199,6 +199,11 @@ model Product {
   purchaseMode     ProductPurchaseMode @default(DIRECT) @map("purchase_mode")
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
+  // R19-E — Timestamp específico de estoque. Só é tocado quando `stock` muda de
+  // fato (edição manual OU import Excel com valor diferente do atual). Nulo
+  // significa "sem histórico" — inclusive para os produtos que já existiam
+  // antes desta migration; NÃO backfillamos com data artificial.
+  stockUpdatedAt   DateTime?           @map("stock_updated_at")
 
   category   Category       @relation(fields: [categoryId], references: [id])
   images     ProductImage[]
@@ -464,6 +469,7 @@ model SiteSettings {
   communityInstagramEnabled  Boolean @default(true) @map("community_instagram_enabled")
   communityInstagramTitle    String? @map("community_instagram_title")
   communityInstagramSubtitle String? @map("community_instagram_subtitle")
+  instagramItemsJson         Json?   @map("instagram_items_json")
 
   // Seção YouTube
   youtubeSectionEnabled  Boolean @default(true) @map("youtube_section_enabled")
@@ -496,20 +502,27 @@ model SiteSettings {
   @@map("site_settings")
 }
 
+enum BannerSlot {
+  HERO
+  PROMO
+}
+
 model Banner {
-  id         String   @id @default(cuid())
+  id         String     @id @default(cuid())
   title      String
   subtitle   String?
-  imageUrl   String?  @map("image_url")
-  buttonText String?  @map("button_text")
-  buttonLink String?  @map("button_link")
-  active     Boolean  @default(true)
-  position   Int      @default(0)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  imageUrl   String?    @map("image_url")
+  buttonText String?    @map("button_text")
+  buttonLink String?    @map("button_link")
+  active     Boolean    @default(true)
+  position   Int        @default(0)
+  slot       BannerSlot @default(HERO)
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
 
   @@index([active])
   @@index([position])
+  @@index([slot])
   @@map("banners")
 }
 

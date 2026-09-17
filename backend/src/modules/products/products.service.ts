@@ -49,6 +49,7 @@ export interface ProductDTO {
   purchaseMode: ProductPurchaseMode;
   createdAt: string;
   updatedAt: string;
+  stockUpdatedAt: string | null;
   images: Array<{
     id: string;
     url: string;
@@ -87,6 +88,7 @@ function toDTO(p: ProductWithRelations): ProductDTO {
     purchaseMode: p.purchaseMode,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
+    stockUpdatedAt: p.stockUpdatedAt ? p.stockUpdatedAt.toISOString() : null,
     images: [...p.images]
       .sort((a, b) => a.position - b.position)
       .map((i) => ({
@@ -155,6 +157,48 @@ async function ensureUniqueSku(sku: string | null | undefined, currentId?: strin
     select: { id: true },
   });
   if (existing) throw HttpError.conflict('SKU já em uso.');
+}
+
+/**
+ * Retorna o conjunto de linhas cujo `key` aparece MAIS DE UMA vez no lote.
+ * Marca todas as ocorrências (não só a segunda em diante) — a decisão
+ * conservadora é: se o mesmo identificador aparece duplicado, o admin
+ * precisa corrigir a planilha antes de reimportar; ninguém é aplicado.
+ * Chaves `undefined`/vazias são ignoradas na comparação.
+ */
+function collectDuplicates(entries: Array<{ line: number; key: string | undefined }>): Map<number, string> {
+  const byKey = new Map<string, number[]>();
+  for (const { line, key } of entries) {
+    if (!key) continue;
+    const arr = byKey.get(key) ?? [];
+    arr.push(line);
+    byKey.set(key, arr);
+  }
+  const out = new Map<number, string>();
+  for (const [key, lines] of byKey) {
+    if (lines.length > 1) {
+      for (const l of lines) out.set(l, key);
+    }
+  }
+  return out;
+}
+
+/**
+ * Verifica se o identificador `key` (sku ou slug) — se fornecido na linha —
+ * pertence ao mesmo produto que já foi matched. Retorna o produto conflitante
+ * (outro dono do identificador) quando há conflito, ou `null` se está livre
+ * ou pertence ao próprio produto.
+ */
+async function findConflictingOwner(
+  field: 'sku' | 'slug',
+  value: string,
+  currentId: string,
+): Promise<{ id: string; name: string } | null> {
+  const row = await prisma.product.findFirst({
+    where: { [field]: value, NOT: { id: currentId } } as Record<string, unknown>,
+    select: { id: true, name: true },
+  });
+  return row;
 }
 
 async function ensureCategoryExists(categoryId: string) {
@@ -294,6 +338,9 @@ export const productsService = {
         promotionalPrice: input.promotionalPrice ?? null,
         sku: input.sku ?? null,
         stock: input.stock ?? 0,
+        // R19-E — Se o admin informou estoque na criação, marca o carimbo.
+        // Sem estoque explícito, deixa NULL (produto criado sem histórico).
+        stockUpdatedAt: input.stock !== undefined ? new Date() : null,
         active: input.active ?? true,
         featured: input.featured ?? false,
         weight: input.weight ?? null,
@@ -327,6 +374,12 @@ export const productsService = {
       slug = await ensureSlug(input.name ?? current.name, input.slug, current.slug);
     }
 
+    // R19-E — `stockUpdatedAt` só é tocado quando o valor de `stock` REALMENTE
+    // muda. `stock` ausente OU igual ao atual preserva o carimbo antigo (que
+    // pode ser NULL para produtos herdados). Isso vale tanto para edição
+    // manual quanto para o caminho do import (mesma regra aplicada lá).
+    const stockChanged = input.stock !== undefined && input.stock !== current.stock;
+
     const updated = await prisma.product.update({
       where: { id },
       data: {
@@ -341,6 +394,7 @@ export const productsService = {
           input.promotionalPrice === undefined ? current.promotionalPrice : input.promotionalPrice,
         sku: input.sku === undefined ? current.sku : input.sku,
         stock: input.stock === undefined ? current.stock : input.stock,
+        ...(stockChanged ? { stockUpdatedAt: new Date() } : {}),
         active: input.active === undefined ? current.active : input.active,
         featured: input.featured === undefined ? current.featured : input.featured,
         weight: input.weight === undefined ? current.weight : input.weight,
@@ -371,6 +425,46 @@ export const productsService = {
       include: includeRelations,
     });
     return { softDeleted: true, product: toDTO(updated) };
+  },
+
+  /**
+   * R19-E — Desativação em massa. Consistente com `remove` (soft delete):
+   * marca `active=false` para todos os IDs válidos. Preserva histórico em
+   * pedidos, carrinhos e imagens; nenhum registro relacionado é derrubado.
+   * Retorna quais foram desativados e quais não foram encontrados, para o
+   * admin poder investigar a diferença.
+   */
+  async bulkDelete(ids: string[]) {
+    // Dedup local — mesmo id repetido no payload não deve inflar as contagens.
+    const unique = Array.from(new Set(ids));
+
+    const found = await prisma.product.findMany({
+      where: { id: { in: unique } },
+      select: { id: true, active: true },
+    });
+    const foundIds = new Set(found.map((p) => p.id));
+    const notFound = unique.filter((id) => !foundIds.has(id));
+    const alreadyInactive = found.filter((p) => !p.active).map((p) => p.id);
+    const toDeactivate = found.filter((p) => p.active).map((p) => p.id);
+
+    let deactivated = 0;
+    if (toDeactivate.length > 0) {
+      // R19-E — updateMany é atômico no lado do banco; qualquer falha de linha
+      // faz o batch inteiro voltar. Não tocamos `stockUpdatedAt` — desativar
+      // não é uma mudança de estoque.
+      const result = await prisma.product.updateMany({
+        where: { id: { in: toDeactivate } },
+        data: { active: false },
+      });
+      deactivated = result.count;
+    }
+
+    return {
+      requested: unique.length,
+      deactivated,
+      alreadyInactive,
+      notFound,
+    };
   },
 
   async addImages(id: string, files: Express.Multer.File[]) {
@@ -458,6 +552,8 @@ export const productsService = {
       line: number;
       id?: string;
       name?: string;
+      sku?: string;
+      matchedBy?: 'id' | 'sku' | 'slug';
       reason?: string;
       identifier?: string;
       // R19-C — bandeira única para diferenciar linhas que também mexeram na
@@ -468,6 +564,18 @@ export const productsService = {
     const updated: ReportItem[] = [];
     const skipped: ReportItem[] = [];
     const conflicts: ReportItem[] = [];
+
+    // ---------------------------------------------------------------------
+    // Fase 0 — Pré-scan: detectar identificadores duplicados dentro do
+    // MESMO lote. Se duas linhas trazem o mesmo id/sku/slug elas apontam
+    // (ou pretendem apontar) para o mesmo produto — não podemos aplicar
+    // as duas silenciosamente, senão a segunda sobrescreve a primeira.
+    // TODAS as linhas envolvidas viram CONFLITO — o admin precisa corrigir
+    // a planilha antes de reimportar.
+    // ---------------------------------------------------------------------
+    const dupIds = collectDuplicates(input.rows.map((r) => ({ line: r.line, key: r.id })));
+    const dupSkus = collectDuplicates(input.rows.map((r) => ({ line: r.line, key: r.sku })));
+    const dupSlugs = collectDuplicates(input.rows.map((r) => ({ line: r.line, key: r.slug })));
 
     // Cache local de categorias por nome (case-insensitive) para não repetir SELECT.
     const categoryCache = new Map<string, string>();
@@ -560,6 +668,26 @@ export const productsService = {
 
     for (const row of input.rows) {
       try {
+        // R19-D — Pré-scan: identificador duplicado dentro do mesmo lote.
+        // Nenhuma das linhas envolvidas é aplicada — evita que a segunda
+        // sobrescreva a primeira silenciosamente.
+        const dupKey =
+          dupIds.get(row.line) ?? dupSkus.get(row.line) ?? dupSlugs.get(row.line);
+        if (dupKey) {
+          const which = dupIds.get(row.line)
+            ? 'ID'
+            : dupSkus.get(row.line)
+              ? 'SKU'
+              : 'slug';
+          conflicts.push({
+            line: row.line,
+            name: row.name,
+            reason: `${which} duplicado na própria planilha: "${dupKey}" aparece em mais de uma linha. Nenhuma dessas linhas foi aplicada — corrija a planilha e reimporte.`,
+            identifier: dupKey,
+          });
+          continue;
+        }
+
         // R19-C — Valida a URL da imagem ANTES de qualquer persistência.
         // Uma URL malformada não bloqueia as demais linhas do lote.
         let validatedImageUrl: string | undefined;
@@ -629,7 +757,18 @@ export const productsService = {
           if (row.description !== undefined) patch.description = row.description;
           if (row.price !== undefined) patch.price = row.price;
           if (row.promotionalPrice !== undefined) patch.promotionalPrice = row.promotionalPrice;
-          if (row.stock !== undefined) patch.stock = row.stock;
+          // R19-E — `stockUpdatedAt` só entra no patch se o valor de estoque
+          // realmente MUDA em relação ao atual (mesma regra da edição manual).
+          // Célula vazia → row.stock === undefined → nem stock nem stockUpdatedAt
+          // são tocados. Célula com mesmo valor → stock reafirmado mas o
+          // carimbo permanece intacto — o cliente vê "sem histórico" ou a data
+          // antiga como antes.
+          if (row.stock !== undefined) {
+            patch.stock = row.stock;
+            if (row.stock !== existing.stock) {
+              patch.stockUpdatedAt = new Date();
+            }
+          }
           if (row.active !== undefined) patch.active = row.active;
           if (row.featured !== undefined) patch.featured = row.featured;
           // R19-B — brand e material são independentes. Cada um só entra no
@@ -638,20 +777,38 @@ export const productsService = {
           if (row.material !== undefined) patch.material = row.material;
           if (resolvedCategoryId) patch.category = { connect: { id: resolvedCategoryId } };
 
-          // Se sku VEIO e é diferente do atual, valida unicidade contra terceiros.
+          // R19-D — Conflito de identidade: quando a linha veio com id/sku/slug
+          // apontando para produtos DIFERENTES, nenhum é atualizado. Cada
+          // identificador da linha precisa pertencer ao produto matched ou
+          // estar totalmente livre.
           if (row.sku && row.sku !== existing.sku) {
-            await ensureUniqueSku(row.sku, existing.id);
+            const owner = await findConflictingOwner('sku', row.sku, existing.id);
+            if (owner) {
+              conflicts.push({
+                line: row.line,
+                name: row.name ?? existing.name,
+                reason:
+                  matchedBy === 'id'
+                    ? `Conflito de identidade: ID "${row.id}" aponta para "${existing.name}", mas o SKU "${row.sku}" pertence a "${owner.name}". Nenhum foi alterado.`
+                    : `SKU "${row.sku}" já está em uso por "${owner.name}".`,
+                identifier: `${row.id ?? existing.id}/${row.sku}`,
+              });
+              continue;
+            }
             patch.sku = row.sku;
           }
           // Slug explícito na planilha vira novo slug (também com guarda).
           if (row.slug && row.slug !== existing.slug) {
-            const taken = await slugExists(row.slug);
-            if (taken) {
+            const owner = await findConflictingOwner('slug', row.slug, existing.id);
+            if (owner) {
               conflicts.push({
                 line: row.line,
                 name: row.name ?? existing.name,
-                reason: `Slug "${row.slug}" já está em uso por outro produto.`,
-                identifier: row.slug,
+                reason:
+                  matchedBy === 'id' || matchedBy === 'sku'
+                    ? `Conflito de identidade: identificador "${matchedBy}" aponta para "${existing.name}", mas o slug "${row.slug}" pertence a "${owner.name}". Nenhum foi alterado.`
+                    : `Slug "${row.slug}" já está em uso por "${owner.name}".`,
+                identifier: `${row.id ?? row.sku ?? existing.id}/${row.slug}`,
               });
               continue;
             }
@@ -691,10 +848,10 @@ export const productsService = {
             line: row.line,
             id: result.saved.id,
             name: result.saved.name,
+            sku: patch.sku as string | undefined ?? existing.sku ?? undefined,
+            matchedBy: matchedBy ?? undefined,
             imageUpdated: result.imageUpdated || undefined,
           });
-          // matchedBy já cobrimos; a variável fica só para telemetria futura.
-          void matchedBy;
           continue;
         }
 
@@ -721,11 +878,25 @@ export const productsService = {
           continue;
         }
 
-        // Se veio SKU e ele já é usado por outro produto → conflito (matching
-        // acima só entra em existing quando ACHOU; se não achou e o unique for
-        // violado abaixo é porque outro produto tem esse SKU — impossível pelo
-        // findFirst acima, mas defensivo contra corrida).
-        if (row.sku) await ensureUniqueSku(row.sku);
+        // Se veio SKU mas não achou pelo matching (por exemplo, admin escreveu
+        // SKU errado que colide com produto sem outros identificadores na linha):
+        // devolvemos CONFLITO explícito com o dono real do SKU. Antes esse
+        // caminho caía no catch genérico e virava "skipped".
+        if (row.sku) {
+          const skuOwner = await prisma.product.findFirst({
+            where: { sku: row.sku },
+            select: { id: true, name: true },
+          });
+          if (skuOwner) {
+            conflicts.push({
+              line: row.line,
+              name: row.name,
+              reason: `SKU "${row.sku}" já está em uso por "${skuOwner.name}". Confirme se é o mesmo produto (adicione o ID na planilha) ou use outro SKU.`,
+              identifier: row.sku,
+            });
+            continue;
+          }
+        }
 
         // Decisão de slug para CRIAÇÃO:
         // • Se veio `slug` explícito, respeitamos (unicidade validada abaixo).
@@ -775,7 +946,12 @@ export const productsService = {
         if (row.shortDescription !== undefined) createData.shortDescription = row.shortDescription;
         if (row.description !== undefined) createData.description = row.description;
         if (row.promotionalPrice !== undefined) createData.promotionalPrice = row.promotionalPrice;
-        if (row.stock !== undefined) createData.stock = row.stock;
+        if (row.stock !== undefined) {
+          createData.stock = row.stock;
+          // R19-E — Estoque explícito na criação = primeira "atualização".
+          // Sem estoque na planilha, deixamos NULL para não fingir histórico.
+          createData.stockUpdatedAt = new Date();
+        }
         if (row.active !== undefined) createData.active = row.active;
         if (row.featured !== undefined) createData.featured = row.featured;
         // R19-B — brand e material independentes na criação também.
@@ -798,6 +974,7 @@ export const productsService = {
           line: row.line,
           id: result.saved.id,
           name: result.saved.name,
+          sku: row.sku,
           imageUpdated: result.imageUpdated || undefined,
         });
       } catch (err) {

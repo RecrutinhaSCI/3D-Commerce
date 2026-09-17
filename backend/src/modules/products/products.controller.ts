@@ -5,6 +5,7 @@ import { HttpError } from '../../utils/httpError';
 import { productsService } from './products.service';
 import {
   adminListQuerySchema,
+  bulkDeleteSchema,
   bulkImportSchema,
   createProductSchema,
   featuredQuerySchema,
@@ -78,6 +79,13 @@ export const productsController = {
   async bulkImport(req: Request, res: Response) {
     const input = bulkImportSchema.parse(req.body);
     const report = await productsService.bulkImport(input);
+    return ok(res, report);
+  },
+
+  /** R19-E — Desativação em massa (soft delete) — protegida por auth+admin. */
+  async bulkDelete(req: Request, res: Response) {
+    const input = bulkDeleteSchema.parse(req.body);
+    const report = await productsService.bulkDelete(input.ids);
     return ok(res, report);
   },
 };

@@ -1,4 +1,4 @@
-import type { Banner } from '@prisma/client';
+import type { Banner, BannerSlot } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { safeUnlinkSiteImage, siteImageUrl } from '../../lib/upload';
@@ -13,6 +13,7 @@ export interface BannerDTO {
   buttonLink: string | null;
   active: boolean;
   position: number;
+  slot: BannerSlot;
   createdAt: string;
   updatedAt: string;
 }
@@ -27,6 +28,7 @@ function toDTO(b: Banner): BannerDTO {
     buttonLink: b.buttonLink,
     active: b.active,
     position: b.position,
+    slot: b.slot,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   };
@@ -58,6 +60,7 @@ export const bannersService = {
         buttonLink: input.buttonLink ?? null,
         active: input.active ?? true,
         position: input.position ?? 0,
+        slot: input.slot ?? 'HERO',
       },
     });
     return toDTO(b);
@@ -74,7 +77,6 @@ export const bannersService = {
     const current = await prisma.banner.findUnique({ where: { id } });
     if (!current) throw HttpError.notFound('Banner não encontrado.');
     await prisma.banner.delete({ where: { id } });
-    // Best-effort: apaga imagem local se houver.
     if (current.imageUrl) safeUnlinkSiteImage(current.imageUrl);
   },
 

@@ -53,3 +53,7 @@ productsRouter.delete('/admin/products/:id', asyncHandler(productsController.rem
 // R19-A — Import em lote. Idempotente, nunca deleta, matching feito no banco
 // (id → sku → slug explícito → conflito seguro em ambiguidade de nome).
 productsRouter.post('/admin/products/import', asyncHandler(productsController.bulkImport));
+
+// R19-E — Desativação em massa (soft delete). Body: { ids: string[] }.
+// Herdou auth+admin do `router.use` acima.
+productsRouter.post('/admin/products/bulk-delete', asyncHandler(productsController.bulkDelete));

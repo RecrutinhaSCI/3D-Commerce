@@ -130,3 +130,15 @@ export const bulkImportSchema = z.object({
   rows: z.array(importRowSchema).min(1, 'Envie ao menos 1 linha.').max(500, 'Máx. 500 linhas por importação.'),
 });
 export type BulkImportInput = z.infer<typeof bulkImportSchema>;
+
+// -----------------------------------------------------------------------------
+// Bulk delete (R19-E) — desativação em massa (soft delete, coerente com o
+// endpoint DELETE /admin/products/:id atual).
+// -----------------------------------------------------------------------------
+export const bulkDeleteSchema = z.object({
+  ids: z
+    .array(z.string().trim().min(1, 'ID vazio.').max(60))
+    .min(1, 'Selecione ao menos 1 produto.')
+    .max(200, 'Máx. 200 produtos por operação.'),
+});
+export type BulkDeleteInput = z.infer<typeof bulkDeleteSchema>;

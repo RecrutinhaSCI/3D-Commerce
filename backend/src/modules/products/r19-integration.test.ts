@@ -323,10 +323,13 @@ describe('R19-D — integração das três rodadas', () => {
   });
 
   it('§12 URL inválida no meio do lote não derruba as demais linhas', async () => {
+    // R19-D — IDs distintos por linha (o pré-scan agora bloqueia identificador
+    // duplicado no mesmo lote). O foco do teste continua: a linha 3 tem URL
+    // inválida e vira conflito individual sem afetar as demais.
     const r = await productsService.bulkImport({
       rows: [
         { line: 2, id: 'prod-a', imageUrl: 'https://example.com/ok.jpg' },
-        { line: 3, id: 'prod-a', imageUrl: 'javascript:alert(1)' },
+        { line: 3, id: 'prod-c', imageUrl: 'javascript:alert(1)' },
         { line: 4, id: 'prod-b', imageUrl: '/uploads/products/ok.jpg' },
       ],
     });
