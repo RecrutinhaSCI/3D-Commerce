@@ -50,6 +50,7 @@ const DEFAULT_SETTINGS: StoreSettings = {
   communityInstagramEnabled: true,
   communityInstagramTitle: 'Acompanhe no Instagram',
   communityInstagramSubtitle: '',
+  instagramItems: [],
   youtubeSectionEnabled: true,
   youtubeSectionTitle: 'Assista no YouTube',
   youtubeSectionSubtitle: 'Veja dicas, novidades e projetos em impressão 3D.',
@@ -86,6 +87,7 @@ interface AdminDataState {
   addProduct: (p: Product) => Promise<Product | null>;
   updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
   removeProduct: (id: string) => Promise<void>;
+  bulkRemoveProducts: (ids: string[]) => Promise<{ deactivated: number; notFound: string[]; alreadyInactive: string[] } | null>;
 
   // Categorias
   addCategory: (c: Category) => Promise<Category | null>;
@@ -244,6 +246,27 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     }
   },
 
+  async bulkRemoveProducts(ids) {
+    try {
+      const report = await productService.bulkDelete(ids);
+      // Remove do cache local os que foram efetivamente desativados +
+      // os que já estavam inativos (também não devem aparecer na lista
+      // ativa do admin). Mantém os notFound intocados no cache — pode
+      // ser que apareçam em uma re-listagem.
+      const removed = new Set<string>([
+        ...ids.filter((id) => !report.notFound.includes(id)),
+      ]);
+      set({ products: get().products.filter((p) => !removed.has(p.id)) });
+      return {
+        deactivated: report.deactivated,
+        notFound: report.notFound,
+        alreadyInactive: report.alreadyInactive,
+      };
+    } catch {
+      return null;
+    }
+  },
+
   // -------------------------- Categorias -----------------------------------
   async addCategory(c) {
     try {
@@ -303,6 +326,7 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
         buttonLink: b.ctaLink ?? null,
         active: b.active,
         position: b.order,
+        slot: b.position === 'promo' ? 'PROMO' : 'HERO',
       });
       const created = apiBannerToInternal(banner);
       set({ banners: [...get().banners, created] });
@@ -321,6 +345,7 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.image !== undefined) payload.imageUrl = patch.image || null;
     if (patch.active !== undefined) payload.active = patch.active;
     if (patch.order !== undefined) payload.position = patch.order;
+    if (patch.position !== undefined) payload.slot = patch.position === 'promo' ? 'PROMO' : 'HERO';
     try {
       const { banner } = await bannerService.update(id, payload);
       const updated = apiBannerToInternal(banner);
@@ -380,6 +405,7 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.communityInstagramEnabled !== undefined) payload.communityInstagramEnabled = patch.communityInstagramEnabled;
     if (patch.communityInstagramTitle !== undefined) payload.communityInstagramTitle = patch.communityInstagramTitle || null;
     if (patch.communityInstagramSubtitle !== undefined) payload.communityInstagramSubtitle = patch.communityInstagramSubtitle || null;
+    if (patch.instagramItems !== undefined) payload.instagramItemsJson = patch.instagramItems;
     if (patch.youtubeSectionEnabled !== undefined) payload.youtubeSectionEnabled = patch.youtubeSectionEnabled;
     if (patch.youtubeSectionTitle !== undefined) payload.youtubeSectionTitle = patch.youtubeSectionTitle || null;
     if (patch.youtubeSectionSubtitle !== undefined) payload.youtubeSectionSubtitle = patch.youtubeSectionSubtitle || null;

@@ -63,7 +63,21 @@ export const productService = {
   bulkImport(rows: BulkImportRow[]) {
     return api.post<BulkImportReport>('/api/admin/products/import', { rows });
   },
+  /**
+   * R19-E — Desativação em massa (soft delete). Consistente com `remove`:
+   * marca `active=false`; pedidos e histórico não são tocados.
+   */
+  bulkDelete(ids: string[]) {
+    return api.post<BulkDeleteReport>('/api/admin/products/bulk-delete', { ids });
+  },
 };
+
+export interface BulkDeleteReport {
+  requested: number;
+  deactivated: number;
+  alreadyInactive: string[];
+  notFound: string[];
+}
 
 // R19-A — Contrato do bulk import (espelha `backend/src/modules/products/products.schemas.ts`).
 export interface BulkImportRow {
@@ -91,6 +105,8 @@ export interface BulkImportItem {
   line: number;
   id?: string;
   name?: string;
+  sku?: string;
+  matchedBy?: 'id' | 'sku' | 'slug';
   reason?: string;
   identifier?: string;
   /** R19-C — true quando a linha também alterou a imagem principal do produto. */

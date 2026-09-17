@@ -26,7 +26,7 @@ export default function Banners() {
       ctaLabel: '',
       ctaLink: '',
       image: '',
-      position: 'hero',
+      position: 'promo',
       active: true,
       order: banners.length + 1,
       bgFrom: '#0F1115',
@@ -69,14 +69,23 @@ export default function Banners() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {banners.map((b) => (
           <div key={b.id} className="card overflow-hidden">
-            <div
-              className="aspect-[2.5/1] p-5 text-bg"
-              style={{ background: `linear-gradient(135deg, ${b.bgFrom ?? '#0F1115'}, ${b.bgTo ?? '#22D3EE'})` }}
-            >
-              <p className="text-[10px] font-bold uppercase tracking-widest text-bg/70">{b.position}</p>
-              <h3 className="mt-2 text-lg font-bold">{b.title}</h3>
-              {b.subtitle && <p className="mt-1 text-xs text-bg/80">{b.subtitle}</p>}
-              {b.ctaLabel && <p className="mt-3 inline-block rounded-md bg-bg px-2 py-1 text-[10px] font-bold text-ink">{b.ctaLabel}</p>}
+            <div className="relative aspect-[2.5/1] overflow-hidden bg-ink text-bg">
+              {b.image ? (
+                <img src={b.image} alt={b.title} className="absolute inset-0 h-full w-full object-cover" />
+              ) : (
+                <div
+                  className="absolute inset-0"
+                  style={{ background: `linear-gradient(135deg, ${b.bgFrom ?? '#0F1115'}, ${b.bgTo ?? '#22D3EE'})` }}
+                />
+              )}
+              <div className="relative z-10 p-5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-bg/80 drop-shadow">
+                  {b.position === 'promo' ? 'Carrossel Home' : 'Hero'} · #{b.order}
+                </p>
+                <h3 className="mt-2 text-lg font-bold drop-shadow">{b.title}</h3>
+                {b.subtitle && <p className="mt-1 text-xs text-bg/90 drop-shadow">{b.subtitle}</p>}
+                {b.ctaLabel && <p className="mt-3 inline-block rounded-md bg-bg px-2 py-1 text-[10px] font-bold text-ink">{b.ctaLabel}</p>}
+              </div>
             </div>
             <div className="flex items-center justify-between p-3 text-xs">
               <span className={`inline-flex items-center gap-1 ${b.active ? 'text-emerald-600' : 'text-ink-mute'}`}>
@@ -116,23 +125,31 @@ export default function Banners() {
                 <Input value={editing.ctaLink ?? ''} onChange={(e) => setEditing({ ...editing, ctaLink: e.target.value })} />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Posição</Label>
-                <Select value={editing.position} onChange={(e) => setEditing({ ...editing, position: e.target.value as Banner['position'] })}>
-                  <option value="hero">Hero</option>
-                  <option value="filamentos">Filamentos</option>
-                  <option value="impressoras">Impressoras</option>
-                  <option value="sazonal">Sazonal</option>
+                <Select
+                  value={editing.position === 'promo' ? 'promo' : 'hero'}
+                  onChange={(e) => setEditing({ ...editing, position: e.target.value as Banner['position'] })}
+                >
+                  <option value="promo">Carrossel promocional (Home)</option>
+                  <option value="hero">Hero principal</option>
                 </Select>
+                <p className="mt-1 text-[11px] text-ink-mute">
+                  {editing.position === 'promo'
+                    ? 'Aparece no carrossel de banners logo abaixo do Hero. Suporta múltiplos banners com autoplay.'
+                    : 'Substitui a imagem principal do Hero. Apenas o primeiro banner ativo aparece.'}
+                </p>
               </div>
               <div>
-                <Label>Cor de</Label>
-                <Input type="color" value={editing.bgFrom ?? '#0F1115'} onChange={(e) => setEditing({ ...editing, bgFrom: e.target.value })} />
-              </div>
-              <div>
-                <Label>Cor até</Label>
-                <Input type="color" value={editing.bgTo ?? '#22D3EE'} onChange={(e) => setEditing({ ...editing, bgTo: e.target.value })} />
+                <Label>Ordem</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={editing.order}
+                  onChange={(e) => setEditing({ ...editing, order: Number(e.target.value) || 0 })}
+                />
+                <p className="mt-1 text-[11px] text-ink-mute">Menor valor aparece primeiro.</p>
               </div>
             </div>
             <div className="rounded-xl border border-ink-line p-3">

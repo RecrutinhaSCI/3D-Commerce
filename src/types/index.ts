@@ -56,6 +56,8 @@ export interface Product {
   isBestSeller: boolean;
   active: boolean;
   createdAt: string;
+  /** R19-E — Data em que o estoque foi tocado de fato. `null`/ausente = sem histórico. */
+  stockUpdatedAt?: string | null;
   attributes: Record<string, string>;
 }
 
@@ -92,7 +94,7 @@ export interface Banner {
   ctaLabel?: string;
   ctaLink?: string;
   image: string;
-  position: 'hero' | 'filamentos' | 'impressoras' | 'sazonal';
+  position: 'hero' | 'promo' | 'filamentos' | 'impressoras' | 'sazonal';
   active: boolean;
   order: number;
   bgFrom?: string;
@@ -172,6 +174,13 @@ export interface TrustItemContent {
   enabled?: boolean;
 }
 
+export interface InstagramItemContent {
+  image: string;
+  url: string;
+  caption?: string;
+  enabled?: boolean;
+}
+
 export interface StoreSettings {
   name: string;
   whatsapp: string;
@@ -193,6 +202,7 @@ export interface StoreSettings {
   communityInstagramEnabled: boolean;
   communityInstagramTitle: string;
   communityInstagramSubtitle: string;
+  instagramItems: InstagramItemContent[];
   youtubeSectionEnabled: boolean;
   youtubeSectionTitle: string;
   youtubeSectionSubtitle: string;

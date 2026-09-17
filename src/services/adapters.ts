@@ -111,6 +111,7 @@ export function apiProductToInternal(p: ApiProduct): Product {
     isBestSeller: p.featured,
     active: p.active,
     createdAt: p.createdAt,
+    stockUpdatedAt: p.stockUpdatedAt ?? null,
     attributes: {
       ...(p.material ? { Material: p.material } : {}),
       ...(p.color ? { Cor: p.color } : {}),
@@ -150,7 +151,7 @@ export function apiBannerToInternal(b: ApiBanner): Banner {
     ctaLabel: b.buttonText ?? undefined,
     ctaLink: b.buttonLink ?? undefined,
     image: b.imageUrl ? apiAssetUrl(b.imageUrl) : '',
-    position: 'hero',
+    position: b.slot === 'PROMO' ? 'promo' : 'hero',
     active: b.active,
     order: b.position,
   };
@@ -198,6 +199,12 @@ export function apiSettingsToInternal(s: ApiSettings): StoreSettings {
     communityInstagramEnabled: s.communityInstagramEnabled,
     communityInstagramTitle: s.communityInstagramTitle || CONTENT_DEFAULTS.communityInstagramTitle,
     communityInstagramSubtitle: s.communityInstagramSubtitle ?? CONTENT_DEFAULTS.communityInstagramSubtitle,
+    instagramItems: (s.instagramItemsJson ?? []).map((it) => ({
+      image: it.image,
+      url: it.url,
+      caption: it.caption,
+      enabled: it.enabled,
+    })),
     youtubeSectionEnabled: s.youtubeSectionEnabled,
     youtubeSectionTitle: s.youtubeSectionTitle || CONTENT_DEFAULTS.youtubeSectionTitle,
     youtubeSectionSubtitle: s.youtubeSectionSubtitle || CONTENT_DEFAULTS.youtubeSectionSubtitle,

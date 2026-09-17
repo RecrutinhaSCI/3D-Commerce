@@ -11,7 +11,8 @@ import { settingsService } from '@/services/settingsService';
 import { apiSettingsToInternal } from '@/services/adapters';
 import { ApiError } from '@/services/api';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
-import type { StoreSettings, TrustItemContent, YoutubeVideoItem } from '@/types';
+import type { InstagramItemContent, StoreSettings, TrustItemContent, YoutubeVideoItem } from '@/types';
+import { apiAssetUrl } from '@/services/api';
 import { useSEO } from '@/utils/seo';
 
 const schema = z.object({
@@ -42,6 +43,7 @@ function contentFromSettings(s: StoreSettings) {
     communityInstagramEnabled: s.communityInstagramEnabled,
     communityInstagramTitle: s.communityInstagramTitle,
     communityInstagramSubtitle: s.communityInstagramSubtitle,
+    instagramItems: s.instagramItems.map((it) => ({ ...it })) as InstagramItemContent[],
     youtubeSectionEnabled: s.youtubeSectionEnabled,
     youtubeSectionTitle: s.youtubeSectionTitle,
     youtubeSectionSubtitle: s.youtubeSectionSubtitle,
@@ -106,6 +108,9 @@ export default function Settings() {
       if (v.title.trim() && !isSafeUrlOrEmpty(v.url)) return `Vídeo "${v.title}": URL inválida.`;
       if (v.thumbnail && !isSafeUrlOrEmpty(v.thumbnail)) return `Vídeo "${v.title}": thumbnail inválida.`;
     }
+    for (const it of content.instagramItems) {
+      if (it.image && !isSafeUrlOrEmpty(it.url)) return `Post do Instagram: link inválido (use http:// ou https://).`;
+    }
     return null;
   }
 
@@ -123,6 +128,9 @@ export default function Settings() {
         .filter((v) => v.title.trim() && v.url.trim())
         .slice(0, 6),
       trustItems: content.trustItems.filter((t) => t.title.trim()),
+      instagramItems: content.instagramItems
+        .filter((it) => it.image.trim() && it.url.trim())
+        .slice(0, 12),
     };
     const res = await updateSettings(patch);
     setSavingContent(false);
@@ -253,6 +261,121 @@ export default function Settings() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div><Label>Título</Label><Input value={content.communityInstagramTitle} onChange={(e) => setC('communityInstagramTitle', e.target.value)} /></div>
             <div><Label>Subtítulo</Label><Input value={content.communityInstagramSubtitle} onChange={(e) => setC('communityInstagramSubtitle', e.target.value)} /></div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">Posts (máx. 12)</p>
+              {content.instagramItems.length < 12 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setC('instagramItems', [...content.instagramItems, { image: '', url: '', caption: '', enabled: true }])}
+                >
+                  <Plus className="h-4 w-4" /> Adicionar post
+                </Button>
+              )}
+            </div>
+            {content.instagramItems.length === 0 && (
+              <p className="rounded-lg bg-bg-soft p-3 text-xs text-ink-mute">
+                Nenhum post cadastrado. Adicione as imagens e links dos posts reais do perfil da 3DCommerce.
+              </p>
+            )}
+            {content.instagramItems.map((it, i) => (
+              <div key={i} className="rounded-xl border border-ink-line p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-ink-mute">Post {i + 1}</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (i === 0) return;
+                        const arr = [...content.instagramItems];
+                        [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+                        setC('instagramItems', arr);
+                      }}
+                      disabled={i === 0}
+                      className="rounded-lg px-2 py-1 text-xs text-ink-soft hover:bg-ink/5 disabled:opacity-30"
+                      aria-label="Subir ordem"
+                    >↑</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (i === content.instagramItems.length - 1) return;
+                        const arr = [...content.instagramItems];
+                        [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+                        setC('instagramItems', arr);
+                      }}
+                      disabled={i === content.instagramItems.length - 1}
+                      className="rounded-lg px-2 py-1 text-xs text-ink-soft hover:bg-ink/5 disabled:opacity-30"
+                      aria-label="Descer ordem"
+                    >↓</button>
+                    <label className="flex items-center gap-1.5 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={it.enabled !== false}
+                        onChange={(e) => {
+                          const arr = [...content.instagramItems];
+                          arr[i] = { ...it, enabled: e.target.checked };
+                          setC('instagramItems', arr);
+                        }}
+                        className="accent-ink"
+                      />
+                      Ativo
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setC('instagramItems', content.instagramItems.filter((_, j) => j !== i))}
+                      className="rounded-lg p-1 text-ink-mute hover:bg-rose-50 hover:text-rose-500"
+                      aria-label="Remover post"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <Input
+                    placeholder="Link do post no Instagram (https://instagram.com/p/...)"
+                    value={it.url}
+                    onChange={(e) => {
+                      const arr = [...content.instagramItems];
+                      arr[i] = { ...it, url: e.target.value };
+                      setC('instagramItems', arr);
+                    }}
+                    error={it.image && !isSafeUrlOrEmpty(it.url) ? 'URL inválida' : undefined}
+                  />
+                  <Input
+                    placeholder="Legenda curta (opcional)"
+                    value={it.caption ?? ''}
+                    onChange={(e) => {
+                      const arr = [...content.instagramItems];
+                      arr[i] = { ...it, caption: e.target.value };
+                      setC('instagramItems', arr);
+                    }}
+                  />
+                </div>
+                <div className="mt-3 border-t border-ink-line pt-3">
+                  <RemoteImageUploader
+                    label="Imagem do post"
+                    hint="JPG/PNG/WEBP até 5MB. Recomendado 1080x1080 (quadrado)."
+                    value={it.image ? (it.image.startsWith('http') ? it.image : apiAssetUrl(it.image)) : null}
+                    onUpload={async (file) => {
+                      const { url } = await settingsService.uploadImage(file);
+                      const arr = [...content.instagramItems];
+                      arr[i] = { ...it, image: url };
+                      setC('instagramItems', arr);
+                      return url;
+                    }}
+                    onRemove={() => {
+                      const arr = [...content.instagramItems];
+                      arr[i] = { ...it, image: '' };
+                      setC('instagramItems', arr);
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

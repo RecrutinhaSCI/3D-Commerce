@@ -1,4 +1,5 @@
 import { Hero } from '@/components/home/Hero';
+import { PromoCarousel } from '@/components/home/PromoCarousel';
 import { CategoryCards } from '@/components/home/CategoryCards';
 import { ShowcaseSection } from '@/components/home/ShowcaseSection';
 import { SeasonalBanner } from '@/components/home/SeasonalBanner';
@@ -23,6 +24,7 @@ export default function Home() {
   return (
     <>
       <Hero />
+      <PromoCarousel />
       <CategoryCards />
       <ShowcaseSection eyebrow="Em destaque" title="Os produtos do momento" ctaTo="/loja" products={highlights} />
       <ShowcaseSection eyebrow="Ofertas" title="Selecionados em promoção" ctaTo="/categoria/ofertas" products={offers} />
