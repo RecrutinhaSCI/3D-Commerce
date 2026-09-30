@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
-import { LogOut, Package, ShoppingBag, User } from 'lucide-react';
+import { LogOut, MailWarning, Package, ShoppingBag, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input, Label } from '@/components/ui/Input';
 import { useCustomerAuthStore, useCurrentCustomer } from '@/store/useCustomerAuthStore';
@@ -91,6 +91,19 @@ export default function CustomerAccount() {
           <LogOut className="h-4 w-4" /> Sair
         </button>
       </header>
+
+      {customer.emailVerified === false && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <MailWarning className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div>
+            <p className="font-semibold">Confirme seu e-mail</p>
+            <p className="mt-0.5 text-amber-800">
+              Enviamos um link de confirmação para <strong>{customer.email}</strong> quando você criou a conta.
+              Você pode continuar usando a loja normalmente — é só uma verificação de segurança.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
         <section className="card p-6">

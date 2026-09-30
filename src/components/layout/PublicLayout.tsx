@@ -5,6 +5,7 @@ import { Header } from './Header';
 import { Footer } from './Footer';
 import { MobileDrawer } from './MobileDrawer';
 import { WhatsappFloating } from './WhatsappFloating';
+import { CookieBanner } from './CookieBanner';
 import { CartDrawer } from '@/components/cart/CartDrawer';
 import { useUIStore } from '@/store/useUIStore';
 
@@ -33,6 +34,7 @@ export function PublicLayout() {
       <MobileDrawer />
       <CartDrawer />
       <WhatsappFloating />
+      <CookieBanner />
       <ScrollRestoration />
     </div>
   );

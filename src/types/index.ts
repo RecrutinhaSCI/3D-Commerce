@@ -99,6 +99,8 @@ export type OrderStatus =
   | 'concluido'
   | 'cancelado';
 
+export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELED';
+
 export interface OrderItem {
   productId: string;
   name: string;
@@ -138,6 +140,8 @@ export interface Order {
     method: 'pix' | 'credito' | 'boleto';
     installments?: number;
   };
+  /** Status do pagamento vindo do backend (Mercado Pago). */
+  paymentStatus?: PaymentStatus;
   coupon?: {
     code: string;
     discount: number;
@@ -262,6 +266,8 @@ export interface Customer {
   phone: string;
   /** Apenas mock: NÃO usar em produção. Substituir por Supabase Auth na Fase 2. */
   password: string;
+  /** Cliente confirmou o e-mail? Alimenta o aviso não-bloqueante na conta. */
+  emailVerified?: boolean;
   createdAt: string;
   defaultAddress?: CustomerAddress;
 }

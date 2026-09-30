@@ -14,6 +14,59 @@ export type ApiOrderStatus =
   | 'CANCELED';
 export type ApiPaymentMethod = 'PIX' | 'CREDIT_CARD' | 'BOLETO';
 export type ApiPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELED';
+/** Status bruto do pagamento no Mercado Pago (retornado pelo backend). */
+export type ApiMpPaymentStatus =
+  | 'approved'
+  | 'in_process'
+  | 'pending'
+  | 'rejected'
+  | 'cancelled'
+  | 'refunded'
+  | 'charged_back'
+  | 'authorized';
+
+/**
+ * Retorno de POST /api/orders/:orderId/payments.
+ * O backend (T4) devolve campos diferentes por método; discriminamos no
+ * frontend pelo `selectedPaymentMethod` que o Brick informa no onSubmit.
+ */
+export interface ApiCardPaymentResult {
+  /** 'approved' | 'in_process' | 'rejected' ... (status bruto do MP). */
+  status: ApiMpPaymentStatus | string;
+  statusDetail?: string;
+  paymentId?: string | number;
+  /** Status normalizado do pedido no nosso domínio. */
+  paymentStatus?: ApiPaymentStatus;
+}
+
+export interface ApiPixPaymentResult {
+  status?: ApiMpPaymentStatus | string;
+  paymentId?: string | number;
+  paymentStatus?: ApiPaymentStatus;
+  qr_code: string;
+  qr_code_base64: string;
+  ticket_url: string;
+}
+
+export interface ApiBoletoPaymentResult {
+  status?: ApiMpPaymentStatus | string;
+  paymentId?: string | number;
+  paymentStatus?: ApiPaymentStatus;
+  external_resource_url: string;
+}
+
+export type ApiCreatePaymentResult =
+  | ApiCardPaymentResult
+  | ApiPixPaymentResult
+  | ApiBoletoPaymentResult;
+
+/** Retorno de GET /api/orders/:orderId/payments/status. */
+export interface ApiPaymentStatusResult {
+  paymentStatus: ApiPaymentStatus;
+  status?: ApiMpPaymentStatus | string;
+  paymentId?: string | number | null;
+}
+
 export type ApiQuoteStatus =
   | 'RECEIVED'
   | 'ANALYZING'
@@ -29,6 +82,8 @@ export interface ApiUser {
   phone: string | null;
   role: ApiUserRole;
   active: boolean;
+  /** Cliente já confirmou o e-mail? Usado para o aviso não-bloqueante na UI. */
+  emailVerified: boolean;
   createdAt: string;
 }
 

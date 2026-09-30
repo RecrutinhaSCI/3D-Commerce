@@ -19,6 +19,7 @@ function apiUserToInternal(u: ApiUser): Customer {
     email: u.email,
     phone: u.phone ?? '',
     password: '',
+    emailVerified: u.emailVerified,
     createdAt: u.createdAt,
   };
 }

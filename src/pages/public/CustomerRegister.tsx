@@ -14,6 +14,9 @@ const schema = z.object({
   phone: z.string().min(10, 'Telefone inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres'),
   passwordConfirm: z.string(),
+  privacyConsent: z.literal(true, {
+    errorMap: () => ({ message: 'Você precisa aceitar a Política de Privacidade para criar a conta.' }),
+  }),
   cep: z.string().optional(),
   street: z.string().optional(),
   number: z.string().optional(),
@@ -142,6 +145,26 @@ export default function CustomerRegister() {
                 <Input maxLength={2} {...register('state')} />
               </div>
             </div>
+          </section>
+
+          <section className="border-t border-ink-line pt-5">
+            <label className="flex items-start gap-3 text-sm text-ink-soft">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-ink-line accent-accent"
+                {...register('privacyConsent')}
+              />
+              <span>
+                Li e aceito a{' '}
+                <Link to="/privacidade" target="_blank" rel="noopener" className="font-semibold text-ink underline">
+                  Política de Privacidade
+                </Link>{' '}
+                e autorizo o tratamento dos meus dados conforme a LGPD.
+              </span>
+            </label>
+            {errors.privacyConsent && (
+              <p className="mt-2 text-xs font-medium text-red-600">{errors.privacyConsent.message}</p>
+            )}
           </section>
 
           <Button type="submit" fullWidth size="lg" loading={isSubmitting}>

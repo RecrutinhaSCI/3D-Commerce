@@ -27,11 +27,21 @@ export default function App() {
       await fetchCart();
     })();
 
-    function onAuthExpired() {
-      // Token expirou/rejeitado — limpa auth e carrinho para não ficar zumbi.
-      useCustomerAuthStore.getState().logoutCustomer();
-      useAdminAuthStore.getState().logout();
-      resetCart();
+    function onAuthExpired(e: Event) {
+      // Token expirou/rejeitado. Desloga só o escopo que falhou — um 401 numa
+      // rota de cliente não pode derrubar o admin logado, e vice-versa.
+      const scope = (e as CustomEvent<{ scope?: 'admin' | 'customer' }>).detail?.scope;
+      if (scope === 'admin') {
+        useAdminAuthStore.getState().logout();
+      } else if (scope === 'customer') {
+        useCustomerAuthStore.getState().logoutCustomer();
+        resetCart();
+      } else {
+        // Sem escopo (evento legado) — limpa tudo, comportamento antigo.
+        useCustomerAuthStore.getState().logoutCustomer();
+        useAdminAuthStore.getState().logout();
+        resetCart();
+      }
     }
     window.addEventListener('auth:expired', onAuthExpired);
     return () => {

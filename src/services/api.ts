@@ -24,39 +24,48 @@ const TOKEN_KEYS: Record<TokenKind, string> = {
   admin: '3dc-token-admin',
 };
 
-let currentToken: string | null = null;
+/**
+ * Escopo de auth da rota. Admin e cliente podem estar logados ao mesmo tempo
+ * (stores separados), então a escolha do token é POR ROTA — não existe mais um
+ * "token ativo" global que o último login forçava sobre todas as requisições
+ * (era a raiz do bug de /meus-pedidos vir vazia com admin logado).
+ *   - `/api/admin/*` → escopo admin.
+ *   - Demais rotas autenticadas → escopo cliente.
+ */
+function routeScope(path: string): TokenKind {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  return normalized.startsWith('/api/admin') ? 'admin' : 'customer';
+}
 
-/** Retorna o token que a rota deve usar. Preferimos admin quando presente. */
-function readActiveToken(): string | null {
-  if (currentToken) return currentToken;
-  const admin = localStorage.getItem(TOKEN_KEYS.admin);
-  if (admin) return admin;
-  const customer = localStorage.getItem(TOKEN_KEYS.customer);
-  return customer ?? null;
+/**
+ * Token que a rota deve mandar no Authorization:
+ *   - rota admin → token admin;
+ *   - rota de cliente → token do customer e, se não houver, cai no admin
+ *     (endpoints compartilhados quando só o admin está logado).
+ */
+function resolveToken(path: string): string | null {
+  if (routeScope(path) === 'admin') return getStoredToken('admin');
+  return getStoredToken('customer') ?? getStoredToken('admin');
 }
 
 export function setAuthToken(kind: TokenKind, token: string | null) {
   const storageKey = TOKEN_KEYS[kind];
-  if (token) {
-    localStorage.setItem(storageKey, token);
-    currentToken = token;
-  } else {
-    localStorage.removeItem(storageKey);
-    // Se limpar o admin, ainda pode ter token do customer, e vice-versa.
-    currentToken = readActiveToken();
-  }
+  if (token) localStorage.setItem(storageKey, token);
+  else localStorage.removeItem(storageKey);
 }
 
 export function getStoredToken(kind: TokenKind): string | null {
   return localStorage.getItem(TOKEN_KEYS[kind]);
 }
 
-/** Chamado quando um 401 chega em qualquer request. Zera token e emite evento. */
-function handleUnauthorized() {
-  localStorage.removeItem(TOKEN_KEYS.customer);
-  localStorage.removeItem(TOKEN_KEYS.admin);
-  currentToken = null;
-  window.dispatchEvent(new CustomEvent('auth:expired'));
+/**
+ * Chamado quando um 401 chega. Limpa apenas o token do ESCOPO da rota que
+ * falhou e sinaliza o escopo no evento — assim um 401 numa rota de cliente
+ * não desloga mais o admin (e vice-versa).
+ */
+function handleUnauthorized(scope: TokenKind) {
+  setAuthToken(scope, null);
+  window.dispatchEvent(new CustomEvent('auth:expired', { detail: { scope } }));
 }
 
 // -----------------------------------------------------------------------------
@@ -129,7 +138,7 @@ async function request<T>(
   const timeout = window.setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000);
 
   const headers: Record<string, string> = {};
-  const token = opts.anonymous ? null : opts.token ?? readActiveToken();
+  const token = opts.anonymous ? null : opts.token ?? resolveToken(path);
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
@@ -172,7 +181,7 @@ async function request<T>(
   }
 
   if (!res.ok || !payload || payload.ok === false) {
-    if (res.status === 401) handleUnauthorized();
+    if (res.status === 401) handleUnauthorized(routeScope(path));
     const errPayload: ApiErrorPayload = payload?.error ?? {
       code: `HTTP_${res.status}`,
       message: res.statusText || 'Erro desconhecido.',

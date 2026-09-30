@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
+import { orderRateLimiter } from '../../middlewares/rateLimiters';
 import { ordersController } from './orders.controller';
 
 /**
@@ -19,7 +20,7 @@ import { ordersController } from './orders.controller';
 export const ordersRouter = Router();
 
 // Cliente
-ordersRouter.post('/orders', authMiddleware, asyncHandler(ordersController.create));
+ordersRouter.post('/orders', authMiddleware, orderRateLimiter, asyncHandler(ordersController.create));
 ordersRouter.get('/me/orders', authMiddleware, asyncHandler(ordersController.listMine));
 ordersRouter.get('/me/orders/:id', authMiddleware, asyncHandler(ordersController.getMine));
 

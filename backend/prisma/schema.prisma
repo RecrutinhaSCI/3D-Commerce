@@ -99,6 +99,15 @@ model User {
   phone        String?
   role         UserRole @default(CUSTOMER)
   active       Boolean  @default(true)
+
+  // Verificação de e-mail e recuperação de senha (F2).
+  // Tokens NUNCA são guardados em texto — só o hash SHA-256 do token plano.
+  emailVerified          Boolean   @default(false) @map("email_verified")
+  emailVerifyTokenHash   String?   @map("email_verify_token_hash")
+  emailVerifyExpiresAt   DateTime? @map("email_verify_expires_at")
+  passwordResetTokenHash String?   @map("password_reset_token_hash")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -263,6 +272,18 @@ model Order {
   status             OrderStatus         @default(PENDING)
   paymentMethod      PaymentMethod       @map("payment_method")
   paymentStatus      PaymentStatus       @default(PENDING) @map("payment_status")
+  // Mercado Pago — id da ORDER do MP (Orders API, ULID), preenchido ao criar/
+  // confirmar. É o `{id}` de GET /v1/orders/{id} e o `data.id` do webhook.
+  // (Nome mantido por compatibilidade; desde a T10 guarda o id da Order, não
+  // mais o id do payment da Payments API.)
+  mpPaymentId        String?             @map("mp_payment_id")
+  // Nossa referência (id do pedido) enviada ao MP; reconcilia via webhook.
+  externalReference  String?             @map("external_reference")
+  // Idempotência da baixa de estoque: vira true quando o estoque é decrementado
+  // (no pagamento PAID). Um guard atômico sobre este campo garante que a baixa
+  // ocorra UMA vez por pedido, mesmo com webhook duplicado ou corrida entre
+  // webhook e polling. A reposição (cancelamento/estorno) só age se true.
+  stockApplied       Boolean             @default(false) @map("stock_applied")
   notes              String?
   // Código de rastreio da transportadora (Correios/Total Express). Consultado
   // na API SeuRastreio pelo frontend. Preenchido pelo admin quando o pedido é enviado.
@@ -282,6 +303,7 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([paymentStatus])
+  @@index([mpPaymentId])
   @@index([createdAt])
   @@index([couponId])
   @@map("orders")

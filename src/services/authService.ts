@@ -14,4 +14,13 @@ export const authService = {
   updateMe(input: { name?: string; phone?: string }) {
     return api.put<{ user: ApiUser }>('/api/me', input);
   },
+  verifyEmail(token: string) {
+    return api.post<{ user: ApiUser }>('/api/auth/verify-email', { token }, { anonymous: true });
+  },
+  forgotPassword(email: string) {
+    return api.post<{ message: string }>('/api/auth/forgot-password', { email }, { anonymous: true });
+  },
+  resetPassword(token: string, password: string) {
+    return api.post<{ message: string }>('/api/auth/reset-password', { token, password }, { anonymous: true });
+  },
 };

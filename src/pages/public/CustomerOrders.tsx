@@ -5,6 +5,7 @@ import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/admin/StatusBadge';
+import { PaymentStatusBadge } from '@/components/admin/PaymentStatusBadge';
 import { Drawer } from '@/components/ui/Drawer';
 import { Button } from '@/components/ui/Button';
 import { formatBRL } from '@/utils/price';
@@ -177,7 +178,10 @@ export default function CustomerOrders() {
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
-                  <StatusBadge status={o.status} />
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge status={o.status} />
+                    {o.paymentStatus && <PaymentStatusBadge status={o.paymentStatus} />}
+                  </div>
                   <p className="price-display text-sm font-bold tabular-nums">{formatBRL(o.total)}</p>
                   <ChevronRight className="h-4 w-4 text-ink-mute" />
                 </div>
@@ -190,7 +194,10 @@ export default function CustomerOrders() {
         {active && (
           <div className="space-y-5 p-5 text-sm">
             <div className="flex items-center justify-between">
-              <StatusBadge status={active.status} />
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={active.status} />
+                {active.paymentStatus && <PaymentStatusBadge status={active.paymentStatus} />}
+              </div>
               <span className="text-xs text-ink-mute">
                 {new Date(active.createdAt).toLocaleDateString('pt-BR')}
               </span>

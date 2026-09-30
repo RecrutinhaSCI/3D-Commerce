@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { formatBRL } from '@/utils/price';
 import { StatusBadge, statusLabels } from '@/components/admin/StatusBadge';
+import { PaymentStatusBadge } from '@/components/admin/PaymentStatusBadge';
 import { Drawer } from '@/components/ui/Drawer';
 import { Input, Label, Select } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -75,6 +76,7 @@ export default function Orders() {
               <th className="px-4 py-3">Cupom</th>
               <th className="px-4 py-3">Total</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Pagamento</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
@@ -96,6 +98,9 @@ export default function Orders() {
                 <td className="px-4 py-3">{formatBRL(o.total)}</td>
                 <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
                 <td className="px-4 py-3">
+                  {o.paymentStatus ? <PaymentStatusBadge status={o.paymentStatus} /> : <span className="text-ink-mute">—</span>}
+                </td>
+                <td className="px-4 py-3">
                   <button onClick={() => setActive(o)} className="text-xs font-semibold text-ink hover:underline">Detalhes →</button>
                 </td>
               </tr>
@@ -108,7 +113,10 @@ export default function Orders() {
         {active && (
           <div className="space-y-5 p-5">
             <div className="flex items-center justify-between">
-              <StatusBadge status={active.status} />
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={active.status} />
+                {active.paymentStatus && <PaymentStatusBadge status={active.paymentStatus} />}
+              </div>
               <Select
                 value={active.status}
                 onChange={(e) => {

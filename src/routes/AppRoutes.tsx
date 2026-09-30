@@ -23,6 +23,9 @@ const PrivacyPolicy = lazy(() => import('@/pages/public/PrivacyPolicy'));
 const Contact = lazy(() => import('@/pages/public/Contact'));
 const CustomerLogin = lazy(() => import('@/pages/public/CustomerLogin'));
 const CustomerRegister = lazy(() => import('@/pages/public/CustomerRegister'));
+const ForgotPassword = lazy(() => import('@/pages/public/ForgotPassword'));
+const ResetPassword = lazy(() => import('@/pages/public/ResetPassword'));
+const VerifyEmail = lazy(() => import('@/pages/public/VerifyEmail'));
 const CustomerAccount = lazy(() => import('@/pages/public/CustomerAccount'));
 const CustomerOrders = lazy(() => import('@/pages/public/CustomerOrders'));
 
@@ -75,6 +78,9 @@ export const router = createBrowserRouter([
       { path: '/contato', element: <L><Contact /></L> },
       { path: '/login', element: <L><CustomerLogin /></L> },
       { path: '/criar-conta', element: <L><CustomerRegister /></L> },
+      { path: '/esqueci-senha', element: <L><ForgotPassword /></L> },
+      { path: '/redefinir-senha', element: <L><ResetPassword /></L> },
+      { path: '/verificar-email', element: <L><VerifyEmail /></L> },
       { path: '/minha-conta', element: <L><CustomerAccount /></L> },
       { path: '/meus-pedidos', element: <L><CustomerOrders /></L> },
       { path: '*', element: <NotFound /> },

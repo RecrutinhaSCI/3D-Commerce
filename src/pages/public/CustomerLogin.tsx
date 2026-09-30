@@ -58,6 +58,11 @@ export default function CustomerLogin() {
               <Input type="password" autoComplete="current-password" {...register('password')} error={errors.password?.message} className="!pl-9" />
             </div>
           </div>
+          <div className="flex justify-end">
+            <Link to="/esqueci-senha" className="text-xs font-semibold text-ink-mute hover:text-ink hover:underline">
+              Esqueci minha senha
+            </Link>
+          </div>
           <Button type="submit" fullWidth size="lg" loading={isSubmitting}>
             Entrar
           </Button>
