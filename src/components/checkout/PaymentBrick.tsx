@@ -62,6 +62,16 @@ interface CardPaymentBrickProps {
 export function CardPaymentBrick({ amount, payerEmail, onSubmit, onError, onReady }: CardPaymentBrickProps) {
   ensureMpInit();
 
+  // Sem public key o Brick fica em branco; mostramos o motivo em vez disso.
+  if (!initialized) {
+    return (
+      <p className="rounded-xl border border-ink-line bg-bg-soft p-4 text-sm text-ink-soft">
+        Pagamento com cartão indisponível no momento. Use Pix ou boleto, ou fale com a loja pelo
+        WhatsApp.
+      </p>
+    );
+  }
+
   return (
     <CardPayment
       initialization={{

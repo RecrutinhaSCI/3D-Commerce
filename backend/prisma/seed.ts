@@ -5,14 +5,24 @@
  * Usa `upsert` em todos os registros base.
  *
  *   npm run prisma:seed
+ *
+ * Admin vem do .env (ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME). Em produção
+ * ADMIN_PASSWORD é obrigatória — não existe senha padrão. A senha só é
+ * (re)gravada quando ADMIN_PASSWORD está definida, então rodar o seed de novo
+ * sem ela não reseta a senha que o cliente já trocou.
  */
+import 'dotenv/config';
 import { PrismaClient, ProductPurchaseMode, UserRole, CouponDiscountType, ScriptCategory } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-const ADMIN_EMAIL = 'admin@3dcommerce.com';
-const ADMIN_PASSWORD = 'admin123';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@3dcommerce.com').trim().toLowerCase();
+const ADMIN_NAME = process.env.ADMIN_NAME || '3DCommerce Admin';
+const ADMIN_PASSWORD_ENV = process.env.ADMIN_PASSWORD || undefined;
+/** Senha só para desenvolvimento local. Nunca usada em produção. */
+const DEV_ADMIN_PASSWORD = 'admin123';
 
 async function main() {
   console.log('[seed] iniciando...');
@@ -20,25 +30,34 @@ async function main() {
   // -----------------------------------------------------------------------
   // 1. Admin
   // -----------------------------------------------------------------------
-  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+  if (IS_PRODUCTION && (!ADMIN_PASSWORD_ENV || ADMIN_PASSWORD_ENV.length < 8)) {
+    throw new Error('[seed] Em produção defina ADMIN_PASSWORD (mínimo 8 caracteres) no .env.');
+  }
+  const existingAdmin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
+  // Cria com a senha do .env (ou a de dev). Se o admin já existe, só troca a
+  // senha quando ADMIN_PASSWORD foi passada explicitamente.
+  const passwordToSet = ADMIN_PASSWORD_ENV ?? (existingAdmin ? undefined : DEV_ADMIN_PASSWORD);
+  const passwordHash = passwordToSet ? await bcrypt.hash(passwordToSet, 10) : undefined;
   const admin = await prisma.user.upsert({
     where: { email: ADMIN_EMAIL },
     create: {
-      name: '3DCommerce Admin',
+      name: ADMIN_NAME,
       email: ADMIN_EMAIL,
-      passwordHash,
-      phone: '5554992752253',
+      passwordHash: passwordHash!,
       role: UserRole.ADMIN,
       active: true,
+      emailVerified: true,
     },
     update: {
-      // Mantém o hash atualizado se a senha for alterada acima.
-      passwordHash,
+      ...(passwordHash ? { passwordHash } : {}),
       role: UserRole.ADMIN,
       active: true,
     },
   });
-  console.log(`[seed] admin: ${admin.email}`);
+  console.log(`[seed] admin: ${admin.email}${passwordHash ? ' (senha definida)' : ' (senha mantida)'}`);
+  if (!ADMIN_PASSWORD_ENV && !existingAdmin) {
+    console.warn(`[seed] ATENÇÃO: admin criado com a senha de desenvolvimento "${DEV_ADMIN_PASSWORD}". Defina ADMIN_PASSWORD antes de ir para produção.`);
+  }
 
   // -----------------------------------------------------------------------
   // 2. Categorias
@@ -260,16 +279,19 @@ async function main() {
         purchaseMode: p.purchaseMode ?? ProductPurchaseMode.DIRECT,
         images: { create: [{ url: p.imageUrl, alt: p.name, position: 0 }] },
       },
-      update: {
-        name: p.name,
-        price: p.price,
-        promotionalPrice: p.promotionalPrice ?? null,
-        stock: p.stock,
-        shortDescription: p.shortDescription,
-        description: p.description,
-        featured: !!p.featured,
-        purchaseMode: p.purchaseMode ?? ProductPurchaseMode.DIRECT,
-      },
+      // Em produção não sobrescreve preço/estoque que o cliente já editou.
+      update: IS_PRODUCTION
+        ? {}
+        : {
+            name: p.name,
+            price: p.price,
+            promotionalPrice: p.promotionalPrice ?? null,
+            stock: p.stock,
+            shortDescription: p.shortDescription,
+            description: p.description,
+            featured: !!p.featured,
+            purchaseMode: p.purchaseMode ?? ProductPurchaseMode.DIRECT,
+          },
     });
   }
   console.log(`[seed] produtos: ${productsData.length}`);
@@ -301,11 +323,9 @@ async function main() {
       freeShippingThreshold: 299,
       shippingNote: 'Enviamos para todo o Brasil',
     },
-    update: {
-      storeName: '3DCommerce',
-      whatsapp: '5554992752253',
-      email: 'commerce3d@outlook.com',
-    },
+    // Já existe → não mexe: os dados da loja são editados pelo cliente em
+    // /admin/configuracoes e o seed não pode sobrescrevê-los.
+    update: {},
   });
   console.log('[seed] siteSettings: ok');
 

@@ -2,6 +2,8 @@
 
 Guia de preparação para deploy em staging/produção. **Este documento não executa deploy real** — é o checklist e a referência de variáveis para quando o time decidir subir.
 
+> **Dados e contas do cliente (Mercado Pago, SMTP, domínio, admin):** o passo a passo completo e a ordem de go-live estão em [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md). Conferência automática: `cd backend && npm run check:config`.
+
 ---
 
 ## 1. Backend
@@ -30,8 +32,23 @@ DATABASE_URL="postgresql://usuario:senha@host-de-producao.neon.tech/neondb?sslmo
 JWT_SECRET="gere-uma-chave-forte-com-openssl-ou-node-crypto-32-mais-caracteres"
 JWT_EXPIRES_IN="7d"
 CORS_ORIGIN="https://seu-dominio-frontend.vercel.app"
+APP_URL="https://seu-dominio-frontend.vercel.app"
 UPLOAD_DIR="uploads"
+
+ADMIN_EMAIL="admin@dominio-do-cliente.com.br"
+ADMIN_PASSWORD="senha-forte-do-admin"
+
+MP_ACCESS_TOKEN="APP_USR-...credencial-de-producao-do-cliente"
+MP_WEBHOOK_SECRET="assinatura-secreta-do-webhook"
+
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER="loja@gmail.com"
+SMTP_PASS="senha-de-app"
+SMTP_FROM="3DCommerce <loja@gmail.com>"
 ```
+Descrição de cada variável: [backend/.env.example](backend/.env.example).
 
 Gerar `JWT_SECRET` seguro:
 ```bash
@@ -65,9 +82,11 @@ Antes de um deploy de produção real:
 ### Onde hospedar
 Vercel ou Netlify.
 
-### Variável de ambiente
+### Variáveis de ambiente
 ```env
 VITE_API_URL=https://url-do-backend-em-producao.com
+VITE_SITE_URL=https://www.dominio-do-cliente.com.br
+VITE_MP_PUBLIC_KEY=APP_USR-...public-key-de-producao
 ```
 
 ### Build
@@ -117,7 +136,7 @@ O projeto usa `createBrowserRouter`, então a hospedagem precisa redirecionar to
 
 ## 5. Pendências antes de um deploy de produção real (não bloqueiam staging)
 
-- Gateway de pagamento real no checkout (hoje o pedido é criado sem cobrança).
+- ~~Gateway de pagamento~~ — Mercado Pago (Orders API: cartão, Pix, boleto) integrado; falta só cadastrar as credenciais de produção do cliente (ver `CONFIGURAR-CLIENTE.md`).
 - Migrar uploads para storage externo (S3/R2/Supabase Storage) — ver seção 1.
 - Cookies httpOnly para o JWT em vez de `localStorage` (mitigação adicional contra XSS; hoje aceitável para MVP).
 - `npm audit` do frontend aponta uma vulnerabilidade moderada/alta em `esbuild`/`vite`, restrita ao dev server (não afeta o build de produção). Corrigir exige `vite@8` com breaking changes — avaliar antes de aplicar.

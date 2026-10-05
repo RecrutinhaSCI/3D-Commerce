@@ -14,6 +14,9 @@ import { z } from 'zod';
  */
 const emptyToUndefined = (v: unknown) => (v === '' ? undefined : v);
 
+/** Valores de exemplo do .env.example que nunca podem chegar ao runtime. */
+const isPlaceholder = (v: string) => /^(TEST-)?x{4,}$/i.test(v.trim());
+
 /** Parser de boolean tolerante: "true"/"1" => true, "false"/"0"/"" => false. */
 const toOptionalBoolean = (v: unknown): boolean | undefined => {
   if (v === '' || v === undefined || v === null) return undefined;
@@ -36,9 +39,18 @@ const envSchema = z.object({
   UPLOAD_DIR: z.string().default('uploads'),
 
   // Mercado Pago (pagamentos). Access token nunca vai ao frontend.
-  MP_ACCESS_TOKEN: z.string().min(1, 'MP_ACCESS_TOKEN é obrigatória.'),
-  MP_PUBLIC_KEY: z.string().min(1, 'MP_PUBLIC_KEY é obrigatória.'),
-  MP_WEBHOOK_SECRET: z.string().min(1, 'MP_WEBHOOK_SECRET é obrigatória.'),
+  // Os placeholders do .env.example ("TEST-xxxx"/"xxxx") são recusados para
+  // não subir com credencial de mentira.
+  MP_ACCESS_TOKEN: z
+    .string()
+    .min(1, 'MP_ACCESS_TOKEN é obrigatória.')
+    .refine((v) => !isPlaceholder(v), 'MP_ACCESS_TOKEN ainda está com o valor de exemplo.'),
+  MP_WEBHOOK_SECRET: z
+    .string()
+    .min(1, 'MP_WEBHOOK_SECRET é obrigatória.')
+    .refine((v) => !isPlaceholder(v), 'MP_WEBHOOK_SECRET ainda está com o valor de exemplo.'),
+  // Só referência: o backend não usa a public key (o front lê VITE_MP_PUBLIC_KEY).
+  MP_PUBLIC_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // SMTP (e-mail transacional). TODAS opcionais: sem elas, o servidor sobe
   // e o envio entra em "modo dev" (loga aviso, não envia). Ver src/lib/email.ts.
@@ -67,3 +79,26 @@ export const env = parsed.data;
 
 /** Lista de origens permitidas no CORS, separadas por vírgula no .env. */
 export const corsOrigins = env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean);
+
+/**
+ * Dados do cliente que ainda parecem de desenvolvimento num ambiente de
+ * produção. Não derruba o servidor (cada item tem fallback funcional), mas é
+ * logado no boot e listado por `npm run check:config`.
+ */
+export function productionConfigWarnings(): string[] {
+  if (env.NODE_ENV !== 'production') return [];
+  const warnings: string[] = [];
+  if (env.MP_ACCESS_TOKEN.startsWith('TEST-')) {
+    warnings.push('MP_ACCESS_TOKEN é de TESTE (sandbox) — pagamentos não serão reais.');
+  }
+  if (/localhost|127\.0\.0\.1/.test(env.APP_URL)) {
+    warnings.push('APP_URL aponta para localhost — links de e-mail (reset/verificação) vão quebrar.');
+  }
+  if (corsOrigins.some((o) => /localhost|127\.0\.0\.1/.test(o))) {
+    warnings.push('CORS_ORIGIN ainda inclui localhost — inclua só o domínio real da loja.');
+  }
+  if (!env.SMTP_HOST || !env.SMTP_FROM) {
+    warnings.push('SMTP não configurado — nenhum e-mail será enviado (pedido, pagamento, senha).');
+  }
+  return warnings;
+}

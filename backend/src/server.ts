@@ -1,11 +1,15 @@
 import { createApp } from './app';
-import { env } from './config/env';
+import { env, productionConfigWarnings } from './config/env';
 
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`[3D Commerce API] http://localhost:${env.PORT} · env=${env.NODE_ENV}`);
+  for (const w of productionConfigWarnings()) {
+    // eslint-disable-next-line no-console
+    console.warn(`[config] ${w}`);
+  }
 });
 
 /** Graceful shutdown: encerra conexões abertas antes de sair. */
