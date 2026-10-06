@@ -456,7 +456,12 @@ export interface ApiDashboard {
     totalRevenue: number;
     averageOrderValue: number;
     lowStockCount: number;
+    /** Receita paga no mês corrente (exclui cancelados). */
+    revenueThisMonth: number;
+    paidOrdersThisMonth: number;
   };
+  /** Últimos 7 dias: pedidos criados e receita paga por dia (YYYY-MM-DD). */
+  last7Days: Array<{ date: string; orders: number; revenue: number }>;
   recentOrders: Array<{
     id: string;
     customerName: string;

@@ -32,7 +32,7 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 - [ ] Endereço do cliente salvo no backend
 - [ ] CEP automático (ViaCEP) e CPF validado e salvo no pedido
 - [ ] Consentimento LGPD gravado + reenvio do e-mail de verificação
-- [ ] Dashboard com faturamento real (só pedidos pagos)
+- [x] Dashboard com faturamento real (só pedidos pagos, mês corrente e últimos 7 dias)
 - [ ] Parcelamento consistente (produto, "Como comprar" e Brick)
 - [ ] Newsletter e formulário de contato salvando no backend
 - [ ] SEO: sitemap com produtos, imagem de compartilhamento PNG, analytics com consentimento
