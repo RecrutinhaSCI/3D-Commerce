@@ -29,6 +29,13 @@ export interface Product {
   categoryIds: string[];
   brand: string;
   material?: 'PLA' | 'PETG' | 'ABS' | 'Resina' | '-';
+  /** Ficha técnica/envio (persistidos no backend). Peso em kg, medidas em cm. */
+  sku?: string;
+  color?: string;
+  weight?: number;
+  width?: number;
+  height?: number;
+  depth?: number;
   images: string[];
   price: number;
   promoPrice?: number;

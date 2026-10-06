@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { useSEO } from '@/utils/seo';
 import { exportProductsXlsx, downloadProductTemplate } from '@/utils/productExcel';
 import { ProductImportModal } from '@/components/admin/ProductImportModal';
+import { ApiError } from '@/services/api';
 
 export default function Products() {
   useSEO('Admin Produtos');
@@ -34,15 +35,23 @@ export default function Products() {
     });
   }, [products, cat, q, lowStockOnly]);
 
-  function toggleActive(id: string, active: boolean) {
-    updateProduct(id, { active });
-    toast.success(active ? 'Produto ativado' : 'Produto desativado');
+  async function toggleActive(id: string, active: boolean) {
+    try {
+      await updateProduct(id, { active });
+      toast.success(active ? 'Produto ativado' : 'Produto desativado');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Não foi possível alterar o produto.');
+    }
   }
 
-  function doRemove(id: string) {
-    removeProduct(id);
-    toast.success('Produto removido');
-    setConfirm(null);
+  async function doRemove(id: string) {
+    try {
+      await removeProduct(id);
+      toast.success('Produto removido');
+      setConfirm(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Não foi possível remover o produto.');
+    }
   }
 
   return (

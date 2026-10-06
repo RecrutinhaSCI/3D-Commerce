@@ -83,7 +83,7 @@ interface AdminDataState {
   refreshAdmin: () => Promise<void>;
 
   // Produtos
-  addProduct: (p: Product) => Promise<Product | null>;
+  addProduct: (p: Product) => Promise<Product>;
   updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
   removeProduct: (id: string) => Promise<void>;
 
@@ -183,27 +183,30 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
 
   // -------------------------- Produtos --------------------------------------
   async addProduct(p) {
-    try {
-      const { product } = await productService.create({
-        categoryId: p.categoryIds[0] ?? '',
-        name: p.name,
-        slug: p.slug || undefined,
-        shortDescription: p.shortDescription,
-        description: p.description,
-        price: p.price,
-        promotionalPrice: p.promoPrice ?? null,
-        stock: p.stock,
-        active: p.active,
-        featured: p.isHighlight || p.isBestSeller,
-        purchaseMode: purchaseModeToApi(p.purchaseMode),
-        material: p.material === '-' ? null : p.material ?? null,
-      });
-      const created = apiProductToInternal(product);
-      set({ products: [created, ...get().products] });
-      return created;
-    } catch {
-      return null;
-    }
+    // Erros SOBEM (ApiError) para o formulário mostrar a mensagem real.
+    const { product } = await productService.create({
+      categoryId: p.categoryIds[0] ?? '',
+      name: p.name,
+      slug: p.slug || undefined,
+      shortDescription: p.shortDescription,
+      description: p.description,
+      price: p.price,
+      promotionalPrice: p.promoPrice ?? null,
+      stock: p.stock,
+      active: p.active,
+      featured: p.isHighlight || p.isBestSeller,
+      purchaseMode: purchaseModeToApi(p.purchaseMode),
+      material: p.material === '-' ? null : p.material ?? null,
+      sku: p.sku || null,
+      color: p.color || null,
+      weight: p.weight ?? null,
+      width: p.width ?? null,
+      height: p.height ?? null,
+      depth: p.depth ?? null,
+    });
+    const created = apiProductToInternal(product);
+    set({ products: [created, ...get().products] });
+    return created;
   },
 
   async updateProduct(id, patch) {
@@ -221,24 +224,23 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.purchaseMode !== undefined) payload.purchaseMode = purchaseModeToApi(patch.purchaseMode);
     if (patch.categoryIds !== undefined && patch.categoryIds[0]) payload.categoryId = patch.categoryIds[0];
     if (patch.material !== undefined) payload.material = patch.material === '-' ? null : patch.material;
-
-    try {
-      const { product } = await productService.update(id, payload);
-      const updated = apiProductToInternal(product);
-      set({ products: get().products.map((p) => (p.id === id ? updated : p)) });
-    } catch {
-      // toasts já são disparados no componente que chama
+    if (patch.sku !== undefined) payload.sku = patch.sku || null;
+    if (patch.color !== undefined) payload.color = patch.color || null;
+    for (const k of ['weight', 'width', 'height', 'depth'] as const) {
+      if (k in patch) payload[k] = patch[k] ?? null;
     }
+
+    // Erros SOBEM (ApiError): quem chama mostra a mensagem real.
+    const { product } = await productService.update(id, payload);
+    const updated = apiProductToInternal(product);
+    set({ products: get().products.map((p) => (p.id === id ? updated : p)) });
   },
 
   async removeProduct(id) {
-    try {
-      await productService.remove(id);
-      // soft delete: reduz do cache também
-      set({ products: get().products.filter((p) => p.id !== id) });
-    } catch {
-      // ignora
-    }
+    // Erros SOBEM (ApiError) — a tela mostra a falha em vez de "removido".
+    await productService.remove(id);
+    // soft delete: reduz do cache também
+    set({ products: get().products.filter((p) => p.id !== id) });
   },
 
   // -------------------------- Categorias -----------------------------------

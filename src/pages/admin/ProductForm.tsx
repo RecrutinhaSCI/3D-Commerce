@@ -5,12 +5,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
 import slugify from 'slugify';
-import { ChevronLeft, Plus, Save, Trash2 } from 'lucide-react';
+import { ChevronLeft, Save } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Input';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
-import type { Product, ProductVariation, PurchaseMode, VariationType } from '@/types';
-import { productSvg } from '@/utils/productImage';
+import type { Product, PurchaseMode } from '@/types';
 import { useSEO } from '@/utils/seo';
 import { RemoteImageUploader } from '@/components/admin/RemoteImageUploader';
 import { Markdown } from '@/components/ui/Markdown';
@@ -22,34 +21,52 @@ import { apiProductToInternal } from '@/services/adapters';
 // Isso fazia o "Preço promo" virar 0 e a vitrine exibir "R$ 0,00".
 // Tratamos campo vazio como undefined antes de coagir.
 const emptyToUndefined = (v: unknown) => (v === '' || v === null ? undefined : v);
+const optionalPositive = (msg: string) =>
+  z.preprocess(emptyToUndefined, z.coerce.number().positive(msg).optional());
 
+// Só campos que o backend PERSISTE. (Marca, variações, especificações livres e
+// flags como "lançamento"/"frete grátis" não existem no banco — foram removidos
+// da tela para não parecer que salvam.)
 const schema = z.object({
-  name: z.string().min(3),
-  shortDescription: z.string().min(5),
-  description: z.string().min(10),
-  brand: z.string().min(1),
+  name: z.string().min(3, 'Nome com no mínimo 3 caracteres'),
+  shortDescription: z.string().min(5, 'Descrição curta com no mínimo 5 caracteres'),
+  description: z.string().min(10, 'Descrição com no mínimo 10 caracteres'),
   price: z.coerce.number({ invalid_type_error: 'Informe um preço válido' }).min(0.01, 'Preço deve ser maior que zero'),
-  promoPrice: z.preprocess(emptyToUndefined, z.coerce.number().min(0.01, 'Preço promo deve ser maior que zero').optional()),
-  stock: z.coerce.number({ invalid_type_error: 'Informe o estoque' }).min(0),
-  categoryId: z.string().min(1),
+  promoPrice: optionalPositive('Preço promo deve ser maior que zero'),
+  stock: z.coerce.number({ invalid_type_error: 'Informe o estoque' }).int().min(0),
+  categoryId: z.string().min(1, 'Escolha a categoria'),
   material: z.enum(['PLA', 'PETG', 'ABS', 'Resina', '-']).optional(),
   purchaseMode: z.enum(['direct', 'quote', 'both']),
+  sku: z
+    .string()
+    .trim()
+    .max(60)
+    .regex(/^[A-Za-z0-9._-]*$/, 'Use letras, números, ponto, hífen ou _')
+    .optional(),
+  color: z.string().trim().max(80).optional(),
+  weight: optionalPositive('Peso deve ser maior que zero'),
+  width: optionalPositive('Medida deve ser maior que zero'),
+  height: optionalPositive('Medida deve ser maior que zero'),
+  depth: optionalPositive('Medida deve ser maior que zero'),
   isHighlight: z.boolean().optional(),
-  isLaunch: z.boolean().optional(),
-  isOffer: z.boolean().optional(),
-  isBestSeller: z.boolean().optional(),
-  freeShipping: z.boolean().optional(),
   active: z.boolean().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
-export default function ProductForm() {
+/** Remonta o formulário ao trocar de produto (ex.: "novo" → recém-criado). */
+export default function ProductFormPage() {
+  const { id } = useParams();
+  return <ProductForm key={id ?? 'novo'} />;
+}
+
+function ProductForm() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   useSEO(isEdit ? 'Editar produto' : 'Novo produto');
   const navigate = useNavigate();
   const { products, categories, addProduct, updateProduct } = useAdminDataStore();
   const existing = id ? products.find((p) => p.id === id) : undefined;
+  const [saving, setSaving] = useState(false);
 
   const { register, handleSubmit, formState: { errors }, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -58,18 +75,19 @@ export default function ProductForm() {
           name: existing.name,
           shortDescription: existing.shortDescription,
           description: existing.description,
-          brand: existing.brand,
           price: existing.price,
           promoPrice: existing.promoPrice,
           stock: existing.stock,
           categoryId: existing.categoryIds[0] ?? categories[0]?.id,
           material: existing.material ?? '-',
           purchaseMode: existing.purchaseMode,
+          sku: existing.sku ?? '',
+          color: existing.color ?? '',
+          weight: existing.weight,
+          width: existing.width,
+          height: existing.height,
+          depth: existing.depth,
           isHighlight: existing.isHighlight,
-          isLaunch: existing.isLaunch,
-          isOffer: existing.isOffer,
-          isBestSeller: existing.isBestSeller,
-          freeShipping: existing.freeShipping,
           active: existing.active,
         }
       : {
@@ -82,74 +100,12 @@ export default function ProductForm() {
         },
   });
 
-  const name = watch('name');
   const descriptionValue = watch('description') ?? '';
   const [showPreview, setShowPreview] = useState(false);
   // Cada imagem carrega o id do backend para permitir remoção real.
-  // Se `id === null`, é placeholder local (produto ainda não persistido).
   const [images, setImages] = useState<Array<{ id: string | null; url: string }>>(
     existing ? existing.images.map((u) => ({ id: null, url: u })) : [],
   );
-
-  // Especificações = pares chave/valor (product.attributes). Editáveis aqui.
-  const [specs, setSpecs] = useState<{ key: string; value: string }[]>(
-    existing ? Object.entries(existing.attributes).map(([key, value]) => ({ key, value })) : [],
-  );
-
-  function addSpec() {
-    setSpecs((s) => [...s, { key: '', value: '' }]);
-  }
-  function updateSpec(index: number, field: 'key' | 'value', val: string) {
-    setSpecs((s) => s.map((row, i) => (i === index ? { ...row, [field]: val } : row)));
-  }
-  function removeSpec(index: number) {
-    setSpecs((s) => s.filter((_, i) => i !== index));
-  }
-  // Converte os pares em objeto, ignorando linhas sem chave.
-  function buildAttributes(): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const { key, value } of specs) {
-      const k = key.trim();
-      if (k) out[k] = value.trim();
-    }
-    return out;
-  }
-
-  // Variações do produto (cor, peso, modelo...). Editáveis aqui.
-  const [variations, setVariations] = useState<ProductVariation[]>(existing ? existing.variations : []);
-
-  function addVariation() {
-    setVariations((v) => [
-      ...v,
-      { id: 'var-' + Date.now() + '-' + v.length, label: '', type: 'modelo', inStock: true },
-    ]);
-  }
-  function updateVariation(index: number, patch: Partial<ProductVariation>) {
-    setVariations((v) => v.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  }
-  function removeVariation(index: number) {
-    setVariations((v) => v.filter((_, i) => i !== index));
-  }
-  // Mantém só variações com rótulo; normaliza priceDelta/swatch vazios.
-  function buildVariations(): ProductVariation[] {
-    return variations
-      .filter((v) => v.label.trim())
-      .map((v) => ({
-        ...v,
-        label: v.label.trim(),
-        priceDelta: v.priceDelta && v.priceDelta > 0 ? v.priceDelta : undefined,
-        swatch: v.type === 'cor' ? v.swatch : undefined,
-      }));
-  }
-
-  const variationTypes: VariationType[] = ['cor', 'material', 'peso', 'diametro', 'voltagem', 'tamanho', 'modelo'];
-
-  useEffect(() => {
-    if (!existing && images.length === 0 && name) {
-      setImages([{ id: null, url: productSvg(name, 'generic', Math.floor(Math.random() * 999)) }]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name]);
 
   // Ao entrar em edição, busca o produto real do backend para pegar os IDs
   // das imagens (necessário para o DELETE por imageId).
@@ -171,68 +127,56 @@ export default function ProductForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function onSubmit(d: FormData) {
-    const badges: Product['badges'] = [];
-    if (d.isOffer) badges.push('oferta');
-    if (d.isLaunch) badges.push('lancamento');
-    if (d.isBestSeller) badges.push('mais-vendido');
-    if (d.stock <= 0) badges.push('esgotado');
-    if (d.freeShipping) badges.push('frete-gratis');
+  async function onSubmit(d: FormData) {
+    const fields = {
+      name: d.name,
+      shortDescription: d.shortDescription,
+      description: d.description,
+      price: d.price,
+      promoPrice: d.promoPrice,
+      stock: d.stock,
+      categoryIds: [d.categoryId],
+      material: d.material as Product['material'],
+      purchaseMode: d.purchaseMode,
+      sku: d.sku ?? '',
+      color: d.color ?? '',
+      weight: d.weight,
+      width: d.width,
+      height: d.height,
+      depth: d.depth,
+      isHighlight: !!d.isHighlight,
+      active: !!d.active,
+    };
 
-    // Não empurramos mais imagens Base64 para o backend — o upload real
-    // acontece via RemoteImageUploader (endpoint /products/:id/images).
-    // O store guarda a lista de URLs só para exibição imediata.
-    const finalImages = images.length > 0
-      ? images.map((i) => i.url)
-      : [productSvg(d.name, 'generic', 1)];
-    if (isEdit && existing) {
-      updateProduct(existing.id, {
-        ...d,
-        material: d.material as Product['material'],
-        categoryIds: [d.categoryId],
-        images: finalImages,
-        badges,
-        isHighlight: !!d.isHighlight,
-        isLaunch: !!d.isLaunch,
-        isOffer: !!d.isOffer,
-        isBestSeller: !!d.isBestSeller,
-        freeShipping: !!d.freeShipping,
-        active: !!d.active,
-        attributes: buildAttributes(),
-        variations: buildVariations(),
-      });
-      toast.success('Produto atualizado');
-    } else {
-      const newId = 'prod-' + Date.now();
-      const product: Product = {
-        id: newId,
-        slug: slugify(d.name, { lower: true, strict: true }),
-        name: d.name,
-        shortDescription: d.shortDescription,
-        description: d.description,
-        brand: d.brand,
-        material: d.material as Product['material'],
-        categoryIds: [d.categoryId],
-        images: finalImages,
-        price: d.price,
-        promoPrice: d.promoPrice,
-        stock: d.stock,
-        freeShipping: !!d.freeShipping,
-        purchaseMode: d.purchaseMode,
-        variations: buildVariations(),
-        badges,
-        isHighlight: !!d.isHighlight,
-        isLaunch: !!d.isLaunch,
-        isOffer: !!d.isOffer,
-        isBestSeller: !!d.isBestSeller,
-        active: !!d.active,
-        createdAt: new Date().toISOString().slice(0, 10),
-        attributes: buildAttributes(),
-      };
-      addProduct(product);
-      toast.success('Produto criado');
-      // Permanece na tela de edição do produto recém-criado, sem voltar à lista.
-      navigate(`/admin/produtos/${newId}`, { replace: true });
+    setSaving(true);
+    try {
+      if (isEdit && existing) {
+        await updateProduct(existing.id, fields);
+        toast.success('Produto atualizado');
+      } else {
+        const created = await addProduct({
+          ...fields,
+          id: '',
+          slug: slugify(d.name, { lower: true, strict: true }),
+          brand: '',
+          images: [],
+          freeShipping: false,
+          variations: [],
+          badges: [],
+          isLaunch: false,
+          isOffer: false,
+          isBestSeller: false,
+          createdAt: new Date().toISOString(),
+          attributes: {},
+        });
+        toast.success('Produto criado. Agora envie as imagens.');
+        // Vai para a edição do produto REAL (id do backend) para subir imagens.
+        navigate(`/admin/produtos/${created.id}`, { replace: true });
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Não foi possível salvar o produto.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -251,10 +195,6 @@ export default function ProductForm() {
               <div>
                 <Label>Nome</Label>
                 <Input {...register('name')} error={errors.name?.message} />
-              </div>
-              <div>
-                <Label>Marca</Label>
-                <Input {...register('brand')} error={errors.brand?.message} />
               </div>
               <div>
                 <Label>Descrição curta</Label>
@@ -300,14 +240,14 @@ export default function ProductForm() {
 
           <section className="card p-5">
             <h2 className="text-base font-bold">Preços e estoque</h2>
-            <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <Label>Preço (R$)</Label>
                 <Input type="number" step="0.01" {...register('price')} error={errors.price?.message} />
               </div>
               <div>
                 <Label>Preço promo</Label>
-                <Input type="number" step="0.01" {...register('promoPrice')} />
+                <Input type="number" step="0.01" {...register('promoPrice')} error={errors.promoPrice?.message} />
               </div>
               <div>
                 <Label>Estoque</Label>
@@ -318,7 +258,7 @@ export default function ProductForm() {
 
           <section className="card p-5">
             <h2 className="text-base font-bold">Classificação</h2>
-            <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <Label>Categoria</Label>
                 <Select {...register('categoryId')}>
@@ -349,147 +289,39 @@ export default function ProductForm() {
           </section>
 
           <section className="card p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold">Especificações</h2>
-              <button
-                type="button"
-                onClick={addSpec}
-                className="inline-flex items-center gap-1 rounded-lg bg-bg-soft px-3 py-1.5 text-xs font-semibold text-ink hover:bg-ink/10"
-              >
-                <Plus className="h-3.5 w-3.5" /> Adicionar
-              </button>
-            </div>
+            <h2 className="text-base font-bold">Ficha técnica e envio</h2>
             <p className="mt-1 text-xs text-ink-mute">
-              Aparecem na ficha técnica do produto na loja (ex.: Material → PLA, Peso → 1kg, Diâmetro → 1.75mm).
+              Material, cor e peso aparecem na ficha técnica da loja. Peso e medidas da embalagem
+              serão usados no cálculo de frete por CEP.
             </p>
-
-            {specs.length === 0 ? (
-              <p className="mt-4 rounded-xl border border-dashed border-ink-line px-4 py-6 text-center text-sm text-ink-mute">
-                Nenhuma especificação. Clique em “Adicionar” para incluir.
-              </p>
-            ) : (
-              <div className="mt-4 space-y-2">
-                {specs.map((row, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <Input
-                      placeholder="Nome (ex.: Peso)"
-                      value={row.key}
-                      onChange={(e) => updateSpec(i, 'key', e.target.value)}
-                      className="flex-1"
-                    />
-                    <Input
-                      placeholder="Valor (ex.: 1kg)"
-                      value={row.value}
-                      onChange={(e) => updateSpec(i, 'value', e.target.value)}
-                      className="flex-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeSpec(i)}
-                      className="mt-0.5 rounded-lg p-2 text-ink-mute hover:bg-rose-50 hover:text-rose-500"
-                      aria-label="Remover especificação"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label>SKU (código interno)</Label>
+                <Input {...register('sku')} placeholder="ex.: PLA-PRETO-1KG" error={errors.sku?.message} />
               </div>
-            )}
-          </section>
-
-          <section className="card p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold">Variações</h2>
-              <button
-                type="button"
-                onClick={addVariation}
-                className="inline-flex items-center gap-1 rounded-lg bg-bg-soft px-3 py-1.5 text-xs font-semibold text-ink hover:bg-ink/10"
-              >
-                <Plus className="h-3.5 w-3.5" /> Adicionar
-              </button>
+              <div>
+                <Label>Cor</Label>
+                <Input {...register('color')} placeholder="ex.: Preto" error={errors.color?.message} />
+              </div>
             </div>
-            <p className="mt-1 text-xs text-ink-mute">
-              Opções escolhidas pelo cliente (ex.: cor, peso, modelo). O acréscimo soma ao preço base.
-            </p>
-
-            {variations.length === 0 ? (
-              <p className="mt-4 rounded-xl border border-dashed border-ink-line px-4 py-6 text-center text-sm text-ink-mute">
-                Nenhuma variação. Clique em “Adicionar” para incluir.
-              </p>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {variations.map((v, i) => (
-                  <div key={v.id} className="rounded-xl border border-ink-line p-3">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_130px_140px_auto]">
-                      <div>
-                        <Label>Rótulo</Label>
-                        <Input
-                          placeholder="ex.: Preto, 1kg, A1 Combo"
-                          value={v.label}
-                          onChange={(e) => updateVariation(i, { label: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <Label>Tipo</Label>
-                        <Select
-                          value={v.type}
-                          onChange={(e) => updateVariation(i, { type: e.target.value as VariationType })}
-                        >
-                          {variationTypes.map((t) => (
-                            <option key={t} value={t} className="capitalize">{t}</option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Acréscimo (R$)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="0,00"
-                          value={v.priceDelta ?? ''}
-                          onChange={(e) =>
-                            updateVariation(i, { priceDelta: e.target.value === '' ? undefined : Number(e.target.value) })
-                          }
-                        />
-                      </div>
-                      <div className="flex items-end pb-0.5">
-                        <button
-                          type="button"
-                          onClick={() => removeVariation(i)}
-                          className="rounded-lg p-2 text-ink-mute hover:bg-rose-50 hover:text-rose-500"
-                          aria-label="Remover variação"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-4">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={v.inStock}
-                          onChange={(e) => updateVariation(i, { inStock: e.target.checked })}
-                          className="accent-ink"
-                        />
-                        Em estoque
-                      </label>
-                      {v.type === 'cor' && (
-                        <label className="flex items-center gap-2 text-sm">
-                          Cor:
-                          <input
-                            type="color"
-                            value={v.swatch ?? '#000000'}
-                            onChange={(e) => updateVariation(i, { swatch: e.target.value })}
-                            className="h-7 w-10 cursor-pointer rounded border border-ink-line"
-                          />
-                        </label>
-                      )}
-                    </div>
-                  </div>
-                ))}
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <Label>Peso (kg)</Label>
+                <Input type="number" step="0.001" {...register('weight')} error={errors.weight?.message} />
               </div>
-            )}
+              <div>
+                <Label>Largura (cm)</Label>
+                <Input type="number" step="0.1" {...register('width')} error={errors.width?.message} />
+              </div>
+              <div>
+                <Label>Altura (cm)</Label>
+                <Input type="number" step="0.1" {...register('height')} error={errors.height?.message} />
+              </div>
+              <div>
+                <Label>Profundidade (cm)</Label>
+                <Input type="number" step="0.1" {...register('depth')} error={errors.depth?.message} />
+              </div>
+            </div>
           </section>
         </div>
 
@@ -498,7 +330,7 @@ export default function ProductForm() {
             <h2 className="text-base font-bold">Imagens do produto</h2>
             {!isEdit && (
               <p className="mt-1 text-[11px] text-ink-mute">
-                Salve o produto primeiro para poder enviar imagens ao servidor.
+                Salve o produto primeiro; em seguida você já pode enviar as imagens.
               </p>
             )}
             <div className="mt-4">
@@ -514,9 +346,11 @@ export default function ProductForm() {
                     const { product } = await productService.addImages(existing.id, files);
                     const next = product.images.map((img) => ({ id: img.id, url: img.url }));
                     setImages(next);
-                    // Atualiza cache no store também.
+                    // Atualiza só o cache local (as imagens já foram salvas no upload).
                     const internal = apiProductToInternal(product);
-                    updateProduct(existing.id, { images: internal.images });
+                    useAdminDataStore.setState((s) => ({
+                      products: s.products.map((p) => (p.id === existing.id ? { ...p, images: internal.images } : p)),
+                    }));
                     return next.map((n) => n.url);
                   } catch (err) {
                     const msg = err instanceof ApiError ? err.message : 'Falha ao enviar imagens.';
@@ -535,22 +369,21 @@ export default function ProductForm() {
                   }
                   setImages((prev) => prev.filter((_, i) => i !== idx));
                 }}
-                hint="JPG/PNG/WEBP até 5MB. Primeira imagem vira a principal."
+                hint="JPG/PNG/WEBP até 4MB. Primeira imagem vira a principal."
               />
             </div>
           </div>
           <div className="card p-5">
-            <h2 className="text-base font-bold">Flags</h2>
+            <h2 className="text-base font-bold">Exibição</h2>
             <div className="mt-3 space-y-2 text-sm">
               <label className="flex items-center gap-2"><input type="checkbox" {...register('isHighlight')} className="accent-ink" /> Destaque na home</label>
-              <label className="flex items-center gap-2"><input type="checkbox" {...register('isLaunch')} className="accent-ink" /> Lançamento</label>
-              <label className="flex items-center gap-2"><input type="checkbox" {...register('isOffer')} className="accent-ink" /> Oferta</label>
-              <label className="flex items-center gap-2"><input type="checkbox" {...register('isBestSeller')} className="accent-ink" /> Mais vendido</label>
-              <label className="flex items-center gap-2"><input type="checkbox" {...register('freeShipping')} className="accent-ink" /> Frete grátis</label>
               <label className="flex items-center gap-2 border-t border-ink-line pt-3"><input type="checkbox" {...register('active')} className="accent-ink" /> Produto ativo</label>
             </div>
+            <p className="mt-3 text-xs text-ink-mute">
+              O selo “Oferta” aparece sozinho quando há preço promocional.
+            </p>
           </div>
-          <Button type="submit" fullWidth size="lg">
+          <Button type="submit" fullWidth size="lg" loading={saving}>
             <Save className="h-4 w-4" /> Salvar produto
           </Button>
         </aside>

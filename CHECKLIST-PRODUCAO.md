@@ -23,7 +23,7 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 - [x] Botão "Pagar agora" em Meus pedidos (página /pagar/:orderId: cartão, novo Pix ou boleto)
 - [x] Timeout no envio de e-mail (SMTP)
 - [x] Admin marcar pedido como pago → baixa estoque; validar transições de status
-- [ ] Corrigir criação de produto no admin (id real, campos de peso/dimensões)
+- [x] Corrigir criação de produto no admin (id real, campos de peso/dimensões)
 - [x] Admin de pedidos: mostrar "[REVISAR ESTOQUE]", erros reais, atualizar lista
 
 ## Etapa 3 — Conversão e qualidade

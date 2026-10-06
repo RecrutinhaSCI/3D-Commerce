@@ -100,6 +100,12 @@ export function apiProductToInternal(p: ApiProduct): Product {
     isBestSeller: p.featured,
     active: p.active,
     createdAt: p.createdAt,
+    sku: p.sku ?? undefined,
+    color: p.color ?? undefined,
+    weight: p.weight ?? undefined,
+    width: p.width ?? undefined,
+    height: p.height ?? undefined,
+    depth: p.depth ?? undefined,
     attributes: {
       ...(p.material ? { Material: p.material } : {}),
       ...(p.color ? { Cor: p.color } : {}),
