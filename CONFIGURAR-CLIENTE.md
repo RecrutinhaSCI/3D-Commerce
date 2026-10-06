@@ -161,7 +161,8 @@ NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..
 
 ## 6. Pontos de atenção antes de entregar
 
-- **Imagens enviadas pelo admin (produtos, banners, logo, depoimentos, arquivos de orçamento) não persistem na Vercel.** O upload grava em `backend/uploads`, mas as funções serverless não têm disco permanente: o arquivo some ou o upload falha. **Isso bloqueia o cadastro do catálogo real** e precisa ir para um storage externo antes da entrega (Vercel Blob, Cloudflare R2 ou Supabase Storage).
+- **Upload de imagens pelo admin (produtos, banners, logo, depoimentos, arquivos de orçamento) não funciona na Vercel.** O código grava em `backend/uploads` com `multer.diskStorage`, mas o disco das funções é somente leitura (só `/tmp`, que é temporário). **Isso bloqueia o cadastro do catálogo real** e precisa ir para um storage externo antes da entrega. O caminho natural nessa infra é o **Vercel Blob**, que exige `BLOB_READ_WRITE_TOKEN` no projeto backend.
+- **Prisma Client no build**: o backend roda `prisma generate` no `postinstall`. A Vercel reaproveita o `node_modules` entre deploys, e sem isso um schema novo subiria com o client antigo.
 - **Rate limit** (login, pedidos) fica na memória de cada instância. Na Vercel, cada instância conta separado, então o limite real é mais frouxo. Aceitável para começar; se houver abuso, mover para Redis/Upstash.
 - **Frete** segue a regra atual das configurações (frete grátis acima de X). A cotação real por CEP ainda não foi implementada; o estudo está em [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md).
 - **`VITE_SEURASTREIO_API_KEY`** vai para o bundle público. Usar uma chave sem custo/limite crítico, ou mover a consulta para o backend.
