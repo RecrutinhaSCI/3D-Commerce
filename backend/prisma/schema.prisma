@@ -269,6 +269,8 @@ model Order {
   customerName       String              @map("customer_name")
   customerEmail      String              @map("customer_email")
   customerPhone      String              @map("customer_phone")
+  // CPF do comprador (só dígitos) — exigido por Pix/boleto e base para NF-e.
+  customerCpf        String?             @map("customer_cpf")
   // Snapshot do endereço (JSON). Estrutura:
   // { recipientName, zipCode, street, number, complement?, district, city, state, country }
   addressSnapshot    Json                @map("address_snapshot")

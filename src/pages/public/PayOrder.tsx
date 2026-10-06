@@ -8,6 +8,7 @@ import type { ApiOrder } from '@/services/types';
 import { Input, Label } from '@/components/ui/Input';
 import { formatBRL } from '@/utils/price';
 import { maskCPF } from '@/utils/masks';
+import { isValidCpf } from '@/utils/cpf';
 import { useSEO } from '@/utils/seo';
 import { PaymentPhase, type CheckoutAddress } from './Checkout';
 
@@ -29,7 +30,10 @@ export default function PayOrder() {
     if (!customer || !orderId) return;
     orderService
       .getMine(orderId)
-      .then(({ order: o }) => setOrder(o))
+      .then(({ order: o }) => {
+        setOrder(o);
+        if (o.customerCpf) setCpf(maskCPF(o.customerCpf));
+      })
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Não foi possível carregar o pedido.'));
   }, [customer?.id, orderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -91,7 +95,7 @@ export default function PayOrder() {
     city: a.city,
     state: a.state,
   };
-  const cpfOk = cpf.replace(/\D/g, '').length === 11;
+  const cpfOk = isValidCpf(cpf);
 
   return (
     <div className="container-x py-12">

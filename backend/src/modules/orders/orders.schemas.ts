@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { OrderStatus, PaymentMethod, PaymentStatus, ShippingMethod } from '@prisma/client';
+import { isValidCpf, onlyDigits } from '../../utils/cpf';
 
 /** Endereço enviado no checkout — vira snapshot em `Order.addressSnapshot`. */
 export const orderAddressSchema = z.object({
@@ -20,6 +21,15 @@ export const createOrderSchema = z.object({
   customerName: z.string().trim().min(2, 'Nome do cliente é obrigatório.'),
   customerEmail: z.string().trim().toLowerCase().email('E-mail inválido.'),
   customerPhone: z.string().trim().min(8, 'Telefone inválido.'),
+  // CPF (opcional na API para compat; o checkout sempre envia). Guardado só
+  // com dígitos; validado pelos dígitos verificadores.
+  customerCpf: z
+    .string()
+    .trim()
+    .optional()
+    .nullable()
+    .refine((v) => !v || isValidCpf(v), 'CPF inválido.')
+    .transform((v) => (v ? onlyDigits(v) : null)),
   address: orderAddressSchema,
   // Modalidade de entrega — o VALOR é calculado no backend (shipping.service).
   shippingMethod: z

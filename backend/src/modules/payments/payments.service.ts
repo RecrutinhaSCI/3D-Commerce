@@ -442,6 +442,7 @@ export const paymentsService = {
     if (formData.payer.first_name) payer.first_name = formData.payer.first_name;
     if (formData.payer.last_name) payer.last_name = formData.payer.last_name;
     if (formData.payer.identification) payer.identification = formData.payer.identification;
+    else if (order.customerCpf) payer.identification = { type: 'CPF', number: order.customerCpf };
 
     // Endereço para a Orders API. A UF DEVE ir como `state`; o campo
     // `federal_unit` (nome da Payments API antiga / Brick) é REJEITADO pelo MP

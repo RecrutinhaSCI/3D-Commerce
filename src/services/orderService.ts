@@ -13,6 +13,8 @@ export interface CreateOrderPayload {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  /** CPF do comprador (validado no backend). */
+  customerCpf?: string | null;
   address: ApiOrderAddress;
   /** Modalidade escolhida; o valor do frete é calculado no backend. */
   shippingMethod: ApiShippingMethod;

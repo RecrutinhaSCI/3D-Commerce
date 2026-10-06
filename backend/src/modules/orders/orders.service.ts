@@ -44,6 +44,8 @@ export interface OrderDTO {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  /** CPF (só dígitos) informado no checkout. */
+  customerCpf: string | null;
   addressSnapshot: unknown;
   subtotal: number;
   shippingValue: number;
@@ -86,6 +88,7 @@ function toOrderDTO(order: OrderWithRelations): OrderDTO {
     customerName: order.customerName,
     customerEmail: order.customerEmail,
     customerPhone: order.customerPhone,
+    customerCpf: order.customerCpf,
     addressSnapshot: order.addressSnapshot,
     subtotal: decimalToNumber(order.subtotal) ?? 0,
     shippingValue: decimalToNumber(order.shippingValue) ?? 0,
@@ -238,6 +241,7 @@ export const ordersService = {
           customerName: input.customerName,
           customerEmail: input.customerEmail,
           customerPhone: input.customerPhone,
+          customerCpf: input.customerCpf ?? null,
           addressSnapshot: input.address as unknown as Prisma.InputJsonValue,
           subtotal,
           shippingValue: shipping,

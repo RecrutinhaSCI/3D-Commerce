@@ -217,6 +217,8 @@ export interface ApiOrder {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  /** CPF (só dígitos) informado no checkout. */
+  customerCpf: string | null;
   addressSnapshot: ApiOrderAddress;
   subtotal: number;
   shippingValue: number;

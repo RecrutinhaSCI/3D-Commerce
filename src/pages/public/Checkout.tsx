@@ -14,6 +14,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useSEO } from '@/utils/seo';
 import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
 import { maskPhone, maskCPF, maskCEP } from '@/utils/masks';
+import { isValidCpf } from '@/utils/cpf';
 import { orderService } from '@/services/orderService';
 import { paymentService } from '@/services/paymentService';
 import { shippingService } from '@/services/shippingService';
@@ -37,7 +38,7 @@ const customerSchema = z.object({
   cpf: z
     .string()
     .min(1, 'Informe seu CPF')
-    .refine((v) => v.replace(/\D/g, '').length === 11, 'CPF inválido'),
+    .refine((v) => isValidCpf(v), 'CPF inválido — confira os números'),
 });
 const addressSchema = z.object({
   cep: z.string().min(8, 'CEP inválido'),
@@ -197,6 +198,7 @@ export default function Checkout() {
         customerName: customer.name,
         customerEmail: customer.email,
         customerPhone: customer.phone,
+        customerCpf: customer.cpf,
         address: {
           recipientName: customer.name,
           phone: customer.phone,
@@ -406,7 +408,7 @@ function CustomerStep({ defaults, onNext }: { defaults?: Customer; onNext: (d: C
         <Label>Nome completo</Label>
         <Input {...register('name')} error={errors.name?.message} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <Label>E-mail</Label>
           <Input type="email" {...register('email')} error={errors.email?.message} />
@@ -445,15 +447,44 @@ function CustomerStep({ defaults, onNext }: { defaults?: Customer; onNext: (d: C
 }
 
 function AddressStep({ defaults, onBack, onNext }: { defaults?: Address; onBack: () => void; onNext: (d: Address) => void }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<Address>({
+  const { register, handleSubmit, setValue, setFocus, formState: { errors } } = useForm<Address>({
     resolver: zodResolver(addressSchema),
     defaultValues: defaults,
   });
   const cepReg = register('cep');
+  const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'notfound' | 'error'>('idle');
+
+  // Busca o endereço pelo CEP (ViaCEP, público e gratuito) ao completar 8
+  // dígitos. Só preenche; o cliente pode corrigir qualquer campo.
+  async function lookupCep(masked: string) {
+    const digits = masked.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    setCepStatus('loading');
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = (await res.json()) as {
+        erro?: boolean | string; logradouro?: string; bairro?: string; localidade?: string; uf?: string;
+      };
+      if (!res.ok || data.erro) {
+        setCepStatus('notfound');
+        return;
+      }
+      const opts = { shouldValidate: true, shouldDirty: true } as const;
+      if (data.logradouro) setValue('street', data.logradouro, opts);
+      if (data.bairro) setValue('district', data.bairro, opts);
+      if (data.localidade) setValue('city', data.localidade, opts);
+      if (data.uf) setValue('state', data.uf, opts);
+      setCepStatus('idle');
+      setFocus('number');
+    } catch {
+      setCepStatus('error'); // sem internet/ViaCEP fora: preenchimento manual
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit(onNext)} className="space-y-4">
       <h2 className="text-lg font-bold">Endereço de entrega</h2>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <Label>CEP</Label>
           <Input
@@ -464,25 +495,29 @@ function AddressStep({ defaults, onBack, onNext }: { defaults?: Address; onBack:
             onChange={(e) => {
               e.target.value = maskCEP(e.target.value);
               cepReg.onChange(e);
+              lookupCep(e.target.value);
             }}
           />
+          {cepStatus === 'loading' && <p className="mt-1 text-xs text-ink-mute">Buscando endereço…</p>}
+          {cepStatus === 'notfound' && <p className="mt-1 text-xs text-amber-600">CEP não encontrado. Preencha o endereço manualmente.</p>}
+          {cepStatus === 'error' && <p className="mt-1 text-xs text-ink-mute">Não foi possível buscar o CEP agora. Preencha manualmente.</p>}
         </div>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <Label>Rua</Label>
           <Input {...register('street')} error={errors.street?.message} />
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <Label>Número</Label>
           <Input {...register('number')} error={errors.number?.message} />
         </div>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <Label>Complemento</Label>
           <Input {...register('complement')} placeholder="opcional" />
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <Label>Bairro</Label>
           <Input {...register('district')} error={errors.district?.message} />
@@ -493,7 +528,11 @@ function AddressStep({ defaults, onBack, onNext }: { defaults?: Address; onBack:
         </div>
         <div>
           <Label>UF</Label>
-          <Input {...register('state')} maxLength={2} error={errors.state?.message} />
+          <Input
+            {...register('state', { setValueAs: (v: string) => (v ?? '').toUpperCase() })}
+            maxLength={2}
+            error={errors.state?.message}
+          />
         </div>
       </div>
       <div className="flex gap-2">
