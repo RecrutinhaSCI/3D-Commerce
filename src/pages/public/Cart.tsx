@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
 import { formatBRL } from '@/utils/price';
-import { site } from '@/config/site';
 import { useSEO } from '@/utils/seo';
 
 export default function Cart() {
@@ -18,12 +17,13 @@ export default function Cart() {
     appliedCoupon, applyCoupon, removeCoupon, revalidateCoupon, couponLoading, couponError,
   } = useCartStore();
   const products = useAdminDataStore((s) => s.products);
+  const freeShippingThreshold = useAdminDataStore((s) => s.settings.freeShippingThreshold);
   const [code, setCode] = useState('');
   const navigate = useNavigate();
 
   const subtotal = getCartSubtotal(items, products);
   const discount = getCartDiscount(subtotal, appliedCoupon);
-  const shipping = getCartShipping(subtotal, appliedCoupon);
+  const shipping = getCartShipping(subtotal, appliedCoupon, freeShippingThreshold);
   const total = subtotal - discount + shipping;
 
   // Revalida o cupom sempre que o subtotal mudar (remove se ficar inválido).
@@ -157,7 +157,7 @@ export default function Cart() {
               <p className="label">Cupom de desconto</p>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Ex: BLACK10"
+                  placeholder="Código do cupom"
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
                   onKeyDown={(e) => e.key === 'Enter' && tryApply()}
@@ -167,14 +167,11 @@ export default function Cart() {
                 </Button>
               </div>
               {couponError && <p className="mt-2 text-[11px] text-rose-500">{couponError}</p>}
-              <p className="mt-2 text-[11px] text-ink-mute">
-                Experimente: BLACK10 · PRIMEIRACOMPRA · FRETEGRATIS
-              </p>
             </div>
           )}
 
           <p className="mt-4 text-[11px] text-ink-mute">
-            Frete grátis acima de {formatBRL(site.freeShippingThreshold)}.
+            Frete grátis (PAC) acima de {formatBRL(freeShippingThreshold)}. Valor final calculado no checkout.
           </p>
 
           <Button fullWidth className="mt-5" onClick={() => navigate('/checkout')}>

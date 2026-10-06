@@ -1,0 +1,44 @@
+# Checklist para produção — 3DCommerce
+
+Plano para deixar a loja pronta para vender de verdade (Vercel + Neon + Mercado Pago).
+Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md).
+
+## Etapa 1 — Antes de qualquer venda
+
+- [ ] Uploads no **Vercel Blob** (produto, banner, logo, depoimento, orçamento) — hoje falham na Vercel
+- [x] **Meus pedidos** buscando `/api/me/orders` (hoje fica vazio ao recarregar)
+- [x] **Desconto Pix** aplicado no backend (% do admin sobre os produtos, frete fora)
+- [x] **Preço** recalculado na criação do pedido e total exibido vindo da API
+- [x] **Frete** calculado no backend + modalidade (PAC/Sedex/retirada) salva no pedido
+- [x] Remover o texto "Ambiente de teste (sandbox)" da tela de sucesso
+- [x] Migration de backfill: `stock_applied = true` nos pedidos antigos (`20261006120000_checkout_hardening`)
+- [ ] Aplicar as migrations no **Neon** (branch de backup antes)
+- [ ] Variáveis do Mercado Pago na Vercel (Production e Preview) e conferir o entrypoint no log de build do backend
+
+## Etapa 2 — Operação da loja
+
+- [ ] Estorno / cancelamento pelo admin via API do Mercado Pago (com reposição de estoque)
+- [ ] Cancelar a cobrança anterior ao trocar de forma de pagamento (evitar cobrança dupla)
+- [ ] Expirar pedidos não pagos (24–48h) via **Vercel Cron** e devolver o cupom
+- [ ] Botão "Pagar agora / ver Pix" em Meus pedidos
+- [ ] Timeout no envio de e-mail (SMTP)
+- [ ] Admin marcar pedido como pago → baixa estoque; validar transições de status
+- [ ] Corrigir criação de produto no admin (id real, campos de peso/dimensões)
+- [ ] Admin de pedidos: mostrar "[REVISAR ESTOQUE]", erros reais, atualizar lista
+
+## Etapa 3 — Conversão e qualidade
+
+- [ ] Carrinho de visitante + login voltando para a página de origem
+- [ ] Endereço do cliente salvo no backend
+- [ ] CEP automático (ViaCEP) e CPF validado e salvo no pedido
+- [ ] Consentimento LGPD gravado + reenvio do e-mail de verificação
+- [ ] Dashboard com faturamento real (só pedidos pagos)
+- [ ] Parcelamento consistente (produto, "Como comprar" e Brick)
+- [ ] Newsletter e formulário de contato salvando no backend
+- [ ] SEO: sitemap com produtos, imagem de compartilhamento PNG, analytics com consentimento
+
+## Go-live
+
+- [ ] `npm run check:config` sem erros
+- [ ] Compra real via Pix testada e estornada
+- [ ] Merge da branch `api-mercado-pago` na `main`

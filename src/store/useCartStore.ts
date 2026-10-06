@@ -287,9 +287,17 @@ export function getCartDiscount(subtotal: number, coupon?: AppliedCoupon | null)
   return Number(Math.min(coupon.discountAmount, subtotal).toFixed(2));
 }
 
-/** Frete: grátis por cupom FREE_SHIPPING ou por atingir o limite da loja. */
-export function getCartShipping(subtotal: number, coupon?: AppliedCoupon | null): number {
+/**
+ * ESTIMATIVA de frete (PAC) para o carrinho/drawer. O valor real vem do
+ * backend (/api/public/shipping/options) no checkout e é recalculado na
+ * criação do pedido. `threshold` = "frete grátis acima de" do admin.
+ */
+export function getCartShipping(
+  subtotal: number,
+  coupon?: AppliedCoupon | null,
+  threshold: number = site.freeShippingThreshold,
+): number {
   if (coupon?.freeShipping) return 0;
-  if (subtotal >= site.freeShippingThreshold) return 0;
+  if (threshold > 0 && subtotal >= threshold) return 0;
   return 24.9;
 }

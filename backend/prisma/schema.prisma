@@ -48,6 +48,13 @@ enum PaymentMethod {
   BOLETO
 }
 
+/// Modalidade de entrega escolhida no checkout (valor calculado no backend).
+enum ShippingMethod {
+  PAC
+  SEDEX
+  PICKUP
+}
+
 enum ProductPurchaseMode {
   DIRECT
   QUOTE
@@ -267,7 +274,12 @@ model Order {
   addressSnapshot    Json                @map("address_snapshot")
   subtotal           Decimal             @db.Decimal(12, 2)
   shippingValue      Decimal             @default(0) @map("shipping_value") @db.Decimal(12, 2)
+  // Modalidade de entrega. Null = pedidos anteriores à regra de frete no backend.
+  shippingMethod     ShippingMethod?     @map("shipping_method")
   discountValue      Decimal             @default(0) @map("discount_value") @db.Decimal(12, 2)
+  // Desconto da FORMA de pagamento (ex.: % no Pix), já abatido de `total`.
+  // Ao trocar de método, o total bruto é `total + paymentDiscount`.
+  paymentDiscount    Decimal             @default(0) @map("payment_discount") @db.Decimal(12, 2)
   total              Decimal             @db.Decimal(12, 2)
   status             OrderStatus         @default(PENDING)
   paymentMethod      PaymentMethod       @map("payment_method")

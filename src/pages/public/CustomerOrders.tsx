@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { AlertCircle, ChevronRight, ExternalLink, MapPin, Package, Truck } from 'lucide-react';
 import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
-import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { orderService } from '@/services/orderService';
+import { apiOrderToInternal } from '@/services/adapters';
+import { ApiError } from '@/services/api';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { PaymentStatusBadge } from '@/components/admin/PaymentStatusBadge';
@@ -129,15 +131,42 @@ function TrackingSection({ code }: { code: string }) {
   );
 }
 
+const PAGE_SIZE = 20;
+
 export default function CustomerOrders() {
   useSEO('Meus pedidos');
   const customer = useCurrentCustomer();
-  const orders = useAdminDataStore((s) => s.orders);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<Order | null>(null);
+
+  // Pedidos vêm SEMPRE do backend (/api/me/orders) — nunca do store do admin.
+  const loadPage = useCallback(async (target: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await orderService.listMine({ page: target, limit: PAGE_SIZE });
+      const mapped = res.orders.map(apiOrderToInternal);
+      setOrders((prev) => (target === 1 ? mapped : [...prev, ...mapped]));
+      setPage(res.pagination.page);
+      setTotalPages(res.pagination.totalPages);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Não foi possível carregar seus pedidos.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (customer) loadPage(1);
+  }, [customer?.id, loadPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!customer) return <Navigate to="/login" replace />;
 
-  const mine = orders.filter((o) => o.customerId === customer.id);
+  const mine = orders;
 
   return (
     <div className="container-x py-12">
@@ -147,7 +176,23 @@ export default function CustomerOrders() {
         Acompanhe o status dos seus pedidos na 3DCommerce.
       </p>
 
-      {mine.length === 0 ? (
+      {loading && mine.length === 0 ? (
+        <div className="mt-8 space-y-3" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="card h-[76px] animate-pulse bg-bg-soft" />
+          ))}
+        </div>
+      ) : error && mine.length === 0 ? (
+        <div className="mt-8 flex items-start gap-2 rounded-xl bg-rose-50 p-4 text-sm text-rose-600">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p>{error}</p>
+            <button onClick={() => loadPage(1)} className="mt-1 font-semibold underline">
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+      ) : mine.length === 0 ? (
         <div className="mt-8">
           <EmptyState
             title="Você ainda não tem pedidos."
@@ -187,6 +232,13 @@ export default function CustomerOrders() {
                 </div>
               </button>
             ))}
+          {page < totalPages && (
+            <div className="pt-2 text-center">
+              <Button variant="secondary" loading={loading} onClick={() => loadPage(page + 1)}>
+                Ver pedidos anteriores
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

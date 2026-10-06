@@ -50,7 +50,8 @@ export interface CartDTO {
 
 function toCartDTO(cart: CartWithItems): CartDTO {
   const items = cart.items.map((it) => {
-    const unitPrice = decimalToNumber(it.unitPrice) ?? 0;
+    // Sempre o preço ATUAL do produto (o mesmo que o pedido vai cobrar).
+    const unitPrice = decimalToNumber(effectivePrice(it.product)) ?? 0;
     const lineTotal = Number((unitPrice * it.quantity).toFixed(2));
     const mainImage = [...it.product.images].sort((a, b) => a.position - b.position)[0] ?? null;
     return {
@@ -112,8 +113,12 @@ async function ensureCart(userId: string): Promise<CartWithItems> {
   });
 }
 
-/** Preço atual efetivo (promotional se houver, senão price). */
-function effectivePrice(product: Pick<Product, 'price' | 'promotionalPrice'>): Prisma.Decimal | number {
+/**
+ * Preço atual efetivo (promotional se houver, senão price). Fonte única usada
+ * pelo carrinho e pela criação do pedido — o `cartItem.unitPrice` gravado na
+ * adição fica só como histórico e NÃO define o valor cobrado.
+ */
+export function effectivePrice(product: Pick<Product, 'price' | 'promotionalPrice'>): Prisma.Decimal {
   return product.promotionalPrice ?? product.price;
 }
 
@@ -141,7 +146,6 @@ export const cartService = {
     }
 
     if (existingItem) {
-      // Preserva o `unitPrice` do momento em que o cliente adicionou primeiro.
       await prisma.cartItem.update({
         where: { id: existingItem.id },
         data: { quantity: finalQty },

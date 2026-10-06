@@ -23,6 +23,7 @@ import type {
   ApiProduct,
   ApiPurchaseMode,
   ApiSettings,
+  ApiShippingMethod,
 } from './types';
 import { apiAssetUrl } from './api';
 import { productSvg } from '@/utils/productImage';
@@ -218,6 +219,12 @@ export function apiSettingsToInternal(s: ApiSettings): StoreSettings {
 
 // ------ order ---------------------------------------------------------------
 
+const SHIPPING_LABELS: Record<ApiShippingMethod, string> = {
+  PAC: 'PAC',
+  SEDEX: 'Sedex',
+  PICKUP: 'Retirada na loja',
+};
+
 export function apiOrderToInternal(o: ApiOrder): Order {
   return {
     id: o.id,
@@ -245,7 +252,7 @@ export function apiOrderToInternal(o: ApiOrder): Order {
       unitPrice: it.unitPrice,
     })),
     shipping: {
-      method: 'Frete',
+      method: o.shippingMethod ? SHIPPING_LABELS[o.shippingMethod] : 'Frete',
       price: o.shippingValue,
       deadline: '',
       trackingCode: o.trackingCode ?? undefined,

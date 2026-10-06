@@ -16,6 +16,7 @@ import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
 import { maskPhone, maskCPF, maskCEP } from '@/utils/masks';
 import { orderService } from '@/services/orderService';
 import { paymentService } from '@/services/paymentService';
+import { shippingService } from '@/services/shippingService';
 import { ApiError } from '@/services/api';
 import { apiOrderToInternal } from '@/services/adapters';
 import { CardPaymentBrick, type PaymentBrickSubmit } from '@/components/checkout/PaymentBrick';
@@ -24,6 +25,7 @@ import type {
   ApiCardPaymentResult,
   ApiPixPaymentResult,
   ApiBoletoPaymentResult,
+  ApiShippingMethod,
 } from '@/services/types';
 
 const customerSchema = z.object({
@@ -50,7 +52,8 @@ const addressSchema = z.object({
 type Customer = z.infer<typeof customerSchema>;
 type Address = z.infer<typeof addressSchema>;
 
-type ShippingMethod = 'pac' | 'sedex' | 'retirada';
+type ShippingMethod = ApiShippingMethod;
+type ShippingPrices = Record<ShippingMethod, { price: number; label: string; deadline: string }>;
 
 // O método de pagamento (cartão/Pix/boleto) é escolhido por abas na fase de
 // pagamento (PaymentPhase), após criar o pedido — por isso não há passo
@@ -89,15 +92,18 @@ export default function Checkout() {
         }
       : null,
   );
-  const [shipping, setShipping] = useState<ShippingMethod>('pac');
+  const [shipping, setShipping] = useState<ShippingMethod>('PAC');
+  // Opções de frete calculadas no backend (fonte única da regra).
+  const [remoteShipping, setRemoteShipping] = useState<ShippingPrices | null>(null);
   const [done, setDone] = useState<string | null>(null);
   // Pedido criado (PENDING) aguardando pagamento pelo Payment Brick.
   const [createdOrder, setCreatedOrder] = useState<ApiOrder | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
+  const freeShippingThreshold = useAdminDataStore((s) => s.settings.freeShippingThreshold);
   const subtotal = getCartSubtotal(items, products);
   const discount = getCartDiscount(subtotal, appliedCoupon);
-  const cartShipping = getCartShipping(subtotal, appliedCoupon);
+  const cartShipping = getCartShipping(subtotal, appliedCoupon, freeShippingThreshold);
 
   // Revalida o cupom sempre que o subtotal mudar (remove se inválido).
   useEffect(() => {
@@ -112,10 +118,31 @@ export default function Checkout() {
     setCouponCode('');
   }
   const freeShip = !!appliedCoupon?.freeShipping;
-  const shippingPrices: Record<ShippingMethod, { price: number; label: string; deadline: string }> = {
-    pac: { price: cartShipping, label: 'PAC', deadline: '5 a 8 dias úteis' },
-    sedex: { price: freeShip ? 0 : cartShipping + 18, label: 'Sedex', deadline: '2 a 4 dias úteis' },
-    retirada: { price: 0, label: 'Retirada na loja', deadline: 'Em até 1 dia útil' },
+
+  useEffect(() => {
+    if (subtotal <= 0) return;
+    let cancelled = false;
+    shippingService
+      .getOptions(subtotal, freeShip)
+      .then(({ options }) => {
+        if (cancelled) return;
+        const map = {} as ShippingPrices;
+        for (const o of options) map[o.method] = { price: o.price, label: o.label, deadline: o.deadline };
+        setRemoteShipping(map);
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteShipping(null); // cai na estimativa local abaixo
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [subtotal, freeShip]);
+
+  // Estimativa local só como fallback de exibição; o backend recalcula no pedido.
+  const shippingPrices: ShippingPrices = remoteShipping ?? {
+    PAC: { price: cartShipping, label: 'PAC', deadline: '5 a 8 dias úteis' },
+    SEDEX: { price: freeShip ? 0 : cartShipping + 18, label: 'Sedex', deadline: '2 a 4 dias úteis' },
+    PICKUP: { price: 0, label: 'Retirada na loja', deadline: 'Em até 1 dia útil' },
   };
   const finalShipping = shippingPrices[shipping].price;
   const total = subtotal - discount + finalShipping;
@@ -144,7 +171,7 @@ export default function Checkout() {
             Seu pedido <strong>{done}</strong> foi confirmado. Você acompanha o andamento em “Meus pedidos”.
           </p>
           <p className="mt-2 text-xs text-ink-mute">
-            Ambiente de teste (sandbox) do Mercado Pago: nenhuma cobrança real é feita.
+            Enviamos a confirmação para o seu e-mail.
           </p>
           <div className="mt-7 flex justify-center gap-3">
             <Link to="/" className="btn-secondary">Voltar para a loja</Link>
@@ -181,7 +208,7 @@ export default function Checkout() {
           state: address.state,
           country: 'Brasil',
         },
-        shippingValue: shippingPrices[shipping].price,
+        shippingMethod: shipping,
         couponCode: appliedCoupon?.code ?? null,
         // Placeholder: o método real é definido no Payment Brick e o backend
         // atualiza order.paymentMethod ao criar o pagamento (createPayment).
@@ -290,7 +317,7 @@ export default function Checkout() {
           {createdOrder && customer && address && (
             <PaymentPhase
               order={createdOrder}
-              amount={total}
+              amount={createdOrder.total + createdOrder.paymentDiscount}
               payerEmail={customer.email}
               payerName={customer.name}
               payerCpf={customer.cpf}
@@ -481,7 +508,7 @@ function AddressStep({ defaults, onBack, onNext }: { defaults?: Address; onBack:
 function ShippingStep({
   prices, value, setValue, onBack, onNext,
 }: {
-  prices: Record<ShippingMethod, { price: number; label: string; deadline: string }>;
+  prices: ShippingPrices;
   value: ShippingMethod;
   setValue: (v: ShippingMethod) => void;
   onBack: () => void;
@@ -585,7 +612,7 @@ function ReviewStep({
 }
 
 type PaymentResult =
-  | { kind: 'pix'; qrCode: string; qrCodeBase64: string; ticketUrl: string }
+  | { kind: 'pix'; qrCode: string; qrCodeBase64: string; ticketUrl: string; amount?: number }
   | { kind: 'boleto'; url: string }
   | { kind: 'card_pending' };
 
@@ -651,6 +678,15 @@ function PaymentPhase({
   const [tab, setTab] = useState<PayMethod>('card');
   // Loading dos botões diretos de Pix/boleto (o cartão tem seu próprio botão no Brick).
   const [placing, setPlacing] = useState<PayMethod | null>(null);
+
+  // Prévia do desconto do Pix (o backend aplica a MESMA regra ao gerar o Pix):
+  // % do admin sobre os produtos já com cupom; frete não entra.
+  const pixPercent = useAdminDataStore((s) => s.settings.pixDiscountPercent);
+  const pixOff =
+    pixPercent > 0
+      ? Number(((Math.max(0, order.subtotal - order.discountValue) * pixPercent) / 100).toFixed(2))
+      : 0;
+  const pixAmount = Number((amount - pixOff).toFixed(2));
 
   // Polling leve enquanto exibe o Pix: confirma o pedido assim que o MP acusar pago.
   useEffect(() => {
@@ -763,7 +799,13 @@ function PaymentPhase({
 
       if (method === 'pix') {
         const pix = res as ApiPixPaymentResult;
-        setResult({ kind: 'pix', qrCode: pix.qr_code, qrCodeBase64: pix.qr_code_base64, ticketUrl: pix.ticket_url });
+        setResult({
+          kind: 'pix',
+          qrCode: pix.qr_code,
+          qrCodeBase64: pix.qr_code_base64,
+          ticketUrl: pix.ticket_url,
+          amount: pix.amount,
+        });
         onOrderPlaced();
         return;
       }
@@ -816,6 +858,9 @@ function PaymentPhase({
           Pedido <strong>{order.id}</strong> criado. Escaneie o QR Code no app do seu banco ou use o
           copia-e-cola. Seu pedido é confirmado automaticamente assim que o pagamento cair.
         </p>
+        {result.amount !== undefined && (
+          <p className="text-center text-2xl font-bold tabular-nums">{formatBRL(result.amount)}</p>
+        )}
         {result.qrCodeBase64 && (
           <img
             src={`data:image/png;base64,${result.qrCodeBase64}`}
@@ -932,6 +977,12 @@ function PaymentPhase({
 
       {tab === 'pix' && (
         <div className="space-y-3">
+          {pixOff > 0 && (
+            <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">
+              Total no Pix: <strong>{formatBRL(pixAmount)}</strong>{' '}
+              (economia de {formatBRL(pixOff)} — {pixPercent}% nos produtos)
+            </p>
+          )}
           <p className="text-sm text-ink-mute">
             Geramos um QR Code e o copia-e-cola. Seu pedido é confirmado automaticamente assim que o
             pagamento cair.

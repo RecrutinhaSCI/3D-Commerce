@@ -4,6 +4,7 @@ import {
   PaymentStatus,
   Prisma,
   ProductPurchaseMode,
+  type ShippingMethod,
   type CouponDiscountType,
   type Order,
   type OrderItem,
@@ -15,6 +16,8 @@ import { decimalToNumber } from '../../utils/decimal';
 import { sendEmail } from '../../lib/email';
 import { orderCreatedEmail, orderShippedEmail, type EmailContent } from '../../lib/emailTemplates';
 import { couponsService } from '../coupons/coupons.service';
+import { effectivePrice } from '../cart/cart.service';
+import { shippingService } from '../shipping/shipping.service';
 import type {
   AdminOrdersQuery,
   CreateOrderInput,
@@ -38,7 +41,11 @@ export interface OrderDTO {
   addressSnapshot: unknown;
   subtotal: number;
   shippingValue: number;
+  /** Modalidade de entrega (null em pedidos antigos). */
+  shippingMethod: ShippingMethod | null;
   discountValue: number;
+  /** Desconto da forma de pagamento (ex.: Pix), já abatido de `total`. */
+  paymentDiscount: number;
   /** subtotal + frete, antes do desconto do cupom. */
   totalBeforeDiscount: number;
   total: number;
@@ -74,7 +81,9 @@ function toOrderDTO(order: OrderWithRelations): OrderDTO {
     addressSnapshot: order.addressSnapshot,
     subtotal: decimalToNumber(order.subtotal) ?? 0,
     shippingValue: decimalToNumber(order.shippingValue) ?? 0,
+    shippingMethod: order.shippingMethod,
     discountValue: decimalToNumber(order.discountValue) ?? 0,
+    paymentDiscount: decimalToNumber(order.paymentDiscount) ?? 0,
     totalBeforeDiscount:
       (decimalToNumber(order.subtotal) ?? 0) + (decimalToNumber(order.shippingValue) ?? 0),
     total: decimalToNumber(order.total) ?? 0,
@@ -167,10 +176,15 @@ export const ordersService = {
     }
 
     // Cálculos monetários usando Prisma.Decimal para não perder precisão.
-    const subtotal = cart.items.reduce((acc, i) => {
-      const line = new Prisma.Decimal(i.unitPrice).mul(i.quantity);
-      return acc.add(line);
-    }, new Prisma.Decimal(0));
+    // Preço = o ATUAL do produto (promoção vigente), nunca o congelado no carrinho.
+    const pricedItems = cart.items.map((i) => ({
+      ...i,
+      price: new Prisma.Decimal(effectivePrice(i.product)),
+    }));
+    const subtotal = pricedItems.reduce(
+      (acc, i) => acc.add(i.price.mul(i.quantity)),
+      new Prisma.Decimal(0),
+    );
     const subtotalNum = decimalToNumber(subtotal) ?? 0;
 
     // Cupom: SEMPRE revalidado no backend. O `input.discountValue` do cliente
@@ -179,8 +193,12 @@ export const ordersService = {
       ? await couponsService.resolveForOrder(input.couponCode, subtotalNum, userId)
       : null;
 
+    // Frete SEMPRE calculado aqui a partir da modalidade (o valor enviado pelo
+    // cliente é ignorado). Limite de frete grátis vem do /admin/configuracoes.
     const freeShipping = resolved?.freeShipping ?? false;
-    const shipping = new Prisma.Decimal(freeShipping ? 0 : input.shippingValue);
+    const shipping = new Prisma.Decimal(
+      await shippingService.priceFor(input.shippingMethod, subtotalNum, freeShipping),
+    );
     const discount = new Prisma.Decimal(resolved ? resolved.discountAmount : 0);
     let total = subtotal.add(shipping).sub(discount);
     if (total.lt(0)) total = new Prisma.Decimal(0); // nunca negativo
@@ -214,6 +232,7 @@ export const ordersService = {
           addressSnapshot: input.address as unknown as Prisma.InputJsonValue,
           subtotal,
           shippingValue: shipping,
+          shippingMethod: input.shippingMethod,
           discountValue: discount,
           total,
           status: OrderStatus.PENDING,
@@ -225,17 +244,14 @@ export const ordersService = {
           couponCode: resolved?.coupon.code ?? null,
           couponDiscountType: resolved?.coupon.discountType ?? null,
           items: {
-            create: cart.items.map((item) => {
-              const line = new Prisma.Decimal(item.unitPrice).mul(item.quantity);
-              return {
-                productId: item.productId,
-                productName: item.product.name,
-                productSku: item.product.sku,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                total: line,
-              };
-            }),
+            create: pricedItems.map((item) => ({
+              productId: item.productId,
+              productName: item.product.name,
+              productSku: item.product.sku,
+              quantity: item.quantity,
+              unitPrice: item.price,
+              total: item.price.mul(item.quantity),
+            })),
           },
         },
         include: includeRelations,

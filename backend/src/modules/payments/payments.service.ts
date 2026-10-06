@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
+import { OrderStatus, PaymentMethod, PaymentStatus, type Prisma } from '@prisma/client';
 import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
@@ -259,6 +259,10 @@ function providerError(status: number, body: unknown): HttpError {
 interface CreatePaymentResult {
   orderId: string;
   method: PaymentKind;
+  /** Valor cobrado nesta tentativa (já com o desconto do Pix, se houver). */
+  amount: number;
+  /** Desconto da forma de pagamento aplicado (0 fora do Pix). */
+  paymentDiscount: number;
   /** Id do PAGAMENTO no MP (`transactions.payments[0].id`), para exibição. */
   paymentId?: string;
   /** Status no vocabulário clássico (approved/rejected/in_process/pending/...). */
@@ -273,6 +277,21 @@ interface CreatePaymentResult {
   external_resource_url?: string;
   digitable_line?: string;
   barcode_content?: string;
+}
+
+/**
+ * Desconto do Pix em R$ para o pedido: `pixDiscountPercent` (SiteSettings,
+ * editável no admin) sobre os produtos já com cupom — frete não entra.
+ */
+async function pixDiscountFor(order: { subtotal: Prisma.Decimal; discountValue: Prisma.Decimal }): Promise<number> {
+  const settings = await prisma.siteSettings.findUnique({
+    where: { id: 'main' },
+    select: { pixDiscountPercent: true },
+  });
+  const pct = decimalToNumber(settings?.pixDiscountPercent) ?? 0;
+  if (pct <= 0) return 0;
+  const base = Math.max(0, (decimalToNumber(order.subtotal) ?? 0) - (decimalToNumber(order.discountValue) ?? 0));
+  return Number(((base * Math.min(pct, 100)) / 100).toFixed(2));
 }
 
 /** Marcador de revisão manual anexado a um pedido pago sem estoque. */
@@ -391,7 +410,13 @@ export const paymentsService = {
     if (!kind) throw HttpError.badRequest('Método de pagamento inválido.');
 
     // Valor SEMPRE do pedido (nunca do cliente) e como string ("50.00").
-    const amount = (decimalToNumber(order.total) ?? 0).toFixed(2);
+    // Desconto da forma de pagamento: no Pix, `pixDiscountPercent` (admin) sobre
+    // os PRODUTOS já com cupom (frete fora) — o mesmo que a vitrine anuncia.
+    // `total + paymentDiscount` = total bruto, então trocar de método recalcula.
+    const grossTotal = (decimalToNumber(order.total) ?? 0) + (decimalToNumber(order.paymentDiscount) ?? 0);
+    const paymentDiscount = kind === 'pix' ? await pixDiscountFor(order) : 0;
+    const chargedTotal = Number((grossTotal - paymentDiscount).toFixed(2));
+    const amount = chargedTotal.toFixed(2);
     const { formData } = input;
     const email = formData.payer.email || order.customerEmail;
 
@@ -486,6 +511,9 @@ export const paymentsService = {
         // Método real do Brick (o pedido foi criado com placeholder).
         paymentMethod: KIND_TO_PAYMENT_METHOD[kind],
         paymentStatus,
+        // `total` passa a ser o valor efetivamente cobrado nesta tentativa.
+        total: chargedTotal,
+        paymentDiscount,
       },
     });
 
@@ -498,6 +526,8 @@ export const paymentsService = {
     const out: CreatePaymentResult = {
       orderId: order.id,
       method: kind,
+      amount: chargedTotal,
+      paymentDiscount,
       paymentId: mpPayment.id,
       status: mpStatusToLegacy(rawStatus),
       statusDetail: mpPayment.status_detail ?? mpOrder.status_detail,

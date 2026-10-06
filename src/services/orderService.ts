@@ -1,12 +1,21 @@
 import { api } from './api';
-import type { ApiOrder, ApiOrderAddress, ApiPagination, ApiPaymentMethod, ApiOrderStatus, ApiPaymentStatus } from './types';
+import type {
+  ApiOrder,
+  ApiOrderAddress,
+  ApiPagination,
+  ApiPaymentMethod,
+  ApiOrderStatus,
+  ApiPaymentStatus,
+  ApiShippingMethod,
+} from './types';
 
 export interface CreateOrderPayload {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
   address: ApiOrderAddress;
-  shippingValue?: number;
+  /** Modalidade escolhida; o valor do frete é calculado no backend. */
+  shippingMethod: ApiShippingMethod;
   /** Código do cupom. O desconto é recalculado no backend. */
   couponCode?: string | null;
   paymentMethod: ApiPaymentMethod;

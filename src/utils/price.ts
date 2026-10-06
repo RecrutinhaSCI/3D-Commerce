@@ -12,10 +12,14 @@ export function getEffectivePrice(product: Product): number {
   return product.promoPrice ?? product.price;
 }
 
-export function getPixPrice(product: Product): number {
+/**
+ * Preço no Pix. `percent` deve vir de settings.pixDiscountPercent (admin) — é o
+ * mesmo percentual que o backend aplica ao gerar o Pix.
+ */
+export function getPixPrice(product: Product, percent: number = site.pixDiscountPercent): number {
   if (product.pixPrice) return product.pixPrice;
   const base = getEffectivePrice(product);
-  return Number((base * (1 - site.pixDiscountPercent / 100)).toFixed(2));
+  return Number((base * (1 - percent / 100)).toFixed(2));
 }
 
 export function getDiscountPercent(product: Product): number {

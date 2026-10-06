@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
+import { OrderStatus, PaymentMethod, PaymentStatus, ShippingMethod } from '@prisma/client';
 
 /** Endereço enviado no checkout — vira snapshot em `Order.addressSnapshot`. */
 export const orderAddressSchema = z.object({
@@ -21,7 +21,14 @@ export const createOrderSchema = z.object({
   customerEmail: z.string().trim().toLowerCase().email('E-mail inválido.'),
   customerPhone: z.string().trim().min(8, 'Telefone inválido.'),
   address: orderAddressSchema,
-  shippingValue: z.coerce.number().min(0, 'Frete não pode ser negativo.').default(0),
+  // Modalidade de entrega — o VALOR é calculado no backend (shipping.service).
+  shippingMethod: z
+    .nativeEnum(ShippingMethod, {
+      errorMap: () => ({ message: 'shippingMethod deve ser PAC, SEDEX ou PICKUP.' }),
+    })
+    .default(ShippingMethod.PAC),
+  // Mantido por compat, porém IGNORADO: o frete nunca vem do cliente.
+  shippingValue: z.coerce.number().min(0).optional(),
   // Cupom (opcional). O DESCONTO é sempre recalculado no backend a partir do
   // cupom — o cliente não define o valor do desconto.
   couponCode: z

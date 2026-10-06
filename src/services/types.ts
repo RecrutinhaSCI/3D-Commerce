@@ -13,6 +13,21 @@ export type ApiOrderStatus =
   | 'DELIVERED'
   | 'CANCELED';
 export type ApiPaymentMethod = 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+
+export type ApiShippingMethod = 'PAC' | 'SEDEX' | 'PICKUP';
+
+export interface ApiShippingOption {
+  method: ApiShippingMethod;
+  label: string;
+  deadline: string;
+  price: number;
+}
+
+/** GET /api/public/shipping/options */
+export interface ApiShippingOptions {
+  options: ApiShippingOption[];
+  freeShippingThreshold: number;
+}
 export type ApiPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELED';
 /** Status bruto do pagamento no Mercado Pago (retornado pelo backend). */
 export type ApiMpPaymentStatus =
@@ -43,6 +58,10 @@ export interface ApiPixPaymentResult {
   status?: ApiMpPaymentStatus | string;
   paymentId?: string | number;
   paymentStatus?: ApiPaymentStatus;
+  /** Valor cobrado (já com o desconto do Pix). */
+  amount?: number;
+  /** Desconto do Pix aplicado em R$. */
+  paymentDiscount?: number;
   qr_code: string;
   qr_code_base64: string;
   ticket_url: string;
@@ -201,7 +220,11 @@ export interface ApiOrder {
   addressSnapshot: ApiOrderAddress;
   subtotal: number;
   shippingValue: number;
+  /** Modalidade de entrega (null em pedidos antigos). */
+  shippingMethod: ApiShippingMethod | null;
   discountValue: number;
+  /** Desconto da forma de pagamento (ex.: Pix), já abatido de `total`. */
+  paymentDiscount: number;
   totalBeforeDiscount: number;
   total: number;
   couponId: string | null;

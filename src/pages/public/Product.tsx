@@ -85,7 +85,10 @@ export default function Product() {
   const variationDelta = variation?.priceDelta ?? 0;
   const basePrice = getEffectivePrice(product) + variationDelta;
   const fullPrice = product.price + variationDelta;
-  const pix = getPixPrice({ ...product, price: fullPrice, promoPrice: product.promoPrice ? basePrice : undefined });
+  const pix = getPixPrice(
+    { ...product, price: fullPrice, promoPrice: product.promoPrice ? basePrice : undefined },
+    settings.pixDiscountPercent,
+  );
   const discount = getDiscountPercent(product);
   const installment = calcInstallment(basePrice);
   const isQuoteOnly = product.purchaseMode === 'quote';
