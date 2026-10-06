@@ -106,6 +106,20 @@ export interface ApiUser {
   createdAt: string;
 }
 
+/** Endereço padrão do cliente (GET/PUT /api/me/address). */
+export interface ApiAddress {
+  id: string;
+  zipCode: string;
+  street: string;
+  number: string;
+  complement: string | null;
+  district: string;
+  city: string;
+  state: string;
+  recipientName: string;
+  phone: string;
+}
+
 export interface ApiCategory {
   id: string;
   name: string;

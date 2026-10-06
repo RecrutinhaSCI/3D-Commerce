@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { ApiUser } from './types';
+import type { ApiAddress, ApiUser } from './types';
 
 export const authService = {
   register(input: { name: string; email: string; password: string; phone?: string }) {
@@ -13,6 +13,15 @@ export const authService = {
   },
   updateMe(input: { name?: string; phone?: string }) {
     return api.put<{ user: ApiUser }>('/api/me', input);
+  },
+  getAddress() {
+    return api.get<{ address: ApiAddress | null }>('/api/me/address');
+  },
+  saveAddress(input: {
+    zipCode: string; street: string; number: string; complement?: string | null;
+    district: string; city: string; state: string;
+  }) {
+    return api.put<{ address: ApiAddress }>('/api/me/address', input);
   },
   verifyEmail(token: string) {
     return api.post<{ user: ApiUser }>('/api/auth/verify-email', { token }, { anonymous: true });

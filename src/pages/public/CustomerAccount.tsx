@@ -50,9 +50,9 @@ export default function CustomerAccount() {
 
   if (!customer) return <Navigate to="/login" replace />;
 
-  function onSubmit(d: Data) {
+  async function onSubmit(d: Data) {
     const hasAddress = d.cep && d.street && d.number && d.district && d.city && d.state;
-    updateCustomer({
+    const result = await updateCustomer({
       name: d.name,
       phone: d.phone,
       defaultAddress: hasAddress
@@ -67,6 +67,10 @@ export default function CustomerAccount() {
           }
         : undefined,
     });
+    if (!result.ok) {
+      toast.error(result.error ?? 'Não foi possível salvar seus dados.');
+      return;
+    }
     toast.success('Dados atualizados.');
     setEditing(false);
   }

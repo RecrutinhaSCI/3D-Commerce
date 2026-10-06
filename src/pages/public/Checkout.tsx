@@ -12,7 +12,7 @@ import { Input, Label } from '@/components/ui/Input';
 import { formatBRL } from '@/utils/price';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useSEO } from '@/utils/seo';
-import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
+import { useCurrentCustomer, useCustomerAuthStore } from '@/store/useCustomerAuthStore';
 import { maskPhone, maskCPF, maskCEP } from '@/utils/masks';
 import { isValidCpf } from '@/utils/cpf';
 import { orderService } from '@/services/orderService';
@@ -221,6 +221,10 @@ export default function Checkout() {
       // Espelha no store admin e avança para a etapa de pagamento.
       addOrder(apiOrderToInternal(order));
       setCreatedOrder(order);
+      // Primeiro pedido: guarda o endereço como padrão para as próximas compras.
+      if (!loggedCustomer.defaultAddress) {
+        void useCustomerAuthStore.getState().updateCustomer({ defaultAddress: address });
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Erro ao criar pedido.';
