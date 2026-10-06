@@ -11,6 +11,7 @@ import { paymentsController } from './payments.controller';
  *   GET  /api/orders/:orderId/payments/status  consulta/reconcilia o status (auth)
  *   POST /api/payments/webhook                 notificações do MP (T5, PÚBLICO)
  *   POST /api/admin/payments/reconcile         reconciliação em lote (admin)
+ *   POST /api/admin/orders/:orderId/cancel     cancelar/estornar pedido (admin)
  *
  * O webhook é PÚBLICO de propósito: a MP chama sem token. A autenticidade é
  * garantida pela assinatura `x-signature` validada no controller, não por
@@ -30,6 +31,14 @@ paymentsRouter.get(
   asyncHandler(paymentsController.status),
 );
 paymentsRouter.post('/payments/webhook', asyncHandler(paymentsController.webhook));
+
+// Cancelar/estornar pedido (admin) — estorna no Mercado Pago se já foi pago.
+paymentsRouter.post(
+  '/admin/orders/:orderId/cancel',
+  authMiddleware,
+  adminMiddleware,
+  asyncHandler(paymentsController.cancelOrder),
+);
 
 // Reconciliação em lote (admin) — rede de segurança para webhooks perdidos.
 paymentsRouter.post(

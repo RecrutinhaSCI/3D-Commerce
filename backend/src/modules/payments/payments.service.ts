@@ -5,8 +5,8 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { decimalToNumber } from '../../utils/decimal';
 import { sendEmail } from '../../lib/email';
-import { paymentApprovedEmail } from '../../lib/emailTemplates';
-import { applyStockForOrder } from '../orders/orders.service';
+import { orderCanceledEmail } from '../../lib/emailTemplates';
+import { cancelOrderRecord, settlePaidOrder } from '../orders/orders.service';
 import {
   resolvePaymentKind,
   type CreatePaymentInput,
@@ -323,6 +323,34 @@ async function closePreviousAttempt(mpOrderId: string): Promise<'paid' | 'closed
   return 'closed';
 }
 
+/** Avisa o cliente do cancelamento (não-bloqueante, nunca lança). */
+async function notifyCanceled(orderId: string, reason: 'refunded' | 'canceled' | 'expired'): Promise<void> {
+  try {
+    const o = await prisma.order.findUnique({ where: { id: orderId }, select: { customerEmail: true, total: true } });
+    if (!o) return;
+    const content = orderCanceledEmail(orderId, reason, decimalToNumber(o.total) ?? undefined);
+    await sendEmail({ to: o.customerEmail, subject: content.subject, html: content.html, text: content.text });
+  } catch {
+    // eslint-disable-next-line no-console
+    console.error(`[payments:email] Falha ao enviar "pedido cancelado" do pedido ${orderId}.`);
+  }
+}
+
+/**
+ * Efeitos de uma mudança de status vinda do MP (webhook, polling, reconcile):
+ *  - PAID     → liquida (estoque + confirma + e-mail), idempotente;
+ *  - REFUNDED → estorno/chargeback feito no MP: cancela o pedido, repõe o
+ *               estoque e devolve o cupom (uma única vez) e avisa o cliente.
+ */
+async function afterPaymentTransition(orderId: string, next: PaymentStatus): Promise<void> {
+  if (next === PaymentStatus.PAID) {
+    await settlePaidOrder(orderId);
+  } else if (next === PaymentStatus.REFUNDED) {
+    const canceledNow = await cancelOrderRecord(orderId, PaymentStatus.REFUNDED);
+    if (canceledNow) await notifyCanceled(orderId, 'refunded');
+  }
+}
+
 /** Anexa um marcador às notas do pedido (idempotente). */
 async function appendOrderNote(orderId: string, marker: string, text: string): Promise<void> {
   const current = await prisma.order.findUnique({ where: { id: orderId }, select: { notes: true } });
@@ -347,91 +375,6 @@ async function pixDiscountFor(order: { subtotal: Prisma.Decimal; discountValue: 
   if (pct <= 0) return 0;
   const base = Math.max(0, (decimalToNumber(order.subtotal) ?? 0) - (decimalToNumber(order.discountValue) ?? 0));
   return Number(((base * Math.min(pct, 100)) / 100).toFixed(2));
-}
-
-/** Marcador de revisão manual anexado a um pedido pago sem estoque. */
-const STOCK_REVIEW_MARKER = '[REVISAR ESTOQUE]';
-
-/**
- * Liquida um pedido recém-confirmado como PAGO: baixa o estoque (idempotente) e
- * decide o status do pedido. Ponto ÚNICO chamado por todas as transições para
- * PAID (cartão, webhook Pix/boleto e reconciliação/polling), então a baixa é
- * sempre a mesma e nunca dupla (o guard `stockApplied` garante).
- *
- * Decisão "pago mas sem estoque": o pagamento é REAL e permanece PAID — nunca
- * descartamos um pagamento aprovado. Se o estoque não cobre no momento da baixa,
- * NÃO confirmamos o pedido: ele fica em PENDING, recebe um marcador de revisão
- * nas `notes` e um log de erro (sem dados sensíveis). O admin trata manualmente
- * (repor estoque e confirmar, ou estornar). Assim o sistema nunca fica
- * inconsistente (vendido sem estoque e já "Confirmado").
- */
-/**
- * Envia o e-mail de "pagamento aprovado" ao cliente, SEM bloquear nem derrubar
- * o fluxo de liquidação. Carrega só os campos necessários do pedido; qualquer
- * falha (SMTP fora, etc.) é engolida com log sem dados sensíveis — a liquidação
- * já ocorreu e nunca deve falhar por causa do e-mail.
- */
-async function sendPaymentApprovedEmail(orderId: string): Promise<void> {
-  try {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: { customerEmail: true, total: true },
-    });
-    if (!order) return;
-    const content = paymentApprovedEmail({
-      orderId,
-      total: decimalToNumber(order.total) ?? 0,
-    });
-    await sendEmail({
-      to: order.customerEmail,
-      subject: content.subject,
-      html: content.html,
-      text: content.text,
-    });
-  } catch {
-    // eslint-disable-next-line no-console
-    console.error(`[payments:email] Falha ao enviar "pagamento aprovado" do pedido ${orderId}.`);
-  }
-}
-
-async function settlePaidOrder(orderId: string): Promise<void> {
-  const result = await applyStockForOrder(orderId);
-
-  // E-mail de pagamento aprovado — enviado UMA única vez. A garantia vem do
-  // claim atômico de `applyStockForOrder`: só o primeiro chamador que liquida o
-  // pedido recebe `'applied'`; webhook, polling e reconciliação concorrentes (ou
-  // repetidos) recebem `'already_applied'` e NÃO reenviam. Não-bloqueante e sem
-  // dados sensíveis no log. `insufficient` não envia: o pedido fica retido para
-  // revisão do admin (não "preparando para envio"), então avisar seria enganoso.
-  if (result.status === 'applied') {
-    await sendPaymentApprovedEmail(orderId);
-  }
-
-  if (result.status === 'insufficient') {
-    // eslint-disable-next-line no-console
-    console.error(
-      `[payments] Pedido ${orderId} pago sem estoque suficiente — marcado para revisão do admin.`,
-    );
-    const current = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: { notes: true },
-    });
-    if (!current?.notes?.includes(STOCK_REVIEW_MARKER)) {
-      const note = `${STOCK_REVIEW_MARKER} Pagamento aprovado sem estoque suficiente; revisar.`;
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { notes: current?.notes ? `${note}\n${current.notes}` : note },
-      });
-    }
-    return;
-  }
-
-  // applied | already_applied → confirma o pedido, mas só se ainda estiver
-  // "Novo" (PENDING); nunca regride quem já avançou para produção/envio.
-  await prisma.order.updateMany({
-    where: { id: orderId, status: OrderStatus.PENDING },
-    data: { status: OrderStatus.CONFIRMED },
-  });
 }
 
 export const paymentsService = {
@@ -645,9 +588,7 @@ export const paymentsService = {
       });
       // Pix/boleto compensado detectado por polling → baixa o estoque e
       // confirma. Idempotente com o webhook: quem chegar primeiro baixa uma vez.
-      if (paymentStatus === PaymentStatus.PAID) {
-        await settlePaidOrder(order.id);
-      }
+      await afterPaymentTransition(order.id, paymentStatus);
     }
 
     return {
@@ -751,10 +692,56 @@ export const paymentsService = {
     // Pagamento aprovado (Pix/boleto compensado) → baixa o estoque (idempotente)
     // e confirma o pedido. O webhook pode chegar 2x: `settlePaidOrder` garante a
     // baixa uma única vez. Não regride quem já está em produção/enviado.
-    if (nextStatus === PaymentStatus.PAID) {
-      await settlePaidOrder(order.id);
-    }
+    await afterPaymentTransition(order.id, nextStatus);
     return 'updated';
+  },
+
+  /**
+   * Cancelar / estornar pelo admin (`POST /api/admin/orders/:orderId/cancel`).
+   *  - Pago via MP  → estorno TOTAL no Mercado Pago (`/v1/orders/{id}/refund`),
+   *                   pagamento REFUNDED;
+   *  - Pago fora do MP (marcado à mão) → REFUNDED + nota [ESTORNO MANUAL];
+   *  - Não pago     → cancela a cobrança aberta no MP (Pix/boleto), CANCELED.
+   * Em todos: pedido CANCELED, estoque reposto e cupom devolvido (uma vez),
+   * e-mail ao cliente. Se o MP recusar o estorno, nada muda e o erro sobe.
+   */
+  async cancelOrRefund(orderId: string): Promise<{ orderId: string; result: 'refunded' | 'canceled' }> {
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw HttpError.notFound('Pedido não encontrado.');
+    if (order.status === OrderStatus.CANCELED) throw HttpError.conflict('Este pedido já está cancelado.');
+
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      if (order.mpPaymentId) {
+        const res = await mpRequest(`/v1/orders/${encodeURIComponent(order.mpPaymentId)}/refund`, {
+          method: 'POST',
+          // Estável por pedido: um duplo clique não gera dois estornos.
+          idempotencyKey: `refund-${order.id}`,
+        });
+        if (!res.ok) throw providerError(res.status, res.body);
+        await cancelOrderRecord(order.id, PaymentStatus.REFUNDED);
+      } else {
+        await cancelOrderRecord(
+          order.id,
+          PaymentStatus.REFUNDED,
+          '[ESTORNO MANUAL] Pago fora do Mercado Pago — devolver o valor ao cliente manualmente.',
+        );
+      }
+      await notifyCanceled(order.id, 'refunded');
+      return { orderId: order.id, result: 'refunded' };
+    }
+
+    if (order.mpPaymentId) {
+      // Confere antes: se pagou nesse meio-tempo, não cancela "às cegas".
+      const previous = await closePreviousAttempt(order.mpPaymentId);
+      if (previous === 'paid') {
+        await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: PaymentStatus.PAID } });
+        await settlePaidOrder(order.id);
+        throw HttpError.conflict('O pagamento acabou de ser aprovado. Atualize a lista e use "estornar" se precisar.');
+      }
+    }
+    await cancelOrderRecord(order.id, PaymentStatus.CANCELED);
+    await notifyCanceled(order.id, 'canceled');
+    return { orderId: order.id, result: 'canceled' };
   },
 
   /**
@@ -809,9 +796,7 @@ export const paymentsService = {
         }
 
         await prisma.order.update({ where: { id: o.id }, data: { paymentStatus: next } });
-        if (next === PaymentStatus.PAID) {
-          await settlePaidOrder(o.id);
-        }
+        await afterPaymentTransition(o.id, next);
         updated++;
         details.push({ orderId: o.id, result: 'updated', paymentStatus: next });
       } catch {

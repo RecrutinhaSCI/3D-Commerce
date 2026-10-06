@@ -92,6 +92,13 @@ export const paymentsController = {
    * webhooks perdidos: consulta o MP e avança status/baixa estoque de forma
    * idempotente. Não agenda nada — o líder decide o cron/agendamento.
    */
+  /** Cancelar/estornar pedido (admin). Estorna no MP quando já foi pago. */
+  async cancelOrder(req: Request, res: Response) {
+    const { orderId } = orderIdParam.parse(req.params);
+    const result = await paymentsService.cancelOrRefund(orderId);
+    return ok(res, result);
+  },
+
   async reconcile(_req: Request, res: Response) {
     const result = await paymentsService.reconcilePendingPayments();
     return ok(res, result);

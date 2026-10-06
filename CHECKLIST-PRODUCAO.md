@@ -22,7 +22,7 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 - [ ] Expirar pedidos não pagos (24–48h) via **Vercel Cron** e devolver o cupom
 - [ ] Botão "Pagar agora / ver Pix" em Meus pedidos
 - [x] Timeout no envio de e-mail (SMTP)
-- [ ] Admin marcar pedido como pago → baixa estoque; validar transições de status
+- [x] Admin marcar pedido como pago → baixa estoque; validar transições de status
 - [ ] Corrigir criação de produto no admin (id real, campos de peso/dimensões)
 - [ ] Admin de pedidos: mostrar "[REVISAR ESTOQUE]", erros reais, atualizar lista
 

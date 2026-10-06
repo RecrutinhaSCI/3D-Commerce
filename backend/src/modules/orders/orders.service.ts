@@ -14,7 +14,13 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { decimalToNumber } from '../../utils/decimal';
 import { sendEmail } from '../../lib/email';
-import { orderCreatedEmail, orderShippedEmail, type EmailContent } from '../../lib/emailTemplates';
+import {
+  orderCanceledEmail,
+  orderCreatedEmail,
+  orderShippedEmail,
+  paymentApprovedEmail,
+  type EmailContent,
+} from '../../lib/emailTemplates';
 import { couponsService } from '../coupons/coupons.service';
 import { effectivePrice } from '../cart/cart.service';
 import { shippingService } from '../shipping/shipping.service';
@@ -377,11 +383,31 @@ export const ordersService = {
   async updateStatus(orderId: string, input: UpdateOrderStatusInput): Promise<OrderDTO> {
     const prev = await prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, paymentStatus: true },
     });
     if (!prev) throw HttpError.notFound('Pedido não encontrado.');
 
-    const updated = await prisma.order.update({
+    // Regras de transição (admin).
+    if (prev.status === OrderStatus.CANCELED && input.status && input.status !== OrderStatus.CANCELED) {
+      throw HttpError.conflict('Pedido cancelado não pode ser reaberto. Crie um novo pedido.');
+    }
+    if (prev.paymentStatus === PaymentStatus.REFUNDED && input.paymentStatus === PaymentStatus.PAID) {
+      throw HttpError.conflict('Pagamento estornado não pode voltar a "pago".');
+    }
+    const effectivePayment = input.paymentStatus ?? prev.paymentStatus;
+    if (input.status && REQUIRES_PAID.includes(input.status) && effectivePayment !== PaymentStatus.PAID) {
+      throw HttpError.badRequest('Marque o pagamento como "Pago" antes de confirmar, produzir ou enviar o pedido.');
+    }
+
+    // Cancelamento pelo seletor: mesmo caminho único (estoque + cupom). Não
+    // estorna no Mercado Pago — para isso existe "Cancelar/estornar".
+    if (input.status === OrderStatus.CANCELED) {
+      await cancelOrderRecord(orderId, input.paymentStatus ?? prev.paymentStatus);
+      const canceled = await prisma.order.findUnique({ where: { id: orderId }, include: includeRelations });
+      return toOrderDTO(canceled!);
+    }
+
+    let updated = await prisma.order.update({
       where: { id: orderId },
       data: {
         ...(input.status ? { status: input.status } : {}),
@@ -389,6 +415,13 @@ export const ordersService = {
       },
       include: includeRelations,
     });
+
+    // Marcado como PAGO manualmente → mesma liquidação do Mercado Pago (baixa
+    // de estoque idempotente, confirma o pedido, e-mail de pagamento aprovado).
+    if (input.paymentStatus === PaymentStatus.PAID && prev.paymentStatus !== PaymentStatus.PAID) {
+      await settlePaidOrder(orderId);
+      updated = (await prisma.order.findUnique({ where: { id: orderId }, include: includeRelations }))!;
+    }
 
     // Pedido despachado: enviamos o e-mail de envio na TRANSIÇÃO para SHIPPED
     // (status antes != SHIPPED), e só se já houver código de rastreio. Se o
@@ -406,12 +439,10 @@ export const ordersService = {
       );
     }
 
-    // Reposição de estoque: se o admin cancela o pedido ou o pagamento
-    // falha/estorna/cancela DEPOIS de a baixa ter ocorrido, devolve as unidades
-    // ao estoque. `restoreStockForOrder` é idempotente (só age se stockApplied
-    // estava true), então repetir a mesma transição não repõe em dobro.
+    // Reposição de estoque: se o pagamento falha/estorna/cancela DEPOIS de a
+    // baixa ter ocorrido, devolve as unidades (cancelar o pedido já repõe via
+    // cancelOrderRecord, acima). `restoreStockForOrder` é idempotente.
     const releasesStock =
-      input.status === OrderStatus.CANCELED ||
       input.paymentStatus === PaymentStatus.FAILED ||
       input.paymentStatus === PaymentStatus.CANCELED ||
       input.paymentStatus === PaymentStatus.REFUNDED;
@@ -520,6 +551,54 @@ export async function applyStockForOrder(orderId: string): Promise<ApplyStockRes
 }
 
 /**
+ * Cancela o pedido UMA única vez (guard atômico `status != CANCELED`) e desfaz
+ * os efeitos colaterais: repõe o estoque (se tinha sido baixado) e devolve o
+ * uso do cupom. Ponto único usado pelo cancelamento/estorno do admin, pela
+ * expiração automática e pelo webhook de estorno. Retorna se cancelou agora.
+ */
+export async function cancelOrderRecord(
+  orderId: string,
+  paymentStatus: PaymentStatus,
+  note?: string,
+): Promise<boolean> {
+  const claim = await prisma.order.updateMany({
+    where: { id: orderId, status: { not: OrderStatus.CANCELED } },
+    data: { status: OrderStatus.CANCELED, paymentStatus },
+  });
+  if (claim.count === 0) return false;
+
+  await restoreStockForOrder(orderId);
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { couponId: true, notes: true },
+  });
+  if (order?.couponId) {
+    // Devolve o uso consumido na criação do pedido (nunca abaixo de zero).
+    await prisma.coupon.updateMany({
+      where: { id: order.couponId, usageCount: { gt: 0 } },
+      data: { usageCount: { decrement: 1 } },
+    });
+  }
+  if (note) {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { notes: order?.notes ? `${note}\n${order.notes}` : note },
+    });
+  }
+  return true;
+}
+
+/** Status que exigem pagamento confirmado (não se produz/envia pedido não pago). */
+const REQUIRES_PAID: OrderStatus[] = [
+  OrderStatus.CONFIRMED,
+  OrderStatus.IN_PRODUCTION,
+  OrderStatus.READY,
+  OrderStatus.SHIPPED,
+  OrderStatus.DELIVERED,
+];
+
+/**
  * Repõe o estoque baixado de um pedido (cancelamento/estorno). Idempotente:
  * só age se `stockApplied` estava true, e o desmarca no mesmo passo atômico —
  * repetir a reposição não devolve unidades em dobro. Retorna se repôs.
@@ -541,5 +620,95 @@ export async function restoreStockForOrder(orderId: string): Promise<boolean> {
       });
     }
     return true;
+  });
+}
+
+// ===========================================================================
+// Liquidação de pedido PAGO — ponto único (Mercado Pago, webhook, polling,
+// reconciliação e marcação manual pelo admin).
+// ===========================================================================
+
+/** Marcador de revisão manual anexado a um pedido pago sem estoque. */
+const STOCK_REVIEW_MARKER = '[REVISAR ESTOQUE]';
+
+/**
+ * Liquida um pedido recém-confirmado como PAGO: baixa o estoque (idempotente) e
+ * decide o status do pedido. Ponto ÚNICO chamado por todas as transições para
+ * PAID (cartão, webhook Pix/boleto e reconciliação/polling), então a baixa é
+ * sempre a mesma e nunca dupla (o guard `stockApplied` garante).
+ *
+ * Decisão "pago mas sem estoque": o pagamento é REAL e permanece PAID — nunca
+ * descartamos um pagamento aprovado. Se o estoque não cobre no momento da baixa,
+ * NÃO confirmamos o pedido: ele fica em PENDING, recebe um marcador de revisão
+ * nas `notes` e um log de erro (sem dados sensíveis). O admin trata manualmente
+ * (repor estoque e confirmar, ou estornar). Assim o sistema nunca fica
+ * inconsistente (vendido sem estoque e já "Confirmado").
+ */
+/**
+ * Envia o e-mail de "pagamento aprovado" ao cliente, SEM bloquear nem derrubar
+ * o fluxo de liquidação. Carrega só os campos necessários do pedido; qualquer
+ * falha (SMTP fora, etc.) é engolida com log sem dados sensíveis — a liquidação
+ * já ocorreu e nunca deve falhar por causa do e-mail.
+ */
+async function sendPaymentApprovedEmail(orderId: string): Promise<void> {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { customerEmail: true, total: true },
+    });
+    if (!order) return;
+    const content = paymentApprovedEmail({
+      orderId,
+      total: decimalToNumber(order.total) ?? 0,
+    });
+    await sendEmail({
+      to: order.customerEmail,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+    });
+  } catch {
+    // eslint-disable-next-line no-console
+    console.error(`[orders:email] Falha ao enviar "pagamento aprovado" do pedido ${orderId}.`);
+  }
+}
+
+export async function settlePaidOrder(orderId: string): Promise<void> {
+  const result = await applyStockForOrder(orderId);
+
+  // E-mail de pagamento aprovado — enviado UMA única vez. A garantia vem do
+  // claim atômico de `applyStockForOrder`: só o primeiro chamador que liquida o
+  // pedido recebe `'applied'`; webhook, polling e reconciliação concorrentes (ou
+  // repetidos) recebem `'already_applied'` e NÃO reenviam. Não-bloqueante e sem
+  // dados sensíveis no log. `insufficient` não envia: o pedido fica retido para
+  // revisão do admin (não "preparando para envio"), então avisar seria enganoso.
+  if (result.status === 'applied') {
+    await sendPaymentApprovedEmail(orderId);
+  }
+
+  if (result.status === 'insufficient') {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[orders] Pedido ${orderId} pago sem estoque suficiente — marcado para revisão do admin.`,
+    );
+    const current = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { notes: true },
+    });
+    if (!current?.notes?.includes(STOCK_REVIEW_MARKER)) {
+      const note = `${STOCK_REVIEW_MARKER} Pagamento aprovado sem estoque suficiente; revisar.`;
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { notes: current?.notes ? `${note}\n${current.notes}` : note },
+      });
+    }
+    return;
+  }
+
+  // applied | already_applied → confirma o pedido, mas só se ainda estiver
+  // "Novo" (PENDING); nunca regride quem já avançou para produção/envio.
+  await prisma.order.updateMany({
+    where: { id: orderId, status: OrderStatus.PENDING },
+    data: { status: OrderStatus.CONFIRMED },
   });
 }

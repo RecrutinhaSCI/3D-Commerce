@@ -131,6 +131,37 @@ export function paymentApprovedEmail(order: Pick<OrderEmailData, 'orderId' | 'to
   return { subject, html, text };
 }
 
+/**
+ * E-mail: pedido cancelado. `refunded` = havia pagamento e ele foi estornado;
+ * `expired` = cancelado automaticamente por falta de pagamento.
+ */
+export function orderCanceledEmail(
+  orderId: string,
+  reason: 'refunded' | 'canceled' | 'expired',
+  total?: number,
+): EmailContent {
+  const subject = `Pedido cancelado — ${BRAND}`;
+  const detail =
+    reason === 'refunded'
+      ? `<p>O valor${total !== undefined ? ` de <strong>${formatBRL(total)}</strong>` : ''} foi estornado para a mesma forma de pagamento. O prazo para aparecer depende do seu banco ou operadora do cartão.</p>`
+      : reason === 'expired'
+        ? '<p>Não identificamos o pagamento dentro do prazo. Se ainda quiser os produtos, é só fazer um novo pedido.</p>'
+        : '<p>Nenhuma cobrança foi efetivada.</p>';
+  const html = layout(
+    'Pedido cancelado',
+    `<p>Seu pedido <strong>#${escapeHtml(orderId)}</strong> foi cancelado.</p>${detail}
+     <p>Qualquer dúvida, responda este e-mail ou fale com a gente pelo WhatsApp.</p>`,
+  );
+  const text =
+    `Seu pedido #${orderId} foi cancelado. ` +
+    (reason === 'refunded'
+      ? 'O valor foi estornado para a mesma forma de pagamento.'
+      : reason === 'expired'
+        ? 'Não identificamos o pagamento dentro do prazo.'
+        : 'Nenhuma cobrança foi efetivada.');
+  return { subject, html, text };
+}
+
 /** E-mail: pedido enviado, com código de rastreio. */
 export function orderShippedEmail(trackingCode: string, orderId?: string): EmailContent {
   const subject = `Seu pedido foi enviado — ${BRAND}`;
