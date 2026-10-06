@@ -46,6 +46,13 @@ function getTransporter(): Transporter | null {
       env.SMTP_USER && env.SMTP_PASS
         ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
         : undefined,
+    // Timeouts curtos: o envio acontece DENTRO da requisição (pedido, pagamento,
+    // senha). Os padrões do nodemailer chegam a minutos — um SMTP travado faria
+    // o cliente receber erro com o pedido já criado. Com 5s a falha é engolida
+    // pelos chamadores (e-mail nunca derruba o fluxo) e a resposta segue.
+    connectionTimeout: 5_000,
+    greetingTimeout: 5_000,
+    socketTimeout: 8_000,
   });
 
   return transporter;

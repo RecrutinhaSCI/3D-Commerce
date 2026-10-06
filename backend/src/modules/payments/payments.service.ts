@@ -279,6 +279,61 @@ interface CreatePaymentResult {
   barcode_content?: string;
 }
 
+/** Status do PAGAMENTO de uma Order do MP (prefere o payment, cai na Order). */
+function mpOrderPaymentStatus(mpOrder: MpOrder): PaymentStatus {
+  const p = mpOrder.transactions?.payments?.[0];
+  return mapMpStatus(p?.status ?? mpOrder.status);
+}
+
+/** Order do MP ainda cancelável (aguardando Pix/boleto ou criada). */
+function isMpOrderOpen(mpOrder: MpOrder): boolean {
+  return ['action_required', 'created', 'pending'].includes(mpOrder.status ?? '');
+}
+
+/**
+ * Cancela uma Order do MP (best-effort). Usado ao trocar de método e no
+ * cancelamento pelo admin/expiração. Nunca lança por falha do MP.
+ */
+async function cancelMpOrder(mpOrderId: string): Promise<boolean> {
+  try {
+    const res = await mpRequest(`/v1/orders/${encodeURIComponent(mpOrderId)}/cancel`, {
+      method: 'POST',
+      idempotencyKey: crypto.randomUUID(),
+    });
+    if (!res.ok) {
+      // eslint-disable-next-line no-console
+      console.warn(`[payments] Não foi possível cancelar a Order ${mpOrderId} no MP (HTTP ${res.status}).`);
+    }
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Encerra a tentativa anterior antes de uma nova: se já foi paga → 'paid';
+ * se ainda está aberta → cancela no MP; se já falhou/cancelou → nada.
+ */
+async function closePreviousAttempt(mpOrderId: string): Promise<'paid' | 'closed'> {
+  const res = await mpRequest(`/v1/orders/${encodeURIComponent(mpOrderId)}`, { method: 'GET' });
+  if (!res.ok) return 'closed'; // inexistente/erro: segue com a nova tentativa
+  const mpOrder = res.body as MpOrder;
+  if (mpOrderPaymentStatus(mpOrder) === PaymentStatus.PAID) return 'paid';
+  if (isMpOrderOpen(mpOrder)) await cancelMpOrder(mpOrderId);
+  return 'closed';
+}
+
+/** Anexa um marcador às notas do pedido (idempotente). */
+async function appendOrderNote(orderId: string, marker: string, text: string): Promise<void> {
+  const current = await prisma.order.findUnique({ where: { id: orderId }, select: { notes: true } });
+  if (current?.notes?.includes(marker)) return;
+  const note = `${marker} ${text}`;
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { notes: current?.notes ? `${note}\n${current.notes}` : note },
+  });
+}
+
 /**
  * Desconto do Pix em R$ para o pedido: `pixDiscountPercent` (SiteSettings,
  * editável no admin) sobre os produtos já com cupom — frete não entra.
@@ -408,6 +463,18 @@ export const paymentsService = {
       input.formData.payment_method_id,
     );
     if (!kind) throw HttpError.badRequest('Método de pagamento inválido.');
+
+    // Nova tentativa (troca de método ou retry): encerra a anterior no MP para
+    // o cliente não conseguir pagar duas vezes (ex.: Pix antigo + cartão).
+    if (order.mpPaymentId) {
+      const previous = await closePreviousAttempt(order.mpPaymentId);
+      if (previous === 'paid') {
+        // A tentativa anterior foi paga nesse meio-tempo → liquida e recusa.
+        await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: PaymentStatus.PAID } });
+        await settlePaidOrder(order.id);
+        throw HttpError.conflict('Este pedido já foi pago.');
+      }
+    }
 
     // Valor SEMPRE do pedido (nunca do cliente) e como string ("50.00").
     // Desconto da forma de pagamento: no Pix, `pixDiscountPercent` (admin) sobre
@@ -639,8 +706,34 @@ export const paymentsService = {
       return 'ignored';
     }
 
-    const mpPayment = mpOrder.transactions?.payments?.[0] ?? {};
-    const nextStatus = mapMpStatus(mpPayment.status ?? mpOrder.status);
+    const nextStatus = mpOrderPaymentStatus(mpOrder);
+
+    // Notificação de uma tentativa ANTIGA (o cliente trocou de método depois).
+    // Só o id atual (`mpPaymentId`) move o status — senão um "failed" atrasado
+    // do cartão rebaixaria o Pix pendente. Exceção: a antiga foi PAGA.
+    if (order.mpPaymentId && id !== order.mpPaymentId) {
+      if (nextStatus !== PaymentStatus.PAID) return 'ignored';
+      if (order.paymentStatus === PaymentStatus.PAID) {
+        // eslint-disable-next-line no-console
+        console.error(`[payments:webhook] Pagamento DUPLICADO no pedido ${order.id} (Order ${id}).`);
+        await appendOrderNote(
+          order.id,
+          '[PAGAMENTO DUPLICADO]',
+          `A Order ${id} do Mercado Pago também foi paga — estornar pelo painel do MP.`,
+        );
+        return 'unchanged';
+      }
+      // Única tentativa paga: vale como pagamento do pedido (cai no fluxo abaixo).
+      // eslint-disable-next-line no-console
+      console.warn(`[payments:webhook] Pedido ${order.id} pago por uma tentativa anterior (Order ${id}).`);
+      await appendOrderNote(
+        order.id,
+        '[CONFERIR VALOR]',
+        `Pago pela tentativa anterior ${id} (valor pode diferir do total atual).`,
+      );
+      await prisma.order.update({ where: { id: order.id }, data: { mpPaymentId: id } });
+    }
+
     if (!canAdvancePaymentStatus(order.paymentStatus, nextStatus)) {
       return 'unchanged';
     }
