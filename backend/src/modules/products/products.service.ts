@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { generateUniqueSlug } from '../../utils/slug';
 import { decimalToNumber } from '../../utils/decimal';
-import { safeUnlinkProductImage } from '../../lib/upload';
+import { safeUnlinkProductImage, storedFileUrl } from '../../lib/upload';
 import type {
   AdminListQuery,
   CreateProductInput,
@@ -324,7 +324,7 @@ export const productsService = {
     const product = await prisma.product.findUnique({ where: { id }, include: { images: true } });
     if (!product) {
       // Limpa uploads órfãos.
-      files.forEach((f) => safeUnlinkProductImage(f.filename));
+      files.forEach((f) => safeUnlinkProductImage(storedFileUrl(f, 'products')));
       throw HttpError.notFound('Produto não encontrado.');
     }
 
@@ -337,7 +337,7 @@ export const productsService = {
         prisma.productImage.create({
           data: {
             productId: id,
-            url: `/uploads/products/${file.filename}`,
+            url: storedFileUrl(file, 'products'),
             alt: product.name,
             position: startPos + index,
           },
@@ -353,11 +353,9 @@ export const productsService = {
     const image = await prisma.productImage.findUnique({ where: { id: imageId } });
     if (!image) throw HttpError.notFound('Imagem não encontrada.');
     await prisma.productImage.delete({ where: { id: imageId } });
-    // Best-effort: apagar o arquivo físico se estiver em /uploads/products/.
-    const prefix = '/uploads/products/';
-    if (image.url.startsWith(prefix)) {
-      safeUnlinkProductImage(image.url.slice(prefix.length));
-    }
+    // Best-effort: apaga o arquivo (Vercel Blob ou /uploads/products/ local).
+    // Imagens do seed (/uploads/seed/) não são tocadas.
+    if (!image.url.startsWith('/uploads/seed/')) safeUnlinkProductImage(image.url);
     return { imageId };
   },
 };

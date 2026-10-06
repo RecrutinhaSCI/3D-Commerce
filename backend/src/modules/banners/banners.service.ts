@@ -1,7 +1,7 @@
 import type { Banner } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
-import { safeUnlinkSiteImage, siteImageUrl } from '../../lib/upload';
+import { safeUnlinkSiteImage } from '../../lib/upload';
 import type { CreateBannerInput, UpdateBannerInput } from './banners.schemas';
 
 export interface BannerDTO {
@@ -78,13 +78,13 @@ export const bannersService = {
     if (current.imageUrl) safeUnlinkSiteImage(current.imageUrl);
   },
 
-  async setImage(id: string, filename: string): Promise<BannerDTO> {
+  async setImage(id: string, url: string): Promise<BannerDTO> {
     const current = await prisma.banner.findUnique({ where: { id } });
     if (!current) throw HttpError.notFound('Banner não encontrado.');
     if (current.imageUrl) safeUnlinkSiteImage(current.imageUrl);
     const updated = await prisma.banner.update({
       where: { id },
-      data: { imageUrl: siteImageUrl(filename) },
+      data: { imageUrl: url },
     });
     return toDTO(updated);
   },

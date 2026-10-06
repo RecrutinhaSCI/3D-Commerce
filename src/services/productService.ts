@@ -48,10 +48,15 @@ export const productService = {
   remove(id: string) {
     return api.del<{ softDeleted: boolean; product: ApiProduct }>(`/api/admin/products/${id}`);
   },
-  addImages(id: string, files: File[]) {
-    const form = new FormData();
-    files.forEach((f) => form.append('images', f));
-    return api.post<{ product: ApiProduct }>(`/api/admin/products/${id}/images`, form);
+  /** Uma imagem por requisição (limite de 4,5 MB do corpo na Vercel). */
+  async addImages(id: string, files: File[]) {
+    let last: { product: ApiProduct } | undefined;
+    for (const f of files) {
+      const form = new FormData();
+      form.append('images', f);
+      last = await api.post<{ product: ApiProduct }>(`/api/admin/products/${id}/images`, form);
+    }
+    return last!;
   },
   removeImage(imageId: string) {
     return api.del(`/api/admin/products/images/${imageId}`);

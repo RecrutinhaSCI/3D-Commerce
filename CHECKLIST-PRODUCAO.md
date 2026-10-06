@@ -5,15 +5,15 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 
 ## Etapa 1 — Antes de qualquer venda
 
-- [ ] Uploads no **Vercel Blob** (produto, banner, logo, depoimento, orçamento) — hoje falham na Vercel
+- [x] Uploads no **Vercel Blob** (produto, banner, logo, depoimento, orçamento) — código pronto; falta criar o Blob Store na Vercel (gera `BLOB_READ_WRITE_TOKEN`)
 - [x] **Meus pedidos** buscando `/api/me/orders` (hoje fica vazio ao recarregar)
 - [x] **Desconto Pix** aplicado no backend (% do admin sobre os produtos, frete fora)
 - [x] **Preço** recalculado na criação do pedido e total exibido vindo da API
 - [x] **Frete** calculado no backend + modalidade (PAC/Sedex/retirada) salva no pedido
 - [x] Remover o texto "Ambiente de teste (sandbox)" da tela de sucesso
 - [x] Migration de backfill: `stock_applied = true` nos pedidos antigos (`20261006120000_checkout_hardening`)
-- [ ] Aplicar as migrations no **Neon** (branch de backup antes)
-- [ ] Variáveis do Mercado Pago na Vercel (Production e Preview) e conferir o entrypoint no log de build do backend
+- [ ] ⏳ **Você:** aplicar as migrations no **Neon** (branch de backup antes) — 4 pendentes, comandos na seção 4 do CONFIGURAR-CLIENTE.md
+- [ ] ⏳ **Você:** na Vercel (backend) criar o Blob Store, cadastrar `MP_ACCESS_TOKEN`/`MP_WEBHOOK_SECRET` (Production e Preview) e conferir o entrypoint no log de build
 
 ## Etapa 2 — Operação da loja
 

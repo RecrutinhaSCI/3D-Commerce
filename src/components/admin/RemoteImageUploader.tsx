@@ -13,7 +13,7 @@ import { apiAssetUrl } from '@/services/api';
 interface BaseProps {
   label?: string;
   hint?: string;
-  /** Tamanho máximo em bytes (default 5MB). */
+  /** Tamanho máximo em bytes (default 4MB). */
   maxBytes?: number;
   /** Mimes permitidos (default: JPG/PNG/WEBP). */
   accept?: string[];
@@ -41,7 +41,7 @@ interface MultipleProps extends BaseProps {
 type Props = SingleProps | MultipleProps;
 
 const DEFAULT_ACCEPT = ['image/jpeg', 'image/png', 'image/webp'];
-const DEFAULT_MAX = 5 * 1024 * 1024;
+const DEFAULT_MAX = 4 * 1024 * 1024; // limite do backend (corpo de 4,5 MB na Vercel)
 
 export function RemoteImageUploader(props: Props) {
   const inputRef = useRef<HTMLInputElement>(null);

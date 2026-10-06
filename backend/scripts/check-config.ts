@@ -147,10 +147,18 @@ async function checkSmtp() {
   }
 }
 
+function checkUploads() {
+  if (env.BLOB_READ_WRITE_TOKEN) {
+    add('ok', 'Uploads', 'Vercel Blob configurado (BLOB_READ_WRITE_TOKEN).');
+  } else {
+    add(env.NODE_ENV === 'production' ? 'error' : 'warn', 'Uploads', 'Sem BLOB_READ_WRITE_TOKEN — uploads vão para o disco (na Vercel isso falha).');
+  }
+}
+
 function checkUrls() {
   add('ok', 'URLs', `APP_URL=${env.APP_URL} · CORS_ORIGIN=${corsOrigins.join(', ')}`);
   for (const w of productionConfigWarnings()) {
-    // MP/SMTP já têm checagem própria acima; aqui só o que é de URL.
+    // MP/SMTP/Blob já têm checagem própria acima; aqui só o que é de URL.
     if (/APP_URL|CORS_ORIGIN/.test(w)) add('error', 'URLs', w);
   }
 }
@@ -164,6 +172,7 @@ async function main() {
   }
   await checkMercadoPago();
   await checkSmtp();
+  checkUploads();
   checkUrls();
 
   const icon: Record<Level, string> = { ok: '✔', warn: '⚠', error: '✖' };

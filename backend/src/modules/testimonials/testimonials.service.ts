@@ -1,7 +1,7 @@
 import type { Testimonial } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
-import { safeUnlinkSiteImage, siteImageUrl } from '../../lib/upload';
+import { safeUnlinkSiteImage } from '../../lib/upload';
 import type { CreateTestimonialInput, UpdateTestimonialInput } from './testimonials.schemas';
 
 export interface TestimonialDTO {
@@ -72,13 +72,13 @@ export const testimonialsService = {
     if (current.avatarUrl) safeUnlinkSiteImage(current.avatarUrl);
   },
 
-  async setAvatar(id: string, filename: string): Promise<TestimonialDTO> {
+  async setAvatar(id: string, url: string): Promise<TestimonialDTO> {
     const current = await prisma.testimonial.findUnique({ where: { id } });
     if (!current) throw HttpError.notFound('Depoimento não encontrado.');
     if (current.avatarUrl) safeUnlinkSiteImage(current.avatarUrl);
     const updated = await prisma.testimonial.update({
       where: { id },
-      data: { avatarUrl: siteImageUrl(filename) },
+      data: { avatarUrl: url },
     });
     return toDTO(updated);
   },

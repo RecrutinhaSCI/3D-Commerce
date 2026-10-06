@@ -8,7 +8,7 @@ import {
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { decimalToNumber } from '../../utils/decimal';
-import { quoteFileUrl, safeUnlinkQuoteFile } from '../../lib/upload';
+import { safeUnlinkQuoteFile, storedFileUrl } from '../../lib/upload';
 import type {
   AdminQuotesQuery,
   CreateQuoteInput,
@@ -222,7 +222,7 @@ export const quotesService = {
     const quote = await prisma.quote.findUnique({ where: { id }, select: { id: true } });
     if (!quote) {
       // Limpa uploads órfãos se o orçamento não existe.
-      files.forEach((f) => safeUnlinkQuoteFile(f.filename));
+      files.forEach((f) => safeUnlinkQuoteFile(storedFileUrl(f, 'quotes')));
       throw HttpError.notFound('Orçamento não encontrado.');
     }
 
@@ -236,14 +236,14 @@ export const quotesService = {
               originalName: file.originalname,
               mimeType: file.mimetype,
               size: file.size,
-              url: quoteFileUrl(file.filename),
+              url: storedFileUrl(file, 'quotes'),
             },
           }),
         ),
       );
     } catch (err) {
       // Se a transação falhar, remove arquivos do disco.
-      files.forEach((f) => safeUnlinkQuoteFile(f.filename));
+      files.forEach((f) => safeUnlinkQuoteFile(storedFileUrl(f, 'quotes')));
       throw err;
     }
 

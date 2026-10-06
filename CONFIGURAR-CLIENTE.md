@@ -45,6 +45,7 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 | E-mail e senha do admin | Cliente / G-Rec | `.env` local na hora de rodar o seed (`ADMIN_EMAIL`, `ADMIN_PASSWORD`) | Sim |
 | Banco de produção | G-Rec (Neon) | Vercel (back) → `DATABASE_URL` (URL **com pooler**) | Sim |
 | Chave JWT | G-Rec (gerar) | Vercel (back) → `JWT_SECRET` | Sim |
+| Storage de uploads | G-Rec (Vercel Blob) | Vercel (back) → `BLOB_READ_WRITE_TOKEN` (criado ao conectar o Blob Store) | Sim |
 | URL do backend | G-Rec (Vercel back) | Vercel (front) → `VITE_API_URL` | Sim |
 | Chave SeuRastreio | G-Rec / cliente | Vercel (front) → `VITE_SEURASTREIO_API_KEY` | Opcional |
 
@@ -146,7 +147,7 @@ NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..
 ## 5. Ordem para colocar no ar
 
 1. **Neon**: branch de backup → `npx prisma migrate deploy` (seção 4).
-2. **Vercel (back)**: cadastrar as variáveis da seção 2 (Production) com `NODE_ENV=production`.
+2. **Vercel (back)**: criar e conectar o **Blob Store** (Storage → Blob), depois cadastrar as variáveis da seção 2 (Production) com `NODE_ENV=production`.
    O backend **não sobe** sem `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET`. Cadastre as duas também nos ambientes Preview e Development, com as credenciais de teste.
 3. **Seed**, se for a primeira subida ou para definir a senha do admin (seção 4).
 4. **Vercel (front)**: `VITE_API_URL`, `VITE_MP_PUBLIC_KEY`, `VITE_SITE_URL`, depois redeploy.
@@ -161,7 +162,8 @@ NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..
 
 ## 6. Pontos de atenção antes de entregar
 
-- **Upload de imagens pelo admin (produtos, banners, logo, depoimentos, arquivos de orçamento) não funciona na Vercel.** O código grava em `backend/uploads` com `multer.diskStorage`, mas o disco das funções é somente leitura (só `/tmp`, que é temporário). **Isso bloqueia o cadastro do catálogo real** e precisa ir para um storage externo antes da entrega. O caminho natural nessa infra é o **Vercel Blob**, que exige `BLOB_READ_WRITE_TOKEN` no projeto backend.
+- **Uploads usam o Vercel Blob em produção.** No projeto backend da Vercel: **Storage → Create → Blob → Connect** (ambientes Production e Preview). A Vercel injeta `BLOB_READ_WRITE_TOKEN` sozinha; depois, redeploy. Sem o token, o upload tenta gravar em disco e falha na Vercel; o `check:config` acusa. **Primeiro teste após configurar:** subir uma imagem de produto pela preview e conferir que a URL salva começa com `https://...blob.vercel-storage.com`.
+- **Limite de 4 MB por arquivo**, por causa do corpo de 4,5 MB por requisição na Vercel. O admin envia uma imagem por requisição. No orçamento, arquivos STL maiores que 4 MB precisam ir pelo WhatsApp; aceitar arquivos grandes exige upload direto do navegador para o Blob (melhoria futura).
 - **Prisma Client no build**: o backend roda `prisma generate` no `postinstall`. A Vercel reaproveita o `node_modules` entre deploys, e sem isso um schema novo subiria com o client antigo.
 - **Rate limit** (login, pedidos) fica na memória de cada instância. Na Vercel, cada instância conta separado, então o limite real é mais frouxo. Aceitável para começar; se houver abuso, mover para Redis/Upstash.
 - **Frete** segue a regra atual das configurações (frete grátis acima de X). A cotação real por CEP ainda não foi implementada; o estudo está em [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md).

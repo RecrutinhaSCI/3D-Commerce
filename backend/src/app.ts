@@ -72,7 +72,12 @@ export function createApp(): Express {
     app.use(requestLogger);
   }
 
-  // Arquivos estáticos de upload (Multer servirá nestes paths a partir da R4/R6).
+  // Arquivos estáticos.
+  // - `public/` (ex.: /uploads/seed/*.svg): na Vercel é servido pelo CDN direto
+  //   da pasta public/ — o express.static é ignorado lá; aqui cobre o dev local.
+  // - `UPLOAD_DIR`: uploads em disco, SÓ em desenvolvimento. Em produção os
+  //   uploads vão para o Vercel Blob e o banco guarda a URL absoluta.
+  app.use(express.static(path.resolve(process.cwd(), 'public'), { maxAge: '7d' }));
   const uploadsPath = path.resolve(process.cwd(), env.UPLOAD_DIR);
   app.use('/uploads', express.static(uploadsPath, { fallthrough: true, maxAge: '7d' }));
 

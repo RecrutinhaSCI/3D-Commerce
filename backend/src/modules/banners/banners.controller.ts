@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { created, noContent, ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
-import { safeUnlinkSiteImage } from '../../lib/upload';
+import { safeUnlinkSiteImage, storedFileUrl } from '../../lib/upload';
 import { bannersService } from './banners.service';
 import { createBannerSchema, updateBannerSchema } from './banners.schemas';
 
@@ -43,10 +43,10 @@ export const bannersController = {
     const file = req.file as Express.Multer.File | undefined;
     if (!file) throw HttpError.badRequest('Envie um arquivo no campo "image".');
     try {
-      const banner = await bannersService.setImage(id, file.filename);
+      const banner = await bannersService.setImage(id, storedFileUrl(file, 'site'));
       return ok(res, { banner });
     } catch (err) {
-      safeUnlinkSiteImage(file.filename);
+      safeUnlinkSiteImage(storedFileUrl(file, 'site'));
       throw err;
     }
   },

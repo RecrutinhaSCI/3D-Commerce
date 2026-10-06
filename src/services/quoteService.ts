@@ -18,10 +18,18 @@ export const quoteService = {
     // Auth opcional: se tiver token de customer, backend associa via optionalAuthMiddleware.
     return api.post<{ quote: ApiQuote }>('/api/quotes', input);
   },
-  uploadFiles(quoteId: string, files: File[]) {
-    const form = new FormData();
-    files.forEach((f) => form.append('files', f));
-    return api.post<{ quote: ApiQuote }>(`/api/quotes/${quoteId}/files`, form, { anonymous: true });
+  /**
+   * Um arquivo por requisição: a Vercel limita o corpo a 4,5 MB, então
+   * mandar vários juntos estouraria o limite mesmo com arquivos pequenos.
+   */
+  async uploadFiles(quoteId: string, files: File[]) {
+    let last: { quote: ApiQuote } | undefined;
+    for (const f of files) {
+      const form = new FormData();
+      form.append('files', f);
+      last = await api.post<{ quote: ApiQuote }>(`/api/quotes/${quoteId}/files`, form, { anonymous: true });
+    }
+    return last!;
   },
   listMine(query?: { status?: ApiQuoteStatus; page?: number; limit?: number }) {
     return api.get<{ quotes: ApiQuote[]; pagination: ApiPagination }>('/api/me/quotes', {
