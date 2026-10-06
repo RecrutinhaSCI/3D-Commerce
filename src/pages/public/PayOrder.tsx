@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { AlertCircle, Check } from 'lucide-react';
 import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
 import { orderService } from '@/services/orderService';
+import { loginUrl } from '@/utils/redirect';
 import { ApiError } from '@/services/api';
 import type { ApiOrder } from '@/services/types';
 import { Input, Label } from '@/components/ui/Input';
@@ -37,7 +38,7 @@ export default function PayOrder() {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Não foi possível carregar o pedido.'));
   }, [customer?.id, orderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!customer) return <Navigate to="/login" replace />;
+  if (!customer) return <Navigate to={loginUrl(`/pagar/${orderId}`)} replace />;
 
   if (paid) {
     return (

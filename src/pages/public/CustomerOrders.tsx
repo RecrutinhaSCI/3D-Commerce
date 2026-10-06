@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { AlertCircle, ChevronRight, ExternalLink, MapPin, Package, Truck } from 'lucide-react';
 import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
 import { orderService } from '@/services/orderService';
+import { loginUrl } from '@/utils/redirect';
 import { apiOrderToInternal } from '@/services/adapters';
 import { ApiError } from '@/services/api';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -164,7 +165,7 @@ export default function CustomerOrders() {
     if (customer) loadPage(1);
   }, [customer?.id, loadPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!customer) return <Navigate to="/login" replace />;
+  if (!customer) return <Navigate to={loginUrl('/meus-pedidos')} replace />;
 
   const mine = orders;
 

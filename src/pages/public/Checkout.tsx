@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { loginUrl } from '@/utils/redirect';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -148,6 +149,12 @@ export default function Checkout() {
   };
   const finalShipping = shippingPrices[shipping].price;
   const total = subtotal - discount + finalShipping;
+
+  // Visitante com carrinho: entra (ou cria conta) e volta direto para cá — o
+  // carrinho do visitante é levado para a conta no login.
+  if (!loggedCustomer && !done && !createdOrder && items.length > 0) {
+    return <Navigate to={loginUrl('/checkout')} replace />;
+  }
 
   if (items.length === 0 && !done && !createdOrder) {
     return (

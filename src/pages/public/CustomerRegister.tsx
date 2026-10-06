@@ -1,4 +1,5 @@
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { safeRedirect } from '@/utils/redirect';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -34,6 +35,9 @@ type Data = z.infer<typeof schema>;
 export default function CustomerRegister() {
   useSEO('Criar conta', 'Crie sua conta na 3DCommerce para acompanhar seus pedidos.');
   const navigate = useNavigate();
+  const location = useLocation();
+  // Volta para onde o cliente estava (ex.: checkout), se veio com ?redirect=.
+  const dest = safeRedirect(location.search);
   const isLogged = useCustomerAuthStore((s) => s.currentCustomerId !== null);
   const registerCustomer = useCustomerAuthStore((s) => s.registerCustomer);
 
@@ -41,7 +45,7 @@ export default function CustomerRegister() {
     resolver: zodResolver(schema),
   });
 
-  if (isLogged) return <Navigate to="/minha-conta" replace />;
+  if (isLogged) return <Navigate to={dest} replace />;
 
   async function onSubmit(d: Data) {
     const hasAddress = d.cep && d.street && d.number && d.district && d.city && d.state;
@@ -65,7 +69,7 @@ export default function CustomerRegister() {
     });
     if (r.ok) {
       toast.success('Conta criada! Bem-vindo.');
-      navigate('/minha-conta');
+      navigate(dest, { replace: true });
     } else {
       toast.error(r.error ?? 'Erro ao criar conta.');
     }
@@ -175,7 +179,7 @@ export default function CustomerRegister() {
 
         <p className="mt-5 text-center text-sm text-ink-mute">
           Já tem conta?{' '}
-          <Link to="/login" className="font-semibold text-ink hover:underline">
+          <Link to={"/login" + location.search} className="font-semibold text-ink hover:underline">
             Entrar
           </Link>
         </p>

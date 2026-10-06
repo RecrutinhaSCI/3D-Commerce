@@ -28,7 +28,7 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 
 ## Etapa 3 — Conversão e qualidade
 
-- [ ] Carrinho de visitante + login voltando para a página de origem
+- [x] Carrinho de visitante + login voltando para a página de origem (`?redirect=`)
 - [x] Endereço do cliente salvo no backend (GET/PUT /api/me/address)
 - [x] CEP automático (ViaCEP) e CPF validado e salvo no pedido (migration `20261006150000_order_customer_cpf`)
 - [x] Consentimento LGPD gravado (data + versão) + reenvio do e-mail de verificação

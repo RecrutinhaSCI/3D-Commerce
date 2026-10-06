@@ -12,7 +12,16 @@ import { authService } from '@/services/authService';
 import { ApiError, getStoredToken, setAuthToken } from '@/services/api';
 import type { ApiAddress, ApiUser } from '@/services/types';
 import type { Customer, CustomerAddress } from '@/types';
+import toast from 'react-hot-toast';
 import { useCartStore } from '@/store/useCartStore';
+
+/** Leva o carrinho de visitante para a conta e avisa se algo ficou de fora. */
+async function mergeGuestCartWithNotice() {
+  const { failed } = await useCartStore.getState().mergeGuestCart();
+  if (failed.length) {
+    toast.error('Alguns itens do carrinho não puderam ser mantidos (sem estoque suficiente).');
+  }
+}
 
 function apiUserToInternal(u: ApiUser): Customer {
   return {
@@ -133,8 +142,8 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
             }
           }
           set({ customers: [c], currentCustomerId: c.id });
-          // Puxa carrinho vazio recém-criado para o cliente novo.
-          void useCartStore.getState().fetch();
+          // Leva o carrinho de visitante (se houver) para a conta nova.
+          void mergeGuestCartWithNotice();
           return { ok: true, customer: c };
         } catch (err) {
           const msg = err instanceof ApiError ? err.message : 'Erro ao criar conta.';
@@ -152,7 +161,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
           const c = apiUserToInternal(user);
           c.defaultAddress = await fetchDefaultAddress();
           set({ customers: [c], currentCustomerId: c.id });
-          void useCartStore.getState().fetch();
+          void mergeGuestCartWithNotice();
           return { ok: true };
         } catch (err) {
           const msg = err instanceof ApiError ? err.message : 'E-mail ou senha inválidos.';

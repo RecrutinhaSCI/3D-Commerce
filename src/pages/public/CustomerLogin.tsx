@@ -1,4 +1,5 @@
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { safeRedirect } from '@/utils/redirect';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -18,19 +19,22 @@ type Data = z.infer<typeof schema>;
 export default function CustomerLogin() {
   useSEO('Entrar', 'Acompanhe seus pedidos e agilize suas próximas compras na 3DCommerce.');
   const navigate = useNavigate();
+  const location = useLocation();
+  // Volta para onde o cliente estava (ex.: checkout), se veio com ?redirect=.
+  const dest = safeRedirect(location.search);
   const isLogged = useCustomerAuthStore((s) => s.currentCustomerId !== null);
   const loginCustomer = useCustomerAuthStore((s) => s.loginCustomer);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Data>({
     resolver: zodResolver(schema),
   });
 
-  if (isLogged) return <Navigate to="/minha-conta" replace />;
+  if (isLogged) return <Navigate to={dest} replace />;
 
   async function onSubmit(d: Data) {
     const r = await loginCustomer(d.email, d.password);
     if (r.ok) {
       toast.success('Bem-vindo de volta!');
-      navigate('/minha-conta');
+      navigate(dest, { replace: true });
     } else {
       toast.error(r.error ?? 'Erro ao entrar.');
     }
@@ -71,7 +75,7 @@ export default function CustomerLogin() {
         <div className="mt-5 flex flex-col items-center gap-2 text-sm">
           <p className="text-ink-mute">
             Ainda não tem conta?{' '}
-            <Link to="/criar-conta" className="font-semibold text-ink hover:underline">
+            <Link to={"/criar-conta" + location.search} className="font-semibold text-ink hover:underline">
               Criar conta
             </Link>
           </p>
