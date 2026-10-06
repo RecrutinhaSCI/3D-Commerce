@@ -10,6 +10,7 @@ import { authController } from './auth.controller';
  * POST /api/auth/login            → JWT do cliente ou admin
  * GET  /api/auth/me               → dados do usuário autenticado (sem passwordHash)
  * POST /api/auth/verify-email     → confirma e-mail via token
+ * POST /api/auth/resend-verification → reenvia o link (logado, intervalo de 2 min)
  * POST /api/auth/forgot-password  → inicia reset de senha (200 genérico)
  * POST /api/auth/reset-password   → redefine a senha via token
  */
@@ -25,5 +26,11 @@ authRouter.post(
 authRouter.get('/me', authMiddleware, asyncHandler(authController.me));
 
 authRouter.post('/verify-email', authRateLimiter, asyncHandler(authController.verifyEmail));
+authRouter.post(
+  '/resend-verification',
+  authMiddleware,
+  authRateLimiter,
+  asyncHandler(authController.resendVerification),
+);
 authRouter.post('/forgot-password', authRateLimiter, asyncHandler(authController.forgotPassword));
 authRouter.post('/reset-password', authRateLimiter, asyncHandler(authController.resetPassword));

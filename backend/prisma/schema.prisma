@@ -115,6 +115,10 @@ model User {
   passwordResetTokenHash String?   @map("password_reset_token_hash")
   passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
 
+  // LGPD: quando o cliente aceitou a Política de Privacidade e qual versão.
+  privacyConsentAt       DateTime? @map("privacy_consent_at")
+  privacyPolicyVersion   String?   @map("privacy_policy_version")
+
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

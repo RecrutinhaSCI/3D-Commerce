@@ -2,7 +2,7 @@ import { api } from './api';
 import type { ApiAddress, ApiUser } from './types';
 
 export const authService = {
-  register(input: { name: string; email: string; password: string; phone?: string }) {
+  register(input: { name: string; email: string; password: string; phone?: string; privacyConsent: true }) {
     return api.post<{ user: ApiUser; token: string }>('/api/auth/register', input, { anonymous: true });
   },
   login(email: string, password: string) {
@@ -13,6 +13,10 @@ export const authService = {
   },
   updateMe(input: { name?: string; phone?: string }) {
     return api.put<{ user: ApiUser }>('/api/me', input);
+  },
+  /** Reenvia o link de confirmação de e-mail (cliente logado). */
+  resendVerification() {
+    return api.post<{ alreadyVerified: boolean; message: string }>('/api/auth/resend-verification');
   },
   getAddress() {
     return api.get<{ address: ApiAddress | null }>('/api/me/address');

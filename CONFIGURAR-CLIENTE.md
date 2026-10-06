@@ -128,9 +128,9 @@ Antes de qualquer migration em produção, criar uma **branch de backup** no Neo
 
 ## 4. Migrations e seed no Neon (rodar da sua máquina)
 
-Esta branch adiciona **5 migrations**: campos do Mercado Pago no pedido, `stock_applied`, verificação de e-mail e reset de senha, `checkout_hardening` (frete, desconto Pix e backfill de estoque) e `customer_cpf`. **Elas precisam estar aplicadas no Neon antes de o código novo chegar em produção.** Sem elas, até o login quebra, porque o Prisma lê colunas que ainda não existem.
+Esta branch adiciona **6 migrations**: campos do Mercado Pago no pedido, `stock_applied`, verificação de e-mail e reset de senha, `checkout_hardening` (frete, desconto Pix e backfill de estoque), `customer_cpf` e `user_privacy_consent`. **Elas precisam estar aplicadas no Neon antes de o código novo chegar em produção.** Sem elas, até o login quebra, porque o Prisma lê colunas que ainda não existem.
 
-As 5 só **adicionam** colunas, com valor padrão ou permitindo nulo. Por isso é seguro aplicá-las antes do merge: o código antigo que está no ar continua funcionando.
+As 6 só **adicionam** colunas, com valor padrão ou permitindo nulo. Por isso é seguro aplicá-las antes do merge: o código antigo que está no ar continua funcionando.
 
 ```bash
 cd backend

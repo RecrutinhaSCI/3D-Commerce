@@ -9,6 +9,8 @@ import { Input, Label } from '@/components/ui/Input';
 import { useCustomerAuthStore, useCurrentCustomer } from '@/store/useCustomerAuthStore';
 import { useSEO } from '@/utils/seo';
 import { useState } from 'react';
+import { authService } from '@/services/authService';
+import { ApiError } from '@/services/api';
 
 const schema = z.object({
   name: z.string().min(3),
@@ -30,6 +32,7 @@ export default function CustomerAccount() {
   const updateCustomer = useCustomerAuthStore((s) => s.updateCustomer);
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<Data>({
     resolver: zodResolver(schema),
@@ -75,6 +78,23 @@ export default function CustomerAccount() {
     setEditing(false);
   }
 
+  async function resendVerification() {
+    setResending(true);
+    try {
+      const { alreadyVerified, message } = await authService.resendVerification();
+      if (alreadyVerified) {
+        useCustomerAuthStore.setState((s) => ({
+          customers: s.customers.map((c) => (c.id === customer!.id ? { ...c, emailVerified: true } : c)),
+        }));
+      }
+      toast.success(message);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Não foi possível reenviar o e-mail.');
+    } finally {
+      setResending(false);
+    }
+  }
+
   function doLogout() {
     logoutCustomer();
     toast.success('Você saiu da conta.');
@@ -105,6 +125,14 @@ export default function CustomerAccount() {
               Enviamos um link de confirmação para <strong>{customer.email}</strong> quando você criou a conta.
               Você pode continuar usando a loja normalmente — é só uma verificação de segurança.
             </p>
+            <button
+              type="button"
+              onClick={resendVerification}
+              disabled={resending}
+              className="mt-2 text-xs font-semibold text-amber-900 underline disabled:opacity-60"
+            >
+              {resending ? 'Enviando…' : 'Não recebeu? Reenviar e-mail de confirmação'}
+            </button>
           </div>
         </div>
       )}

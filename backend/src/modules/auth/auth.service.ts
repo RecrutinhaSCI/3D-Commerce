@@ -55,6 +55,15 @@ function toPublicUser(
 const BCRYPT_ROUNDS = 10;
 
 /**
+ * Versão da Política de Privacidade aceita no cadastro (data da última
+ * atualização em src/pages/public/PrivacyPolicy.tsx). Atualize junto.
+ */
+export const PRIVACY_POLICY_VERSION = '2026-09-15';
+
+/** Intervalo mínimo entre reenvios do e-mail de verificação. */
+const RESEND_VERIFY_COOLDOWN_MS = 2 * 60 * 1000;
+
+/**
  * Monta um link do frontend a partir do APP_URL, sem barra dupla.
  * Ex.: buildAppLink('/verificar-email', 'abc') => APP_URL/verificar-email?token=abc
  */
@@ -83,6 +92,8 @@ export const authService = {
         phone: input.phone,
         role: UserRole.CUSTOMER,
         active: true,
+        privacyConsentAt: new Date(),
+        privacyPolicyVersion: PRIVACY_POLICY_VERSION,
         emailVerifyTokenHash: hashToken(verifyPlain),
         emailVerifyExpiresAt: expiresInMinutes(EMAIL_VERIFY_TTL_MINUTES),
       },
@@ -108,6 +119,36 @@ export const authService = {
    * Confirma o e-mail a partir do token plano. Valida hash + expiração,
    * seta `emailVerified=true` e limpa o token. Erro claro se inválido/expirado.
    */
+  /**
+   * Reenvia o e-mail de verificação para o usuário logado. Gera um token novo
+   * (o anterior deixa de valer). Respeita um intervalo mínimo entre envios.
+   */
+  async resendVerification(userId: string): Promise<{ alreadyVerified: boolean }> {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.active) throw HttpError.unauthorized();
+    if (user.emailVerified) return { alreadyVerified: true };
+
+    // O token anterior foi emitido em (expiração - TTL). Evita spam de envios.
+    if (user.emailVerifyExpiresAt) {
+      const issuedAt = user.emailVerifyExpiresAt.getTime() - EMAIL_VERIFY_TTL_MINUTES * 60 * 1000;
+      if (Date.now() - issuedAt < RESEND_VERIFY_COOLDOWN_MS) {
+        throw new HttpError(429, 'RATE_LIMITED', 'Aguarde 2 minutos para pedir um novo e-mail.');
+      }
+    }
+
+    const verifyPlain = generateToken();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerifyTokenHash: hashToken(verifyPlain),
+        emailVerifyExpiresAt: expiresInMinutes(EMAIL_VERIFY_TTL_MINUTES),
+      },
+    });
+    const { subject, html, text } = verifyEmail(buildAppLink('/verificar-email', verifyPlain));
+    await sendEmail({ to: user.email, subject, html, text });
+    return { alreadyVerified: false };
+  },
+
   async verifyEmailToken(input: VerifyEmailInput): Promise<{ user: PublicUser }> {
     const tokenHash = hashToken(input.token);
     const user = await prisma.user.findFirst({ where: { emailVerifyTokenHash: tokenHash } });

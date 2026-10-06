@@ -35,6 +35,15 @@ export const authController = {
     return ok(res, result);
   },
 
+  async resendVerification(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { alreadyVerified } = await authService.resendVerification(req.user.id);
+    return ok(res, {
+      alreadyVerified,
+      message: alreadyVerified ? 'Seu e-mail já está confirmado.' : 'Enviamos um novo link de confirmação.',
+    });
+  },
+
   async forgotPassword(req: Request, res: Response) {
     const input = forgotPasswordSchema.parse(req.body);
     await authService.forgotPassword(input);

@@ -50,6 +50,7 @@ export default function CustomerRegister() {
       email: d.email,
       phone: d.phone,
       password: d.password,
+      privacyConsent: d.privacyConsent,
       defaultAddress: hasAddress
         ? {
             cep: d.cep!,

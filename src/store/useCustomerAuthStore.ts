@@ -65,6 +65,8 @@ interface RegisterInput {
   email: string;
   phone: string;
   password: string;
+  /** Aceite da Política de Privacidade (obrigatório; gravado no backend). */
+  privacyConsent: true;
   defaultAddress?: CustomerAddress;
 }
 
@@ -116,6 +118,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
             email: data.email,
             password: data.password,
             phone: data.phone,
+            privacyConsent: data.privacyConsent,
           });
           setAuthToken('customer', token);
           const c = apiUserToInternal(user);

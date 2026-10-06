@@ -6,6 +6,10 @@ export const registerSchema = z.object({
   email: z.string().trim().toLowerCase().email('E-mail inválido.'),
   password: z.string().min(6, 'A senha precisa ter no mínimo 6 caracteres.'),
   phone: z.string().trim().optional(),
+  // LGPD: aceite explícito da Política de Privacidade (gravado com data/versão).
+  privacyConsent: z.literal(true, {
+    errorMap: () => ({ message: 'É preciso aceitar a Política de Privacidade para criar a conta.' }),
+  }),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
