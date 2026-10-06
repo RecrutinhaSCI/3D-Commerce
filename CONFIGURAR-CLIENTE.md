@@ -45,6 +45,7 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 | E-mail e senha do admin | Cliente / G-Rec | `.env` local na hora de rodar o seed (`ADMIN_EMAIL`, `ADMIN_PASSWORD`) | Sim |
 | Banco de produção | G-Rec (Neon) | Vercel (back) → `DATABASE_URL` (URL **com pooler**) | Sim |
 | Chave JWT | G-Rec (gerar) | Vercel (back) → `JWT_SECRET` | Sim |
+| Segredo do cron diário | G-Rec (gerar) | Vercel (back) → `CRON_SECRET` (Production) | Sim |
 | Storage de uploads | G-Rec (Vercel Blob) | Vercel (back) → `BLOB_READ_WRITE_TOKEN` (criado ao conectar o Blob Store) | Sim |
 | URL do backend | G-Rec (Vercel back) | Vercel (front) → `VITE_API_URL` | Sim |
 | Chave SeuRastreio | G-Rec / cliente | Vercel (front) → `VITE_SEURASTREIO_API_KEY` | Opcional |
@@ -168,5 +169,6 @@ NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..
 - **Rate limit** (login, pedidos) fica na memória de cada instância. Na Vercel, cada instância conta separado, então o limite real é mais frouxo. Aceitável para começar; se houver abuso, mover para Redis/Upstash.
 - **Frete** segue a regra atual das configurações (frete grátis acima de X). A cotação real por CEP ainda não foi implementada; o estudo está em [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md).
 - **`VITE_SEURASTREIO_API_KEY`** vai para o bundle público. Usar uma chave sem custo/limite crítico, ou mover a consulta para o backend.
+- **Cron diário** ([backend/vercel.json](backend/vercel.json), 9h UTC): reconcilia pagamentos que o webhook perdeu e cancela pedidos não pagos após 48h (boleto: 96h), devolvendo estoque e cupom e avisando o cliente. Só roda no deploy de produção e exige `CRON_SECRET`. No plano Hobby, a Vercel limita o cron a 1x/dia.
 - **Estoque** só baixa quando o pagamento é aprovado. Pedido pago sem estoque recebe a nota `[REVISAR ESTOQUE]` em /admin/pedidos.
 - **CSP** (opcional): se for configurada na Vercel, precisa liberar os domínios do Mercado Pago, senão o cartão quebra. A lista está comentada em [backend/src/app.ts](backend/src/app.ts).

@@ -40,6 +40,10 @@ paymentsRouter.post(
   asyncHandler(paymentsController.cancelOrder),
 );
 
+// Cron diário (Vercel Cron): reconcilia pagamentos e expira pedidos não pagos.
+// Protegido por CRON_SECRET no controller (sem a env, responde 503).
+paymentsRouter.get('/cron/expire-orders', asyncHandler(paymentsController.cronExpireOrders));
+
 // Reconciliação em lote (admin) — rede de segurança para webhooks perdidos.
 paymentsRouter.post(
   '/admin/payments/reconcile',

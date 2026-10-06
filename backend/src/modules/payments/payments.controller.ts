@@ -99,6 +99,24 @@ export const paymentsController = {
     return ok(res, result);
   },
 
+  /**
+   * Cron (Vercel Cron → GET /api/cron/expire-orders). A Vercel envia
+   * `Authorization: Bearer <CRON_SECRET>` quando a env existe. Sem CRON_SECRET
+   * configurado a rota fica DESLIGADA (503) — nunca aberta ao público.
+   */
+  async cronExpireOrders(req: Request, res: Response) {
+    if (!env.CRON_SECRET) return res.sendStatus(503);
+    const expected = Buffer.from(`Bearer ${env.CRON_SECRET}`);
+    const got = Buffer.from(firstHeader(req.headers.authorization) ?? '');
+    if (got.length !== expected.length || !crypto.timingSafeEqual(got, expected)) {
+      return res.sendStatus(401);
+    }
+    const result = await paymentsService.expireUnpaidOrders();
+    // eslint-disable-next-line no-console
+    console.log(`[cron] expire-orders: ${JSON.stringify(result)}`);
+    return ok(res, result);
+  },
+
   async reconcile(_req: Request, res: Response) {
     const result = await paymentsService.reconcilePendingPayments();
     return ok(res, result);

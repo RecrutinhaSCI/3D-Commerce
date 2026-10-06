@@ -37,6 +37,8 @@ const envSchema = z.object({
 
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   UPLOAD_DIR: z.string().default('uploads'),
+  // Segredo do Vercel Cron (expiração de pedidos). Sem ele a rota fica desligada.
+  CRON_SECRET: z.preprocess(emptyToUndefined, z.string().min(16, 'CRON_SECRET precisa ter 16+ caracteres.').optional()),
   // Vercel Blob (uploads em produção). Sem ele, grava em disco (só serve em dev).
   BLOB_READ_WRITE_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
 
@@ -98,6 +100,9 @@ export function productionConfigWarnings(): string[] {
   }
   if (corsOrigins.some((o) => /localhost|127\.0\.0\.1/.test(o))) {
     warnings.push('CORS_ORIGIN ainda inclui localhost — inclua só o domínio real da loja.');
+  }
+  if (!env.CRON_SECRET) {
+    warnings.push('CRON_SECRET ausente — pedidos não pagos não expiram e webhooks perdidos não são reconciliados.');
   }
   if (!env.BLOB_READ_WRITE_TOKEN) {
     warnings.push('BLOB_READ_WRITE_TOKEN ausente — upload de imagens/arquivos falha na Vercel (disco somente leitura).');

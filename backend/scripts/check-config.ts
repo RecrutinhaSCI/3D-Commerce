@@ -147,6 +147,14 @@ async function checkSmtp() {
   }
 }
 
+function checkCron() {
+  if (env.CRON_SECRET) {
+    add('ok', 'Cron', 'CRON_SECRET definido (expiração de pedidos e reconciliação diárias).');
+  } else {
+    add(env.NODE_ENV === 'production' ? 'error' : 'warn', 'Cron', 'Sem CRON_SECRET — pedidos não pagos não expiram e webhooks perdidos não são reconciliados.');
+  }
+}
+
 function checkUploads() {
   if (env.BLOB_READ_WRITE_TOKEN) {
     add('ok', 'Uploads', 'Vercel Blob configurado (BLOB_READ_WRITE_TOKEN).');
@@ -172,6 +180,7 @@ async function main() {
   }
   await checkMercadoPago();
   await checkSmtp();
+  checkCron();
   checkUploads();
   checkUrls();
 

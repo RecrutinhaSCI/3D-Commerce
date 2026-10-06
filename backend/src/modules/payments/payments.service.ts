@@ -31,6 +31,14 @@ import {
 const MP_API = 'https://api.mercadopago.com';
 const MP_TIMEOUT_MS = 8000;
 
+/** Pedidos por execução do cron/reconcile (1 chamada ao MP cada). */
+const RECONCILE_BATCH = 50;
+/**
+ * Prazo para expirar pedido não pago, contado da criação. Pix vence em 1 dia e
+ * boleto em 3 (expiration_time no createPayment) — damos folga de compensação.
+ */
+const EXPIRE_AFTER_HOURS = { default: 48, boleto: 96 } as const;
+
 // ---------------------------------------------------------------------------
 // Tipos mínimos da resposta da Orders API (só os campos que consumimos).
 // ---------------------------------------------------------------------------
@@ -473,7 +481,9 @@ export const paymentsService = {
     }
 
     const paymentEntry: Record<string, unknown> = { amount, payment_method: paymentMethod };
+    // Vencimentos explícitos — a expiração automática (cron) usa os mesmos prazos.
     if (kind === 'pix') paymentEntry.expiration_time = 'P1D';
+    if (kind === 'boleto') paymentEntry.expiration_time = 'P3D';
 
     const body = {
       type: 'online',
@@ -745,6 +755,60 @@ export const paymentsService = {
   },
 
   /**
+   * Expiração automática (cron diário — GET /api/cron/expire-orders):
+   *  1. reconcilia pagamentos pendentes no MP (pega o que foi pago sem webhook);
+   *  2. cancela pedidos ainda não pagos após o prazo (48h; boleto 96h):
+   *     encerra a cobrança aberta no MP, repõe estoque, devolve o cupom e avisa
+   *     o cliente. Se o MP disser que foi pago, liquida em vez de cancelar.
+   * Lote limitado por execução; idempotente (cancelOrderRecord é guardado).
+   */
+  async expireUnpaidOrders(): Promise<{ reconciled: number; expired: number; paidLate: number; failed: number }> {
+    const rec = await this.reconcilePendingPayments();
+
+    const cutoff = new Date(Date.now() - EXPIRE_AFTER_HOURS.default * 3600_000);
+    const candidates = await prisma.order.findMany({
+      where: {
+        status: OrderStatus.PENDING,
+        paymentStatus: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED, PaymentStatus.CANCELED] },
+        createdAt: { lt: cutoff },
+      },
+      select: { id: true, mpPaymentId: true, paymentMethod: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+      take: RECONCILE_BATCH,
+    });
+
+    let expired = 0;
+    let paidLate = 0;
+    let failed = 0;
+    for (const o of candidates) {
+      const hours = o.paymentMethod === PaymentMethod.BOLETO ? EXPIRE_AFTER_HOURS.boleto : EXPIRE_AFTER_HOURS.default;
+      if (o.createdAt.getTime() > Date.now() - hours * 3600_000) continue; // boleto ainda no prazo
+      try {
+        if (o.mpPaymentId && (await closePreviousAttempt(o.mpPaymentId)) === 'paid') {
+          await prisma.order.update({ where: { id: o.id }, data: { paymentStatus: PaymentStatus.PAID } });
+          await settlePaidOrder(o.id);
+          paidLate++;
+          continue;
+        }
+        const canceledNow = await cancelOrderRecord(
+          o.id,
+          PaymentStatus.CANCELED,
+          `[EXPIRADO] Cancelado automaticamente: sem pagamento em ${hours}h.`,
+        );
+        if (canceledNow) {
+          expired++;
+          await notifyCanceled(o.id, 'expired');
+        }
+      } catch {
+        // eslint-disable-next-line no-console
+        console.error(`[payments:expire] Falha ao expirar o pedido ${o.id}.`);
+        failed++;
+      }
+    }
+    return { reconciled: rec.updated, expired, paidLate, failed };
+  },
+
+  /**
    * Reconciliação em lote: varre pedidos ainda `PENDING` com `mpPaymentId`
    * preenchido, consulta cada Order no MP (fonte de verdade) e aplica a
    * transição de forma idempotente e monotônica (`canAdvancePaymentStatus`),
@@ -763,9 +827,13 @@ export const paymentsService = {
     failed: number;
     details: Array<{ orderId: string; result: string; paymentStatus?: PaymentStatus }>;
   }> {
+    // Lote limitado (mais antigos primeiro): cada pedido é 1 chamada ao MP e a
+    // função da Vercel tem tempo máximo — o próximo run continua de onde parou.
     const orders = await prisma.order.findMany({
-      where: { paymentStatus: PaymentStatus.PENDING, mpPaymentId: { not: null } },
+      where: { paymentStatus: PaymentStatus.PENDING, mpPaymentId: { not: null }, status: { not: OrderStatus.CANCELED } },
       select: { id: true, mpPaymentId: true, paymentStatus: true },
+      orderBy: { createdAt: 'asc' },
+      take: RECONCILE_BATCH,
     });
 
     let updated = 0;
