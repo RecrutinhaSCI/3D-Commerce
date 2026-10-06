@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
 import { ShoppingBag, CreditCard, Truck, MessageCircle } from 'lucide-react';
 import { useSEO } from '@/utils/seo';
+import { site } from '@/config/site';
 
 const steps = [
   { icon: ShoppingBag, title: 'Escolha seu produto', desc: 'Use a busca, filtros ou navegue pelas categorias para encontrar o que precisa.' },
-  { icon: CreditCard, title: 'Finalize com segurança', desc: 'Pix, cartão de crédito (até 10x) ou boleto. Cupons e frete grátis automáticos.' },
+  { icon: CreditCard, title: 'Finalize com segurança', desc: `Pix com desconto, cartão de crédito em até ${site.installments.max}x${site.installments.interestFree ? ' sem juros' : ''} ou boleto. Cupons e frete grátis automáticos.` },
   { icon: Truck, title: 'Receba em casa', desc: 'Despachamos para todo o Brasil. Você acompanha cada etapa do seu pedido.' },
   { icon: MessageCircle, title: 'Suporte completo', desc: 'Antes, durante e depois — nossa equipe está no WhatsApp para te ajudar.' },
 ];

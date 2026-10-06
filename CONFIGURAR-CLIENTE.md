@@ -86,6 +86,7 @@ Modelos com todos os campos comentados: [.env.example](.env.example) (frontend) 
 Observações:
 - Com `NODE_ENV=production`, o webhook **recusa notificações sem assinatura** (401). Sem o segredo certo, o Pix e o boleto não confirmam sozinhos.
 - O webhook processa tudo **antes** de responder. Na Vercel isso é obrigatório: a função é congelada depois da resposta.
+- **Parcelamento**: a loja anuncia "até 6x sem juros" ([src/config/site.ts](src/config/site.ts) → `installments`), e o formulário de cartão respeita o mesmo limite. O "sem juros" só é verdade se a conta do cliente estiver configurada no Mercado Pago para **absorver os juros do parcelamento**. Se não estiver, mude `interestFree` para `false`, e a loja passa a mostrar "6x no cartão".
 - Rede de segurança para webhooks perdidos: `POST /api/admin/payments/reconcile` com o token de admin.
 - Detalhes técnicos da integração: [docs/integracoes/mercadopago-orders-api.md](docs/integracoes/mercadopago-orders-api.md).
 

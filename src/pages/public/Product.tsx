@@ -14,6 +14,7 @@ import { Collapsible } from '@/components/ui/Collapsible';
 import { formatBRL, getDiscountPercent, getEffectivePrice, getPixPrice, calcInstallment } from '@/utils/price';
 import { whatsappProduct, whatsappQuoteProduct } from '@/utils/whatsapp';
 import { useSEO, useJsonLd } from '@/utils/seo';
+import { site } from '@/config/site';
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -207,10 +208,10 @@ export default function Product() {
             <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               {formatBRL(pix)} no Pix
-              <span className="font-normal text-ink-mute">(5% off)</span>
+              <span className="font-normal text-ink-mute">({settings.pixDiscountPercent}% off)</span>
             </p>
             <p className="mt-1 text-xs text-ink-mute">
-              ou {installment.qty}x de {formatBRL(installment.value)} sem juros
+              ou {installment.qty}x de {formatBRL(installment.value)}{site.installments.interestFree ? ' sem juros' : ' no cartão'}
             </p>
           </div>
 

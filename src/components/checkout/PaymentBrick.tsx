@@ -1,4 +1,5 @@
 import { CardPayment, initMercadoPago } from '@mercadopago/sdk-react';
+import { site } from '@/config/site';
 
 /**
  * Wrapper do **Card Payment Brick** (Checkout Transparente do Mercado Pago).
@@ -78,6 +79,8 @@ export function CardPaymentBrick({ amount, payerEmail, onSubmit, onError, onRead
         amount,
         payer: payerEmail ? { email: payerEmail } : undefined,
       }}
+      // Mesmo limite anunciado na loja (site.installments.max).
+      customization={{ paymentMethods: { maxInstallments: site.installments.max } }}
       onSubmit={(formData) => onSubmit(formData as unknown as Record<string, unknown>)}
       onReady={onReady}
       onError={(error) => onError?.(error)}

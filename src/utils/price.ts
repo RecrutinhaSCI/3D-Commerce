@@ -27,7 +27,7 @@ export function getDiscountPercent(product: Product): number {
   return Math.round(((product.price - product.promoPrice) / product.price) * 100);
 }
 
-export function calcInstallment(value: number, max = 6): { qty: number; value: number } {
+export function calcInstallment(value: number, max: number = site.installments.max): { qty: number; value: number } {
   const min = 20;
   let qty = Math.min(max, Math.max(1, Math.floor(value / min)));
   qty = Math.max(1, qty);
