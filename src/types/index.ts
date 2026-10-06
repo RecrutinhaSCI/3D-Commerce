@@ -140,6 +140,12 @@ export interface Order {
     method: 'pix' | 'credito' | 'boleto';
     installments?: number;
   };
+  /** Observações do pedido (inclui alertas como [REVISAR ESTOQUE]). */
+  notes?: string;
+  /** Id da Order no Mercado Pago. */
+  mpOrderId?: string;
+  /** Desconto da forma de pagamento (Pix) já abatido do total. */
+  paymentDiscount?: number;
   /** Status do pagamento vindo do backend (Mercado Pago). */
   paymentStatus?: PaymentStatus;
   coupon?: {

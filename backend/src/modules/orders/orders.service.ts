@@ -61,6 +61,8 @@ export interface OrderDTO {
   status: OrderStatus;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  /** Id da Order no Mercado Pago (para localizar a cobrança no painel do MP). */
+  mpPaymentId: string | null;
   notes: string | null;
   trackingCode: string | null;
   createdAt: string;
@@ -99,6 +101,7 @@ function toOrderDTO(order: OrderWithRelations): OrderDTO {
     status: order.status,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    mpPaymentId: order.mpPaymentId,
     notes: order.notes,
     trackingCode: order.trackingCode,
     createdAt: order.createdAt.toISOString(),

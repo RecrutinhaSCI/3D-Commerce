@@ -266,6 +266,9 @@ export function apiOrderToInternal(o: ApiOrder): Order {
           : 'boleto',
     },
     paymentStatus: o.paymentStatus,
+    notes: o.notes ?? undefined,
+    mpOrderId: o.mpPaymentId ?? undefined,
+    paymentDiscount: o.paymentDiscount,
     coupon: o.couponCode
       ? { code: o.couponCode, discount: o.discountValue }
       : undefined,

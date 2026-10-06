@@ -13,7 +13,7 @@
 import { create } from 'zustand';
 import { seedBlogPosts } from '@/data/blogPosts'; // continua local (sem endpoint)
 import { seedFaqs } from '@/data/faqs'; // continua local (sem endpoint)
-import type { Banner, Category, Order, OrderStatus, Product, StoreSettings } from '@/types';
+import type { Banner, Category, Order, OrderStatus, PaymentStatus, Product, StoreSettings } from '@/types';
 import { productService } from '@/services/productService';
 import { categoryService } from '@/services/categoryService';
 import { bannerService } from '@/services/bannerService';
@@ -99,7 +99,13 @@ interface AdminDataState {
 
   // Orders
   addOrder: (o: Order) => void;
-  updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
+  updateOrderStatus: (
+    id: string,
+    patch: { status?: OrderStatus; paymentStatus?: PaymentStatus },
+  ) => Promise<Order>;
+  /** Cancela; se pago via Mercado Pago, estorna lá. Lança ApiError em falha. */
+  cancelOrder: (id: string) => Promise<{ order: Order; result: 'refunded' | 'canceled' }>;
+  refreshOrders: () => Promise<void>;
   setTrackingCode: (id: string, code: string) => Promise<void>;
   // Settings
   updateSettings: (patch: Partial<StoreSettings>) => Promise<{ ok: boolean; error?: string }>;
@@ -336,15 +342,29 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     set({ orders: [o, ...get().orders] });
   },
 
-  async updateOrderStatus(id, status) {
-    try {
-      const apiStatus: ApiOrderStatus = enumAdapters.orderStatusToApi(status);
-      const { order } = await orderService.updateStatus(id, { status: apiStatus });
-      const updated = apiOrderToInternal(order);
-      set({ orders: get().orders.map((o) => (o.id === id ? updated : o)) });
-    } catch {
-      // ignora
-    }
+  // Erros SOBEM (ApiError) para a tela mostrar a mensagem real do backend —
+  // nada de "sucesso" quando a API recusou (ex.: enviar pedido não pago).
+  async updateOrderStatus(id, patch) {
+    const { order } = await orderService.updateStatus(id, {
+      ...(patch.status ? { status: enumAdapters.orderStatusToApi(patch.status) as ApiOrderStatus } : {}),
+      ...(patch.paymentStatus ? { paymentStatus: patch.paymentStatus } : {}),
+    });
+    const updated = apiOrderToInternal(order);
+    set({ orders: get().orders.map((o) => (o.id === id ? updated : o)) });
+    return updated;
+  },
+
+  async cancelOrder(id) {
+    const { result } = await orderService.adminCancel(id);
+    const { order } = await orderService.getAdmin(id);
+    const updated = apiOrderToInternal(order);
+    set({ orders: get().orders.map((o) => (o.id === id ? updated : o)) });
+    return { order: updated, result };
+  },
+
+  async refreshOrders() {
+    const { orders } = await orderService.listAdmin({ limit: 100 });
+    set({ orders: orders.map(apiOrderToInternal) });
   },
 
   async setTrackingCode(id, code) {

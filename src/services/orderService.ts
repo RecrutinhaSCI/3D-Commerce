@@ -53,6 +53,10 @@ export const orderService = {
   updateStatus(id: string, input: { status?: ApiOrderStatus; paymentStatus?: ApiPaymentStatus }) {
     return api.put<{ order: ApiOrder }>(`/api/admin/orders/${id}/status`, input);
   },
+  /** Cancela o pedido; se já foi pago via Mercado Pago, estorna lá. */
+  adminCancel(id: string) {
+    return api.post<{ orderId: string; result: 'refunded' | 'canceled' }>(`/api/admin/orders/${id}/cancel`);
+  },
   updateTracking(id: string, trackingCode: string | null) {
     return api.put<{ order: ApiOrder }>(`/api/admin/orders/${id}/tracking`, { trackingCode });
   },

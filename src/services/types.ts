@@ -234,6 +234,8 @@ export interface ApiOrder {
   paymentMethod: ApiPaymentMethod;
   paymentStatus: ApiPaymentStatus;
   notes: string | null;
+  /** Id da Order no Mercado Pago. */
+  mpPaymentId: string | null;
   trackingCode: string | null;
   createdAt: string;
   updatedAt: string;
