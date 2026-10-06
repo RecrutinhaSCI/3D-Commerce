@@ -28,6 +28,7 @@ const ResetPassword = lazy(() => import('@/pages/public/ResetPassword'));
 const VerifyEmail = lazy(() => import('@/pages/public/VerifyEmail'));
 const CustomerAccount = lazy(() => import('@/pages/public/CustomerAccount'));
 const CustomerOrders = lazy(() => import('@/pages/public/CustomerOrders'));
+const PayOrder = lazy(() => import('@/pages/public/PayOrder'));
 
 // Admin inteiro — code-split (visitante público não baixa)
 const AdminLogin = lazy(() => import('@/pages/admin/Login'));
@@ -83,6 +84,7 @@ export const router = createBrowserRouter([
       { path: '/verificar-email', element: <L><VerifyEmail /></L> },
       { path: '/minha-conta', element: <L><CustomerAccount /></L> },
       { path: '/meus-pedidos', element: <L><CustomerOrders /></L> },
+      { path: '/pagar/:orderId', element: <L><PayOrder /></L> },
       { path: '*', element: <NotFound /> },
     ],
   },

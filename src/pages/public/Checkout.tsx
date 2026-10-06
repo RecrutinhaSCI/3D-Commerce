@@ -50,7 +50,8 @@ const addressSchema = z.object({
 });
 
 type Customer = z.infer<typeof customerSchema>;
-type Address = z.infer<typeof addressSchema>;
+export type CheckoutAddress = z.infer<typeof addressSchema>;
+type Address = CheckoutAddress;
 
 type ShippingMethod = ApiShippingMethod;
 type ShippingPrices = Record<ShippingMethod, { price: number; label: string; deadline: string }>;
@@ -658,7 +659,7 @@ function normalizeMethod(m: string): 'card' | 'pix' | 'boleto' | 'other' {
  */
 type PayMethod = 'card' | 'pix' | 'boleto';
 
-function PaymentPhase({
+export function PaymentPhase({
   order, amount, payerEmail, payerName, payerCpf, payerAddress, onApproved, onOrderPlaced,
 }: {
   order: ApiOrder;

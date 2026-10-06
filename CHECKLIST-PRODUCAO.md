@@ -20,7 +20,7 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 - [x] Estorno / cancelamento pelo admin via API do Mercado Pago (com reposição de estoque)
 - [x] Cancelar a cobrança anterior ao trocar de forma de pagamento (evitar cobrança dupla)
 - [x] Expirar pedidos não pagos (48h; boleto 96h) via **Vercel Cron** e devolver o cupom — falta só `CRON_SECRET` na Vercel
-- [ ] Botão "Pagar agora / ver Pix" em Meus pedidos
+- [x] Botão "Pagar agora" em Meus pedidos (página /pagar/:orderId: cartão, novo Pix ou boleto)
 - [x] Timeout no envio de e-mail (SMTP)
 - [x] Admin marcar pedido como pago → baixa estoque; validar transições de status
 - [ ] Corrigir criação de produto no admin (id real, campos de peso/dimensões)

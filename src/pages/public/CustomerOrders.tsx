@@ -221,6 +221,9 @@ export default function CustomerOrders() {
                   <p className="mt-0.5 text-xs text-ink-mute">
                     {new Date(o.createdAt).toLocaleDateString('pt-BR')} · {o.items.length} item(s)
                   </p>
+                  {o.status === 'novo' && o.paymentStatus !== 'PAID' && (
+                    <p className="mt-1 text-xs font-semibold text-amber-700">Toque para pagar →</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="flex flex-col items-end gap-1">
@@ -254,6 +257,19 @@ export default function CustomerOrders() {
                 {new Date(active.createdAt).toLocaleDateString('pt-BR')}
               </span>
             </div>
+
+            {active.status === 'novo' && active.paymentStatus !== 'PAID' && (
+              <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+                <p className="font-semibold">Pagamento pendente</p>
+                <p className="mt-0.5 text-xs">
+                  Gere um novo Pix, boleto ou pague com cartão. Pedidos sem pagamento são cancelados
+                  automaticamente após 48h.
+                </p>
+                <Link to={`/pagar/${active.id}`} className="btn-primary mt-3 inline-flex">
+                  Pagar agora
+                </Link>
+              </div>
+            )}
 
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Itens</p>
