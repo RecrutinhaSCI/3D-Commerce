@@ -61,6 +61,15 @@ export const orderRateLimiter = rateLimit({
   keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? ''),
 });
 
+/** Formulário de contato e newsletter (públicos) — 10 / hora por IP. */
+export const contactRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+});
+
 /** Criação de orçamentos (anônimo incluso) — 20 / hora por IP. */
 export const quoteRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,

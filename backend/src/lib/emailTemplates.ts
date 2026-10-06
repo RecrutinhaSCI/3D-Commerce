@@ -162,6 +162,19 @@ export function orderCanceledEmail(
   return { subject, html, text };
 }
 
+/** E-mail PARA A LOJA: nova mensagem do formulário de contato. */
+export function contactMessageEmail(msg: { name: string; email: string; phone?: string | null; message: string }): EmailContent {
+  const subject = `Nova mensagem de contato — ${msg.name}`;
+  const html = layout(
+    'Nova mensagem de contato',
+    `<p><strong>${escapeHtml(msg.name)}</strong> &lt;${escapeHtml(msg.email)}&gt;${msg.phone ? ` · ${escapeHtml(msg.phone)}` : ''}</p>
+     <p style="white-space:pre-line;border-left:3px solid #e5e7eb;padding-left:12px;">${escapeHtml(msg.message)}</p>
+     <p style="color:#6b7280;font-size:12px;">Responda direto para o e-mail do cliente. A mensagem também fica em /admin/mensagens.</p>`,
+  );
+  const text = `Mensagem de ${msg.name} <${msg.email}>${msg.phone ? ` (${msg.phone})` : ''}:\n\n${msg.message}`;
+  return { subject, html, text };
+}
+
 /** E-mail: pedido enviado, com código de rastreio. */
 export function orderShippedEmail(trackingCode: string, orderId?: string): EmailContent {
   const subject = `Seu pedido foi enviado — ${BRAND}`;

@@ -18,6 +18,8 @@ export interface SendEmailInput {
   html: string;
   /** Fallback texto puro. Opcional — recomendado para acessibilidade/spam. */
   text?: string;
+  /** Responder para (ex.: e-mail do cliente no formulário de contato). */
+  replyTo?: string;
 }
 
 export interface SendEmailResult {
@@ -63,7 +65,7 @@ function getTransporter(): Transporter | null {
  * aviso e retorna `{ sent: false }` sem lançar erro.
  */
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
-  const { to, subject, html, text } = input;
+  const { to, subject, html, text, replyTo } = input;
   const tx = getTransporter();
 
   if (!tx) {
@@ -79,6 +81,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     subject,
     html,
     text,
+    ...(replyTo ? { replyTo } : {}),
   });
 
   return { sent: true, messageId: info.messageId };

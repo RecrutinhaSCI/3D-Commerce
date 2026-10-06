@@ -41,6 +41,7 @@ const AdminBanners = lazy(() => import('@/pages/admin/Banners'));
 const AdminOrders = lazy(() => import('@/pages/admin/Orders'));
 const AdminQuotes = lazy(() => import('@/pages/admin/Quotes'));
 const AdminTestimonials = lazy(() => import('@/pages/admin/Testimonials'));
+const AdminMessages = lazy(() => import('@/pages/admin/Messages'));
 const AdminCoupons = lazy(() => import('@/pages/admin/Coupons'));
 const AdminScripts = lazy(() => import('@/pages/admin/Scripts'));
 const AdminSettings = lazy(() => import('@/pages/admin/Settings'));
@@ -104,6 +105,7 @@ export const router = createBrowserRouter([
       { path: 'orcamentos', element: <L><AdminQuotes /></L> },
       { path: 'cupons', element: <L><AdminCoupons /></L> },
       { path: 'depoimentos', element: <L><AdminTestimonials /></L> },
+      { path: 'mensagens', element: <L><AdminMessages /></L> },
       { path: 'scripts', element: <L><AdminScripts /></L> },
       { path: 'configuracoes', element: <L><AdminSettings /></L> },
     ],
