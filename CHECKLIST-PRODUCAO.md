@@ -35,7 +35,7 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 - [x] Dashboard com faturamento real (só pedidos pagos, mês corrente e últimos 7 dias)
 - [x] Parcelamento consistente (produto, "Como comprar" e Brick) — `site.installments`
 - [x] Newsletter e formulário de contato salvando no backend (+ página Mensagens no admin)
-- [ ] SEO: sitemap com produtos, imagem de compartilhamento PNG, analytics com consentimento
+- [x] SEO: sitemap dinâmico com produtos, imagem de compartilhamento PNG, analytics (GA4) só com consentimento
 
 ## Go-live
 

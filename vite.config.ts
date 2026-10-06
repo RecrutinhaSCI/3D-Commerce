@@ -9,8 +9,9 @@ import { fileURLToPath, URL } from 'node:url';
  * og:image precisam de URL ABSOLUTA; em `public/` elas ficam relativas e este
  * plugin completa no build. Sem VITE_SITE_URL o build segue, só com aviso.
  */
-function seoAbsoluteUrls(siteUrl: string | undefined): Plugin {
+function seoAbsoluteUrls(siteUrl: string | undefined, apiUrl: string | undefined): Plugin {
   const base = siteUrl?.trim().replace(/\/+$/, '');
+  const api = apiUrl?.trim().replace(/\/+$/, '');
   let outDir = 'dist';
   return {
     name: 'seo-absolute-urls',
@@ -20,7 +21,7 @@ function seoAbsoluteUrls(siteUrl: string | undefined): Plugin {
     },
     transformIndexHtml(html) {
       if (!base) return html;
-      return html.replace(/(property="og:image" content=")\//, `$1${base}/`);
+      return html.replace(/((?:property="og:image"|name="twitter:image") content=")\//g, `$1${base}/`);
     },
     closeBundle() {
       if (!base) {
@@ -32,7 +33,10 @@ function seoAbsoluteUrls(siteUrl: string | undefined): Plugin {
         if (fs.existsSync(p)) fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace(from, to));
       };
       rewrite('sitemap.xml', /<loc>\//g, `<loc>${base}/`);
-      rewrite('robots.txt', /^Sitemap: \//m, `Sitemap: ${base}/`);
+      // Com a API em URL absoluta, o robots aponta para o sitemap DINÂMICO
+      // (inclui todos os produtos ativos); o estático fica como reserva.
+      const dynamicSitemap = api && /^https?:\/\//.test(api) ? `Sitemap: ${api}/api/public/sitemap.xml\n` : '';
+      rewrite('robots.txt', /^Sitemap: \/sitemap\.xml$/m, `${dynamicSitemap}Sitemap: ${base}/sitemap.xml`);
     },
   };
 }
@@ -40,7 +44,7 @@ function seoAbsoluteUrls(siteUrl: string | undefined): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   return {
-    plugins: [react(), seoAbsoluteUrls(env.VITE_SITE_URL)],
+    plugins: [react(), seoAbsoluteUrls(env.VITE_SITE_URL, env.VITE_API_URL)],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

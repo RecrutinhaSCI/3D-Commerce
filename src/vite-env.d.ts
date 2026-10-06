@@ -8,6 +8,8 @@ interface ImportMetaEnv {
   readonly VITE_MP_PUBLIC_KEY?: string;
   /** Domínio público da loja (https://...), usado no sitemap/robots/og:image. */
   readonly VITE_SITE_URL?: string;
+  /** Google Analytics 4 (G-XXXXXXX). Só carrega após consentimento no banner. */
+  readonly VITE_GA_MEASUREMENT_ID?: string;
 }
 
 interface ImportMeta {

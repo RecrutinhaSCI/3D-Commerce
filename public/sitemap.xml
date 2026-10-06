@@ -19,6 +19,4 @@
   <url><loc>/trocas-devolucoes</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>/privacidade</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>/contato</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>/login</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
-  <url><loc>/criar-conta</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
 </urlset>

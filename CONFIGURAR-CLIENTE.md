@@ -49,6 +49,7 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 | Storage de uploads | G-Rec (Vercel Blob) | Vercel (back) → `BLOB_READ_WRITE_TOKEN` (criado ao conectar o Blob Store) | Sim |
 | URL do backend | G-Rec (Vercel back) | Vercel (front) → `VITE_API_URL` | Sim |
 | Chave SeuRastreio | G-Rec / cliente | Vercel (front) → `VITE_SEURASTREIO_API_KEY` | Opcional |
+| Google Analytics 4 (ID `G-...`) | Cliente | Vercel (front) → `VITE_GA_MEASUREMENT_ID` | Opcional (o banner de cookies passa a pedir consentimento) |
 
 \* Sem SMTP o site funciona, mas nenhum e-mail sai (confirmação de pedido, pagamento aprovado, reset de senha).
 
@@ -121,6 +122,8 @@ Antes de qualquer migration em produção, criar uma **branch de backup** no Neo
 ### 3.6 Domínio
 - Conectar o domínio no projeto **frontend** da Vercel.
 - Vercel (front): `VITE_SITE_URL=https://www.dominio.com.br` (gera o sitemap e o robots com o domínio), depois redeploy.
+  - O `robots.txt` aponta também para o **sitemap dinâmico** da API (`/api/public/sitemap.xml`, com todos os produtos ativos). Ele usa o `APP_URL` do backend nos links, que por isso precisa ser **igual** ao `VITE_SITE_URL`.
+  - Depois de publicar, cadastrar o domínio no **Google Search Console** e enviar o sitemap.
 - Vercel (back): `APP_URL=https://www.dominio.com.br` (links dos e-mails) e `CORS_ORIGIN=https://www.dominio.com.br,https://dominio.com.br`, depois redeploy.
 - **JWT_SECRET**: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
 

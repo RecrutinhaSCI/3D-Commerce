@@ -1,31 +1,25 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Cookie } from 'lucide-react';
-
-const STORAGE_KEY = 'cookie-consent';
+import { analyticsEnabled, loadAnalytics, readConsent, saveConsent } from '@/lib/analytics';
 
 /**
- * Banner de cookies simples e não-intrusivo (LGPD).
- * Ao aceitar, grava o consentimento em localStorage e o banner some.
- * Não bloqueia a navegação nem escurece a tela.
+ * Banner de cookies (LGPD). Não bloqueia a navegação nem escurece a tela.
+ * - Sem analytics configurado: só cookies essenciais → um botão "Entendi".
+ * - Com analytics (VITE_GA_MEASUREMENT_ID): o cliente escolhe; o script de
+ *   análise só carrega depois de "Aceitar todos".
  */
 export function CookieBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    try {
-      if (!localStorage.getItem(STORAGE_KEY)) setVisible(true);
-    } catch {
-      // localStorage indisponível (modo privado): não exibe.
-    }
+    const consent = readConsent();
+    if (!consent) setVisible(true);
+    else loadAnalytics(); // já aceitou antes → carrega (no-op se recusou)
   }, []);
 
-  function accept() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ accepted: true, date: new Date().toISOString() }));
-    } catch {
-      // ignora falha de escrita
-    }
+  function choose(analytics: boolean) {
+    saveConsent(analytics);
     setVisible(false);
   }
 
@@ -37,21 +31,41 @@ export function CookieBanner() {
         <Cookie className="mt-0.5 h-5 w-5 flex-shrink-0 text-accent" aria-hidden="true" />
         <div className="text-sm text-ink-soft">
           <p>
-            Usamos cookies essenciais para o funcionamento do carrinho e do checkout. Ao continuar,
-            você concorda com nossa{' '}
+            Usamos cookies essenciais para o carrinho e o checkout
+            {analyticsEnabled ? ' e, com a sua permissão, cookies de análise para melhorar a loja' : ''}. Saiba mais na
+            nossa{' '}
             <Link to="/privacidade" className="font-semibold text-ink underline">
               Política de Privacidade
             </Link>
             .
           </p>
-          <div className="mt-3 flex justify-end">
-            <button
-              type="button"
-              onClick={accept}
-              className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-graphite"
-            >
-              Aceitar
-            </button>
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            {analyticsEnabled ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => choose(false)}
+                  className="rounded-lg border border-ink-line px-4 py-1.5 text-xs font-semibold text-ink transition hover:border-ink"
+                >
+                  Só essenciais
+                </button>
+                <button
+                  type="button"
+                  onClick={() => choose(true)}
+                  className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-graphite"
+                >
+                  Aceitar todos
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => choose(false)}
+                className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-graphite"
+              >
+                Entendi
+              </button>
+            )}
           </div>
         </div>
       </div>

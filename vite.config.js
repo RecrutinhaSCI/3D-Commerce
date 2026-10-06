@@ -8,8 +8,9 @@ import { fileURLToPath, URL } from 'node:url';
  * og:image precisam de URL ABSOLUTA; em `public/` elas ficam relativas e este
  * plugin completa no build. Sem VITE_SITE_URL o build segue, só com aviso.
  */
-function seoAbsoluteUrls(siteUrl) {
+function seoAbsoluteUrls(siteUrl, apiUrl) {
     var base = siteUrl === null || siteUrl === void 0 ? void 0 : siteUrl.trim().replace(/\/+$/, '');
+    var api = apiUrl === null || apiUrl === void 0 ? void 0 : apiUrl.trim().replace(/\/+$/, '');
     var outDir = 'dist';
     return {
         name: 'seo-absolute-urls',
@@ -20,7 +21,7 @@ function seoAbsoluteUrls(siteUrl) {
         transformIndexHtml: function (html) {
             if (!base)
                 return html;
-            return html.replace(/(property="og:image" content=")\//, "$1".concat(base, "/"));
+            return html.replace(/((?:property="og:image"|name="twitter:image") content=")\//g, "$1".concat(base, "/"));
         },
         closeBundle: function () {
             if (!base) {
@@ -33,7 +34,10 @@ function seoAbsoluteUrls(siteUrl) {
                     fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace(from, to));
             };
             rewrite('sitemap.xml', /<loc>\//g, "<loc>".concat(base, "/"));
-            rewrite('robots.txt', /^Sitemap: \//m, "Sitemap: ".concat(base, "/"));
+            // Com a API em URL absoluta, o robots aponta para o sitemap DINÂMICO
+            // (inclui todos os produtos ativos); o estático fica como reserva.
+            var dynamicSitemap = api && /^https?:\/\//.test(api) ? "Sitemap: ".concat(api, "/api/public/sitemap.xml\n") : '';
+            rewrite('robots.txt', /^Sitemap: \/sitemap\.xml$/m, "".concat(dynamicSitemap, "Sitemap: ").concat(base, "/sitemap.xml"));
         },
     };
 }
@@ -41,7 +45,7 @@ export default defineConfig(function (_a) {
     var mode = _a.mode;
     var env = loadEnv(mode, process.cwd(), 'VITE_');
     return {
-        plugins: [react(), seoAbsoluteUrls(env.VITE_SITE_URL)],
+        plugins: [react(), seoAbsoluteUrls(env.VITE_SITE_URL, env.VITE_API_URL)],
         resolve: {
             alias: {
                 '@': fileURLToPath(new URL('./src', import.meta.url)),
