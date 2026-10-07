@@ -51,7 +51,7 @@ Você vai me ajudar a colocar a branch `api-mercado-pago` em produção no proje
 
 ### Etapa 0 — Conferência local (sem tocar em produção)
 - `git status` limpo e branch `api-mercado-pago` atualizada com o remoto.
-- Confirme que as 7 pastas de migration acima existem em `backend/prisma/migrations/`.
+- Confirme que as 8 pastas de migration acima existem em `backend/prisma/migrations/`.
 - Rode o build do front (`npm run build` na raiz) e o typecheck do back (`cd backend && npx tsc --noEmit`). Os dois precisam passar.
 - Me mostre um resumo do que muda (`git log --oneline main..HEAD`).
 
@@ -84,12 +84,12 @@ Me dê a lista para eu conferir/cadastrar, por projeto e ambiente, sem você ver
 - Depois, me peça para apagar esse arquivo.
 
 ### Etapa 6 — Push e preview
-- Com meu ok: `git push origin api-mercado-pago`.
-- Abra o PR para a `main` com `gh pr create` (título e descrição em português resumindo as mudanças a partir do `git log`, e listando: migrations já aplicadas no Neon, variáveis já configuradas).
+- A branch já está no GitHub e o PR para a `main` JÁ EXISTE: RecrutinhaSCI/3D-Commerce#2 (não crie outro). Confira com `gh pr view 2` que está aberto e sem conflitos. Se eu tiver algum commit local novo, com meu ok: `git push` para a branch `api-mercado-pago` do RecrutinhaSCI.
+- Com meu ok, acrescente um comentário no PR (`gh pr comment 2`) listando: migrations já aplicadas no Neon, variáveis já configuradas, resultado do check:config e do uploads:migrate.
 - Me peça para abrir a URL de PREVIEW da Vercel e testar: login, carrinho, checkout até gerar um Pix de teste, upload de uma imagem de produto no admin (a URL salva deve começar com `https://...blob.vercel-storage.com`), página /admin/mensagens.
 
 ### Etapa 7 — Merge e produção
-- Com meu ok: merge do PR (`gh pr merge --merge`, sem apagar a branch).
+- Com meu ok: merge do PR #2 (`gh pr merge 2 --merge`, sem apagar a branch).
 - Me peça para acompanhar o deploy de produção dos DOIS projetos na Vercel e me avisar quando ficarem "Ready".
 - Verifique: `curl -s https://<dominio-do-backend>/health` responde ok; `https://<dominio-da-loja>/robots.txt` lista o sitemap da API; `https://<dominio-do-backend>/api/public/sitemap.xml` lista os produtos.
 
