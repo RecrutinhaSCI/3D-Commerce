@@ -23,7 +23,9 @@ export default function Product() {
   const products = useAdminDataStore((s) => s.products);
   const categories = useAdminDataStore((s) => s.categories);
   const settings = useAdminDataStore((s) => s.settings);
-  const product = products.find((p) => p.slug === slug);
+  // Só produto ATIVO abre na loja — o admin logado tem inativos no mesmo
+  // store, e eles não podem aparecer para o público.
+  const product = products.find((p) => p.slug === slug && p.active);
   const addItem = useCartStore((s) => s.addItem);
   const setCartOpen = useUIStore((s) => s.setCartOpen);
   const navigate = useNavigate();

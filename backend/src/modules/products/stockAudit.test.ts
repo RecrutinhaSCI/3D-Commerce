@@ -2,9 +2,9 @@
  * R19-E — Exclusão em massa + histórico de estoque (`stockUpdatedAt`).
  *
  * Fake in-memory do Prisma — nenhum banco é tocado. Cobre:
- *  §1 seleção múltipla + exclusão em massa (soft delete via updateMany).
+ *  §1 seleção múltipla + exclusão em massa (exclusão DEFINITIVA).
  *  §2 produto não selecionado permanece intocado.
- *  §3 IDs inexistentes ou já-inativos são reportados sem falha do lote.
+ *  §3 IDs inexistentes são reportados sem falha do lote; inativos também são apagados.
  *  §4 `createdAt` nunca é sobrescrito.
  *  §5 edição de estoque muda `stockUpdatedAt`.
  *  §6 edição só de preço NÃO muda `stockUpdatedAt`.
@@ -48,10 +48,12 @@ interface FakeProduct {
 const db = {
   products: [] as FakeProduct[],
   categories: [] as { id: string; name: string }[],
+  // Itens de carrinho apontando para produtos (FK RESTRICT no banco real).
+  cartItems: [] as { id: string; productId: string }[],
   deletionCalls: 0,
 };
 
-function reset() { db.products = []; db.categories = []; db.deletionCalls = 0; }
+function reset() { db.products = []; db.categories = []; db.cartItems = []; db.deletionCalls = 0; }
 function nid(prefix: string) { return `${prefix}_${Math.random().toString(36).slice(2, 10)}`; }
 
 const mockPrisma: any = {};
@@ -132,7 +134,23 @@ Object.assign(mockPrisma, {
       return { count };
     }),
     delete: vi.fn(async () => { db.deletionCalls++; throw new Error('DELETE inesperado'); }),
-    deleteMany: vi.fn(async () => { db.deletionCalls++; throw new Error('DELETE_MANY inesperado'); }),
+    deleteMany: vi.fn(async ({ where }: any) => {
+      db.deletionCalls++;
+      const ids: string[] = where.id.in;
+      // Simula a FK RESTRICT de cart_items: apagar produto em carrinho falharia.
+      if (db.cartItems.some((c) => ids.includes(c.productId))) throw new Error('FK cart_items');
+      const before = db.products.length;
+      db.products = db.products.filter((p) => !ids.includes(p.id));
+      return { count: before - db.products.length };
+    }),
+  },
+  cartItem: {
+    deleteMany: vi.fn(async ({ where }: any) => {
+      const ids: string[] = where.productId.in;
+      const before = db.cartItems.length;
+      db.cartItems = db.cartItems.filter((c) => !ids.includes(c.productId));
+      return { count: before - db.cartItems.length };
+    }),
   },
   category: {
     findFirst: vi.fn(async ({ where }: any) => {
@@ -195,46 +213,55 @@ describe('bulkDelete + stockUpdatedAt (R19-E)', () => {
   });
 
   // §1 -----------------------------------------------------------------
-  it('§1 exclui múltiplos produtos (soft delete: active=false)', async () => {
+  it('§1 exclui múltiplos produtos DEFINITIVAMENTE (não ficam como inativos)', async () => {
     seedThree();
     const r = await productsService.bulkDelete(['p-a', 'p-b']);
-    expect(r).toMatchObject({ requested: 2, deactivated: 2, notFound: [], alreadyInactive: [] });
-    expect(db.products.find((p) => p.id === 'p-a')!.active).toBe(false);
-    expect(db.products.find((p) => p.id === 'p-b')!.active).toBe(false);
-    // Registro físico permanece — nada de DELETE.
-    expect(db.products).toHaveLength(3);
-    expect(db.deletionCalls).toBe(0);
+    expect(r).toMatchObject({ requested: 2, deleted: 2, notFound: [] });
+    expect(r.deletedIds.sort()).toEqual(['p-a', 'p-b']);
+    // Registro físico SAI — nenhum refresh/listagem consegue trazê-lo de volta.
+    expect(db.products.map((p) => p.id)).toEqual(['p-c']);
   });
 
   // §2 -----------------------------------------------------------------
   it('§2 produto não selecionado permanece intocado', async () => {
     seedThree();
+    const bBefore = { ...db.products.find((p) => p.id === 'p-b')! };
     const cBefore = { ...db.products.find((p) => p.id === 'p-c')! };
     await productsService.bulkDelete(['p-a']);
+    expect(db.products.find((p) => p.id === 'p-b')!).toEqual(bBefore);
     expect(db.products.find((p) => p.id === 'p-c')!).toEqual(cBefore);
-    // B também
-    expect(db.products.find((p) => p.id === 'p-b')!.active).toBe(true);
   });
 
   // §3 -----------------------------------------------------------------
-  it('§3 IDs inexistentes e já-inativos são reportados sem quebrar o lote', async () => {
+  it('§3 IDs inexistentes são reportados sem quebrar o lote; inativos também são apagados', async () => {
     seedThree();
     const r = await productsService.bulkDelete(['p-a', 'p-c', 'p-fantasma', 'p-fantasma-2']);
     expect(r.requested).toBe(4);
-    expect(r.deactivated).toBe(1); // apenas p-a era ativo
-    expect(r.alreadyInactive).toContain('p-c');
+    expect(r.deleted).toBe(2); // p-a (ativo) + p-c (inativo)
     expect(r.notFound).toEqual(expect.arrayContaining(['p-fantasma', 'p-fantasma-2']));
-    // p-a foi desativado; p-c segue como estava (já inativo); p-b intocado
-    expect(db.products.find((p) => p.id === 'p-a')!.active).toBe(false);
-    expect(db.products.find((p) => p.id === 'p-b')!.active).toBe(true);
-    expect(db.products.find((p) => p.id === 'p-c')!.active).toBe(false);
+    expect(db.products.map((p) => p.id)).toEqual(['p-b']);
   });
 
   it('§3b IDs duplicados no payload contam UMA vez só', async () => {
     seedThree();
     const r = await productsService.bulkDelete(['p-a', 'p-a', 'p-a']);
     expect(r.requested).toBe(1);
-    expect(r.deactivated).toBe(1);
+    expect(r.deleted).toBe(1);
+  });
+
+  it('§3c produto em carrinho aberto é excluído (itens de carrinho saem antes — FK RESTRICT)', async () => {
+    seedThree();
+    db.cartItems.push({ id: 'ci1', productId: 'p-a' }, { id: 'ci2', productId: 'p-b' });
+    const r = await productsService.bulkDelete(['p-a']);
+    expect(r.deleted).toBe(1);
+    expect(db.cartItems).toEqual([{ id: 'ci2', productId: 'p-b' }]);
+  });
+
+  it('§3d exclusão individual: apaga e 2ª tentativa devolve 404 (não "volta")', async () => {
+    seedThree();
+    await expect(productsService.remove('p-a')).resolves.toEqual({ deleted: true, id: 'p-a' });
+    expect(db.products.find((p) => p.id === 'p-a')).toBeUndefined();
+    await expect(productsService.remove('p-a')).rejects.toMatchObject({ status: 404 });
   });
 
   // §4 -----------------------------------------------------------------

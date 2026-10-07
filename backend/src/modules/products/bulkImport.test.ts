@@ -283,8 +283,8 @@ describe('productsService.bulkImport (R19-A)', () => {
     expect(db.products).toHaveLength(1);
 
     const r2 = await productsService.bulkImport({ rows: [row] });
-    // 2ª rodada bateu no SKU e apenas atualizou — nada de duplicata.
-    expect(r2.summary).toMatchObject({ created: 0, updated: 1 });
+    // 2ª rodada bateu no SKU; valores iguais → "unchanged", nada de duplicata.
+    expect(r2.summary).toMatchObject({ created: 0, updated: 0, unchanged: 1 });
     expect(db.products).toHaveLength(1);
   });
 

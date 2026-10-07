@@ -116,13 +116,15 @@ function ProductForm() {
   );
 
   // Ao entrar em edição, busca o produto real do backend para pegar os IDs
-  // das imagens (necessário para o DELETE por imageId).
+  // das imagens (necessário para o DELETE por imageId). Usa a rota ADMIN:
+  // a pública devolve 404 para produto inativo e as fotos ficavam sem ID
+  // (o "remover foto" só sumia da tela e voltava ao recarregar).
   useEffect(() => {
     if (!existing) return;
     let cancelled = false;
     (async () => {
       try {
-        const { product } = await productService.getPublicBySlug(existing.slug);
+        const { product } = await productService.getAdminById(existing.id);
         if (cancelled) return;
         if (product.images.length > 0) {
           setImages(product.images.map((img) => ({

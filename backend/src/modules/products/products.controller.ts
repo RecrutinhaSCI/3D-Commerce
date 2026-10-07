@@ -42,6 +42,12 @@ export const productsController = {
     return ok(res, result);
   },
 
+  async getAdminById(req: Request, res: Response) {
+    const { id } = idParam.parse(req.params);
+    const product = await productsService.getAdminById(id);
+    return ok(res, { product });
+  },
+
   async create(req: Request, res: Response) {
     const input = createProductSchema.parse(req.body);
     const product = await productsService.create(input);
@@ -82,7 +88,7 @@ export const productsController = {
     return ok(res, report);
   },
 
-  /** R19-E — Desativação em massa (soft delete) — protegida por auth+admin. */
+  /** Exclusão definitiva em massa — protegida por auth+admin. */
   async bulkDelete(req: Request, res: Response) {
     const input = bulkDeleteSchema.parse(req.body);
     const report = await productsService.bulkDelete(input.ids);

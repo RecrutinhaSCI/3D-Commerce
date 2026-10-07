@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, useParams } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { PublicLayout } from '@/components/layout/PublicLayout';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -58,6 +58,16 @@ function L({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
 }
 
+/**
+ * `produtos/novo` e `produtos/:id` usam o mesmo componente; sem `key` o React
+ * reaproveita a instância ao navegar entre eles (voltar/avançar, ou após criar)
+ * e o formulário mantinha valores/fotos do produto anterior.
+ */
+function AdminProductFormRoute() {
+  const { id } = useParams();
+  return <AdminProductForm key={id ?? 'novo'} />;
+}
+
 export const router = createBrowserRouter([
   {
     element: <PublicLayout />,
@@ -96,8 +106,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <L><AdminDashboard /></L> },
       { path: 'produtos', element: <L><AdminProducts /></L> },
-      { path: 'produtos/novo', element: <L><AdminProductForm /></L> },
-      { path: 'produtos/:id', element: <L><AdminProductForm /></L> },
+      { path: 'produtos/novo', element: <L><AdminProductFormRoute /></L> },
+      { path: 'produtos/:id', element: <L><AdminProductFormRoute /></L> },
       { path: 'categorias', element: <L><AdminCategories /></L> },
       { path: 'categoria-sazonal', element: <L><AdminSeasonal /></L> },
       { path: 'banners', element: <L><AdminBanners /></L> },

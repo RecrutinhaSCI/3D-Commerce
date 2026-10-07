@@ -1,9 +1,11 @@
 import * as XLSX from 'xlsx';
-import type { Category, Product } from '@/types';
+import type { ApiProduct } from '@/services/types';
 
 /**
  * Utilitários de Excel para produtos (R16).
- * - Exportação: gera .xlsx a partir dos produtos já carregados no admin.
+ * - Exportação: gera .xlsx a partir dos produtos CRUS da API (buscados na hora
+ *   do clique), para que reimportar o arquivo seja seguro: SKU real, imagem
+ *   exatamente como gravada no banco, nenhuma coluna "decorativa".
  * - Modelo: cabeçalhos + 1 linha de exemplo.
  * - Importação: lê .xlsx, valida linha a linha e devolve prévia (sem gravar).
  *
@@ -30,11 +32,10 @@ const HEADERS = {
   estoque: 'estoque',
   ativo: 'ativo',
   destaque: 'destaque_home',
-  lancamento: 'lancamento',
-  oferta: 'oferta',
+  // Só leitura (import ignora): aceito por compat com planilhas antigas.
   maisVendido: 'mais_vendido',
-  freteGratis: 'frete_gratis',
   criadoEm: 'criado_em',
+  estoqueAtualizadoEm: 'estoque_atualizado_em',
 } as const;
 
 /**
@@ -56,12 +57,13 @@ const COLUMN_ALIASES: Record<string, string> = {
   image_url: HEADERS.imagem,
 };
 
-function categoryName(product: Product, categories: Category[]): string {
-  const c = categories.find((x) => product.categoryIds.includes(x.id));
-  return c?.name ?? '';
+/** URL da mídia principal exatamente como está no banco (menor position). */
+function mainImageUrl(p: ApiProduct): string {
+  const main = [...p.images].sort((a, b) => a.position - b.position)[0];
+  return main?.url ?? '';
 }
 
-function fmtDate(iso?: string): string {
+function fmtDate(iso?: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR');
@@ -75,34 +77,37 @@ function triggerDownload(wb: XLSX.WorkBook, filename: string) {
 // Exportação
 // -----------------------------------------------------------------------------
 
-export function exportProductsXlsx(products: Product[], categories: Category[]) {
-  const rows = products.map((p) => ({
+/**
+ * Linhas da exportação — separado do download para ser testável.
+ * Regras: SKU real; imagem = URL gravada no banco (nunca o placeholder SVG
+ * que o front desenha para produto sem foto, nem a URL absoluta montada
+ * com o host da API); vazio quando não há valor.
+ */
+export function buildExportRows(products: ApiProduct[]): Array<Record<string, string | number>> {
+  return products.map((p) => ({
     [HEADERS.id]: p.id,
-    [HEADERS.sku]: '', // SKU real vive no backend; exportação inclui a coluna para reimport com matching seguro.
+    [HEADERS.sku]: p.sku ?? '',
     [HEADERS.nome]: p.name,
     [HEADERS.slug]: p.slug,
     // R19-B — marca e material em colunas SEPARADAS. Nunca compartilham célula.
     [HEADERS.marca]: p.brand ?? '',
-    [HEADERS.material]: p.material && p.material !== '-' ? p.material : '',
-    // R19-C — imagem PRINCIPAL (menor position). `apiProductToInternal` já
-    // ordenou a galeria; o [0] é a principal. Exporta a string exatamente
-    // como armazenada (path relativo /uploads/... ou URL absoluta).
-    [HEADERS.imagem]: p.images[0] ?? '',
-    [HEADERS.categoria]: categoryName(p, categories),
-    [HEADERS.descricaoCurta]: p.shortDescription,
-    [HEADERS.descricaoCompleta]: p.description,
+    [HEADERS.material]: p.material ?? '',
+    [HEADERS.imagem]: mainImageUrl(p),
+    [HEADERS.categoria]: p.category?.name ?? '',
+    [HEADERS.descricaoCurta]: p.shortDescription ?? '',
+    [HEADERS.descricaoCompleta]: p.description ?? '',
     [HEADERS.preco]: p.price,
-    [HEADERS.precoPromocional]: p.promoPrice ?? '',
+    [HEADERS.precoPromocional]: p.promotionalPrice ?? '',
     [HEADERS.estoque]: p.stock,
     [HEADERS.ativo]: p.active ? 'sim' : 'não',
-    [HEADERS.destaque]: p.isHighlight ? 'sim' : 'não',
-    [HEADERS.lancamento]: p.isLaunch ? 'sim' : 'não',
-    [HEADERS.oferta]: p.isOffer ? 'sim' : 'não',
-    [HEADERS.maisVendido]: p.isBestSeller ? 'sim' : 'não',
-    [HEADERS.freteGratis]: p.freeShipping ? 'sim' : 'não',
+    [HEADERS.destaque]: p.featured ? 'sim' : 'não',
     [HEADERS.criadoEm]: fmtDate(p.createdAt),
+    [HEADERS.estoqueAtualizadoEm]: fmtDate(p.stockUpdatedAt),
   }));
-  const ws = XLSX.utils.json_to_sheet(rows);
+}
+
+export function exportProductsXlsx(products: ApiProduct[]) {
+  const ws = XLSX.utils.json_to_sheet(buildExportRows(products));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Produtos');
   const date = new Date().toISOString().slice(0, 10);
@@ -179,6 +184,15 @@ export interface ParseResult {
 
 const MAX_TEXT = 5000;
 
+/**
+ * Placeholder SVG que o front gera para produto sem foto. Planilhas exportadas
+ * antes da correção traziam isso na coluna imagem — e o backend recusava a
+ * linha INTEIRA (preço/estoque inclusive). Tratamos como "sem imagem".
+ */
+function isGeneratedPlaceholder(v: string): boolean {
+  return /^data:image\/svg\+xml/i.test(v);
+}
+
 /** Vazio → `undefined` (preserva). Texto → trim + limite. */
 function optText(v: unknown, max = MAX_TEXT): string | undefined {
   if (v === undefined || v === null) return undefined;
@@ -201,6 +215,9 @@ function optBool(v: unknown): boolean | undefined {
  */
 function optNumber(v: unknown): number | undefined | null {
   if (v === undefined || v === null || v === '') return undefined;
+  // Célula numérica: usa o valor real, independente da formatação exibida
+  // (ex.: "1,299.00" com formato de milhar seria lido errado como texto).
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   const s = String(v).trim().replace(/\s/g, '').replace(/\./g, (m, _i, str) =>
     // separador de milhar só quando há vírgula decimal depois
     str.includes(',') ? '' : m,
@@ -229,9 +246,15 @@ export async function parseProductsXlsx(file: File): Promise<ParseResult> {
 
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array' });
+  return parseWorkbook(wb);
+}
+
+/** Parse a partir do workbook já lido — separado para ser testável sem File. */
+export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  // raw:false força valores como texto/computados (nunca fórmula), defval '' evita undefined.
-  const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { raw: false, defval: '' });
+  // raw:true → valor real da célula (número continua número; fórmula vem
+  // como o valor calculado em cache, nunca é executada). defval '' evita undefined.
+  const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { raw: true, defval: '' });
 
   const rows: ParsedProductRow[] = json.map((raw, idx) => {
     // Normaliza chaves da linha.
@@ -302,7 +325,10 @@ export async function parseProductsXlsx(file: File): Promise<ParseResult> {
         material: optText(row[HEADERS.material], 80),
         // R19-C — imagem por URL. Validação sintática por linha é do backend
         // (uma URL ruim aqui só afeta a própria linha, não o lote).
-        imageUrl: optText(row[HEADERS.imagem], 2000),
+        imageUrl: (() => {
+          const v = optText(row[HEADERS.imagem], 2000);
+          return v && isGeneratedPlaceholder(v) ? undefined : v;
+        })(),
       },
       errors,
     };

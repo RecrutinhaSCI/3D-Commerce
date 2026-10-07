@@ -136,6 +136,72 @@ export function isSafeImageUrl(raw: string): boolean {
   return parsed.protocol === 'https:' || parsed.protocol === 'http:';
 }
 
+/**
+ * Duas URLs apontam para a MESMA mídia? Além da igualdade exata, trata como
+ * iguais um path servido pelo backend (`/uploads/...`) e a URL absoluta que
+ * termina exatamente nesse path — é o que planilhas exportadas antes da
+ * correção carregavam (`https://<backend>/uploads/...`). Sem isso, cada
+ * reimportação criava uma imagem DUPLICADA na galeria.
+ */
+export function isSameMediaUrl(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [rel, abs] = a.startsWith('/uploads/') ? [a, b] : b.startsWith('/uploads/') ? [b, a] : [null, null];
+  if (!rel || !abs || !/^https?:\/\//i.test(abs)) return false;
+  try {
+    return new URL(abs).pathname === rel;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove os arquivos de produto (Vercel Blob ou `/uploads/products/` local) que
+ * não são mais referenciados por NENHUMA linha de `product_images`. A mesma URL
+ * pode estar em mais de um produto (ex.: import reaproveitando a imagem de
+ * outro), então apagar o arquivo sem checar derrubaria a foto do outro produto.
+ * Imagens do seed (`/uploads/seed/`) e URLs externas nunca são tocadas
+ * (`safeUnlinkProductImage` só apaga Blob próprio ou arquivo local).
+ */
+async function unlinkOrphanProductFiles(urls: string[]) {
+  const candidates = Array.from(
+    new Set(urls.filter((u) => u.startsWith('/uploads/products/') || /^https?:\/\//i.test(u))),
+  );
+  if (candidates.length === 0) return;
+  const stillUsed = await prisma.productImage.findMany({
+    where: { url: { in: candidates } },
+    select: { url: true },
+  });
+  const used = new Set(stillUsed.map((r) => r.url));
+  for (const url of candidates) {
+    if (!used.has(url)) safeUnlinkProductImage(url);
+  }
+}
+
+/**
+ * Exclusão FÍSICA de produtos. Seguro para o histórico porque:
+ *  • order_items guarda snapshot (nome/SKU/preço) e a FK é SET NULL;
+ *  • product_images cai junto (FK CASCADE);
+ *  • cart_items (FK RESTRICT) são carrinhos em aberto — removidos antes.
+ * Retorna os IDs efetivamente apagados.
+ */
+async function hardDeleteProducts(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const images = await prisma.productImage.findMany({
+    where: { productId: { in: ids } },
+    select: { url: true },
+  });
+  const deleted = await prisma.$transaction(async (tx) => {
+    const found = await tx.product.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    const foundIds = found.map((p) => p.id);
+    if (foundIds.length === 0) return [];
+    await tx.cartItem.deleteMany({ where: { productId: { in: foundIds } } });
+    await tx.product.deleteMany({ where: { id: { in: foundIds } } });
+    return foundIds;
+  });
+  await unlinkOrphanProductFiles(images.map((i) => i.url));
+  return deleted;
+}
+
 async function slugExists(slug: string): Promise<boolean> {
   const row = await prisma.product.findUnique({ where: { slug }, select: { id: true } });
   return !!row;
@@ -323,6 +389,13 @@ export const productsService = {
     };
   },
 
+  /** Admin — busca por ID inclusive produtos INATIVOS (o endpoint público não os retorna). */
+  async getAdminById(id: string) {
+    const row = await prisma.product.findUnique({ where: { id }, include: includeRelations });
+    if (!row) throw HttpError.notFound('Produto não encontrado.');
+    return toDTO(row);
+  },
+
   async create(input: CreateProductInput) {
     await ensureCategoryExists(input.categoryId);
     await ensureUniqueSku(input.sku);
@@ -415,56 +488,33 @@ export const productsService = {
     return toDTO(updated);
   },
 
-  /** Soft delete conforme spec — nunca deleta fisicamente para preservar histórico. */
+  /**
+   * Exclusão definitiva. Antes era soft delete (active=false), mas o admin
+   * continuava listando o produto — para o cliente ele "voltava" logo após
+   * excluir. Quem só quer tirar da loja usa o toggle "Ativo" (desativar).
+   * Pedidos antigos mantêm o snapshot (nome/SKU/preço) — ver hardDeleteProducts.
+   */
   async remove(id: string) {
-    const current = await prisma.product.findUnique({ where: { id } });
-    if (!current) throw HttpError.notFound('Produto não encontrado.');
-
-    const updated = await prisma.product.update({
-      where: { id },
-      data: { active: false },
-      include: includeRelations,
-    });
-    return { softDeleted: true, product: toDTO(updated) };
+    const deleted = await hardDeleteProducts([id]);
+    if (deleted.length === 0) throw HttpError.notFound('Produto não encontrado.');
+    return { deleted: true, id };
   },
 
   /**
-   * R19-E — Desativação em massa. Consistente com `remove` (soft delete):
-   * marca `active=false` para todos os IDs válidos. Preserva histórico em
-   * pedidos, carrinhos e imagens; nenhum registro relacionado é derrubado.
-   * Retorna quais foram desativados e quais não foram encontrados, para o
-   * admin poder investigar a diferença.
+   * Exclusão definitiva em massa — mesma regra de `remove`, numa transação
+   * só (ou apaga todos os encontrados, ou nenhum). IDs inexistentes são
+   * reportados em `notFound` sem derrubar o lote.
    */
   async bulkDelete(ids: string[]) {
     // Dedup local — mesmo id repetido no payload não deve inflar as contagens.
     const unique = Array.from(new Set(ids));
-
-    const found = await prisma.product.findMany({
-      where: { id: { in: unique } },
-      select: { id: true, active: true },
-    });
-    const foundIds = new Set(found.map((p) => p.id));
-    const notFound = unique.filter((id) => !foundIds.has(id));
-    const alreadyInactive = found.filter((p) => !p.active).map((p) => p.id);
-    const toDeactivate = found.filter((p) => p.active).map((p) => p.id);
-
-    let deactivated = 0;
-    if (toDeactivate.length > 0) {
-      // R19-E — updateMany é atômico no lado do banco; qualquer falha de linha
-      // faz o batch inteiro voltar. Não tocamos `stockUpdatedAt` — desativar
-      // não é uma mudança de estoque.
-      const result = await prisma.product.updateMany({
-        where: { id: { in: toDeactivate } },
-        data: { active: false },
-      });
-      deactivated = result.count;
-    }
-
+    const deletedIds = await hardDeleteProducts(unique);
+    const deletedSet = new Set(deletedIds);
     return {
       requested: unique.length,
-      deactivated,
-      alreadyInactive,
-      notFound,
+      deleted: deletedIds.length,
+      deletedIds,
+      notFound: unique.filter((id) => !deletedSet.has(id)),
     };
   },
 
@@ -518,9 +568,9 @@ export const productsService = {
     const image = await prisma.productImage.findUnique({ where: { id: imageId } });
     if (!image) throw HttpError.notFound('Imagem não encontrada.');
     await prisma.productImage.delete({ where: { id: imageId } });
-    // Best-effort: apaga o arquivo (Vercel Blob ou /uploads/products/ local).
-    // Imagens do seed (/uploads/seed/) não são tocadas.
-    if (!image.url.startsWith('/uploads/seed/')) safeUnlinkProductImage(image.url);
+    // Best-effort: apaga o arquivo (Vercel Blob ou /uploads/products/ local)
+    // só se nenhum outro registro o usa. Imagens do seed não são tocadas.
+    await unlinkOrphanProductFiles([image.url]);
     return { imageId };
   },
 
@@ -561,6 +611,9 @@ export const productsService = {
     }
     const created: ReportItem[] = [];
     const updated: ReportItem[] = [];
+    // Linhas que casaram com um produto mas não trazem NENHUMA diferença real
+    // (reimportar a mesma planilha). Nada é escrito — nem updatedAt muda.
+    const unchanged: ReportItem[] = [];
     const skipped: ReportItem[] = [];
     const conflicts: ReportItem[] = [];
 
@@ -627,9 +680,9 @@ export const productsService = {
 
       // Principal é sempre a de MENOR position (não assume ==0).
       const current = images[0];
-      if (current.url === url) return false;
+      if (isSameMediaUrl(current.url, url)) return false;
 
-      const existingIdx = images.findIndex((i) => i.url === url);
+      const existingIdx = images.findIndex((i) => isSameMediaUrl(i.url, url));
       if (existingIdx > 0) {
         // Promove imagem secundária existente para principal, sem duplicar.
         // Reindexa: [encontrada, ...resto na ordem original].
@@ -750,31 +803,36 @@ export const productsService = {
         // --- Fase 2A: UPDATE parcial (produto encontrado) ---
         if (existing) {
           const patch: Prisma.ProductUpdateInput = {};
-          // Só entra na chave se veio DEFINIDA. Nunca `null`/`0`/`""` artificial.
-          if (row.name !== undefined) patch.name = row.name;
-          if (row.shortDescription !== undefined) patch.shortDescription = row.shortDescription;
-          if (row.description !== undefined) patch.description = row.description;
-          if (row.price !== undefined) patch.price = row.price;
-          if (row.promotionalPrice !== undefined) patch.promotionalPrice = row.promotionalPrice;
-          // R19-E — `stockUpdatedAt` só entra no patch se o valor de estoque
-          // realmente MUDA em relação ao atual (mesma regra da edição manual).
-          // Célula vazia → row.stock === undefined → nem stock nem stockUpdatedAt
-          // são tocados. Célula com mesmo valor → stock reafirmado mas o
-          // carimbo permanece intacto — o cliente vê "sem histórico" ou a data
-          // antiga como antes.
-          if (row.stock !== undefined) {
-            patch.stock = row.stock;
-            if (row.stock !== existing.stock) {
-              patch.stockUpdatedAt = new Date();
-            }
+          // Só entra no patch o campo que veio DEFINIDO na linha E difere do
+          // valor atual. Vazio (`undefined`) preserva; valor igual não reescreve
+          // — reimportar a mesma planilha não toca em nada (nem updatedAt).
+          // `0` e `false` explícitos são valores normais e entram quando diferem.
+          if (row.name !== undefined && row.name !== existing.name) patch.name = row.name;
+          if (row.shortDescription !== undefined && row.shortDescription !== existing.shortDescription) {
+            patch.shortDescription = row.shortDescription;
           }
-          if (row.active !== undefined) patch.active = row.active;
-          if (row.featured !== undefined) patch.featured = row.featured;
+          if (row.description !== undefined && row.description !== existing.description) {
+            patch.description = row.description;
+          }
+          if (row.price !== undefined && row.price !== decimalToNumber(existing.price)) patch.price = row.price;
+          if (row.promotionalPrice !== undefined && row.promotionalPrice !== decimalToNumber(existing.promotionalPrice)) {
+            patch.promotionalPrice = row.promotionalPrice;
+          }
+          // R19-E — estoque (e o carimbo `stockUpdatedAt`) só muda quando o
+          // valor realmente difere do atual (mesma regra da edição manual).
+          if (row.stock !== undefined && row.stock !== existing.stock) {
+            patch.stock = row.stock;
+            patch.stockUpdatedAt = new Date();
+          }
+          if (row.active !== undefined && row.active !== existing.active) patch.active = row.active;
+          if (row.featured !== undefined && row.featured !== existing.featured) patch.featured = row.featured;
           // R19-B — brand e material são independentes. Cada um só entra no
           // patch quando veio DEFINIDO na linha; nunca um afeta o outro.
-          if (row.brand !== undefined) patch.brand = row.brand;
-          if (row.material !== undefined) patch.material = row.material;
-          if (resolvedCategoryId) patch.category = { connect: { id: resolvedCategoryId } };
+          if (row.brand !== undefined && row.brand !== existing.brand) patch.brand = row.brand;
+          if (row.material !== undefined && row.material !== existing.material) patch.material = row.material;
+          if (resolvedCategoryId && resolvedCategoryId !== existing.categoryId) {
+            patch.category = { connect: { id: resolvedCategoryId } };
+          }
 
           // R19-D — Conflito de identidade: quando a linha veio com id/sku/slug
           // apontando para produtos DIFERENTES, nenhum é atualizado. Cada
@@ -815,13 +873,14 @@ export const productsService = {
           }
 
           // R19-C — Se a única alteração possível é a imagem, ainda vale
-          // rodar a linha (só imagem). Sem imagem E sem patch → skipped.
+          // rodar a linha (só imagem). Sem imagem E sem diferença → unchanged.
           if (Object.keys(patch).length === 0 && validatedImageUrl === undefined) {
-            skipped.push({
+            unchanged.push({
               line: row.line,
+              id: existing.id,
               name: existing.name,
-              reason: 'Linha sem nenhum campo para atualizar.',
-              identifier: existing.id,
+              matchedBy: matchedBy ?? undefined,
+              reason: 'Nenhuma alteração: valores iguais aos atuais.',
             });
             continue;
           }
@@ -843,6 +902,17 @@ export const productsService = {
             }
             return { saved, imageUpdated };
           });
+          if (Object.keys(patch).length === 0 && !result.imageUpdated) {
+            // Só trouxe imagem e ela já é a principal atual → nada mudou.
+            unchanged.push({
+              line: row.line,
+              id: existing.id,
+              name: existing.name,
+              matchedBy: matchedBy ?? undefined,
+              reason: 'Nenhuma alteração: valores iguais aos atuais.',
+            });
+            continue;
+          }
           updated.push({
             line: row.line,
             id: result.saved.id,
@@ -986,12 +1056,14 @@ export const productsService = {
     return {
       created,
       updated,
+      unchanged,
       skipped,
       conflicts,
       summary: {
         total: input.rows.length,
         created: created.length,
         updated: updated.length,
+        unchanged: unchanged.length,
         skipped: skipped.length,
         conflicts: conflicts.length,
       },

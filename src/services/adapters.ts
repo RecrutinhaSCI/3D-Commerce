@@ -112,7 +112,7 @@ export function apiProductToInternal(p: ApiProduct): Product {
     isBestSeller: p.featured,
     active: p.active,
     createdAt: p.createdAt,
-    sku: p.sku ?? undefined,
+    sku: p.sku ?? null,
     color: p.color ?? undefined,
     weight: p.weight ?? undefined,
     width: p.width ?? undefined,

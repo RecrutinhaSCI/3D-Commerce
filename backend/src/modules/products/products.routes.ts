@@ -16,9 +16,10 @@ import { productsController } from './products.controller';
  *
  * Admin (auth + admin):
  *   GET    /api/admin/products
+ *   GET    /api/admin/products/:id        (inclui inativos)
  *   POST   /api/admin/products
  *   PUT    /api/admin/products/:id
- *   DELETE /api/admin/products/:id
+ *   DELETE /api/admin/products/:id        (exclusão definitiva)
  *   POST   /api/admin/products/:id/images
  *   DELETE /api/admin/products/images/:imageId
  */
@@ -47,6 +48,7 @@ productsRouter.post(
   productMediaUpload.array('images', 10),
   asyncHandler(productsController.addImages),
 );
+productsRouter.get('/admin/products/:id', asyncHandler(productsController.getAdminById));
 productsRouter.put('/admin/products/:id', asyncHandler(productsController.update));
 productsRouter.delete('/admin/products/:id', asyncHandler(productsController.remove));
 
@@ -54,6 +56,6 @@ productsRouter.delete('/admin/products/:id', asyncHandler(productsController.rem
 // (id → sku → slug explícito → conflito seguro em ambiguidade de nome).
 productsRouter.post('/admin/products/import', asyncHandler(productsController.bulkImport));
 
-// R19-E — Desativação em massa (soft delete). Body: { ids: string[] }.
+// Exclusão definitiva em massa. Body: { ids: string[] }.
 // Herdou auth+admin do `router.use` acima.
 productsRouter.post('/admin/products/bulk-delete', asyncHandler(productsController.bulkDelete));

@@ -363,8 +363,8 @@ describe('R19-C — imagem principal via bulk import', () => {
     const r = await productsService.bulkImport({
       rows: [{ line: 2, sku: 'SKU-P1', imageUrl: 'https://x.com/principal-atual.jpg' }],
     });
-    expect(r.summary.updated).toBe(1);
-    expect(r.updated[0].imageUpdated).toBeUndefined(); // no-op mesmo com position=4
+    // No-op mesmo com position=4 → linha cai em "unchanged".
+    expect(r.summary).toMatchObject({ updated: 0, unchanged: 1 });
     expect(db.images).toHaveLength(2);
     // Posições inalteradas.
     expect(db.images.find((i) => i.id === 'i1')!.position).toBe(4);

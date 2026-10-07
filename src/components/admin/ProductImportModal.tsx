@@ -68,6 +68,7 @@ export function ProductImportModal({ open, onClose, onDone }: Props) {
       onDone();
       toast.success(
         `Importação: ${rep.summary.created} criados, ${rep.summary.updated} atualizados, ` +
+        `${rep.summary.unchanged ?? 0} sem alteração, ` +
         `${rep.summary.conflicts} conflito(s), ${rep.summary.skipped} ignorado(s).`,
       );
     } catch (err) {
@@ -155,9 +156,10 @@ export function ProductImportModal({ open, onClose, onDone }: Props) {
             <div className="flex items-center gap-2 text-emerald-700">
               <CheckCircle2 className="h-5 w-5" /> <span className="font-semibold">Importação concluída</span>
             </div>
-            <div className="grid grid-cols-4 gap-3 text-center">
+            <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-5">
               <div className="rounded-lg bg-emerald-50 p-3"><p className="text-lg font-bold text-emerald-700">{report.summary.created}</p><p className="text-[11px] uppercase text-emerald-700">Criados</p></div>
               <div className="rounded-lg bg-sky-50 p-3"><p className="text-lg font-bold text-sky-700">{report.summary.updated}</p><p className="text-[11px] uppercase text-sky-700">Atualizados</p></div>
+              <div className="rounded-lg bg-bg-soft p-3"><p className="text-lg font-bold text-ink-soft">{report.summary.unchanged ?? 0}</p><p className="text-[11px] uppercase text-ink-mute">Sem alteração</p></div>
               <div className="rounded-lg bg-amber-50 p-3"><p className="text-lg font-bold text-amber-700">{report.summary.conflicts}</p><p className="text-[11px] uppercase text-amber-700">Conflitos</p></div>
               <div className="rounded-lg bg-ink/5 p-3"><p className="text-lg font-bold text-ink-mute">{report.summary.skipped}</p><p className="text-[11px] uppercase text-ink-mute">Ignorados</p></div>
             </div>

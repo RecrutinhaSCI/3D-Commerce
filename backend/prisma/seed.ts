@@ -48,6 +48,10 @@ async function main() {
       active: true,
       emailVerified: true,
     },
+    // NUNCA reseta a senha de um admin existente para a padrão: o seed também
+    // roda automaticamente em `prisma migrate dev/reset`. Só regrava a senha
+    // quando ADMIN_PASSWORD foi definida explicitamente (passwordHash fica
+    // undefined caso contrário).
     update: {
       ...(passwordHash ? { passwordHash } : {}),
       role: UserRole.ADMIN,
@@ -258,7 +262,11 @@ async function main() {
     },
   ];
 
-  for (const p of productsData) {
+  // Catálogo DEMO só sob demanda explícita (SEED_DEMO_CATALOG=1). Sem isso o
+  // seed nunca recria produtos — um catálogo limpo continua limpo.
+  const seedDemoCatalog = process.env.SEED_DEMO_CATALOG === '1';
+  if (!seedDemoCatalog) console.log('[seed] produtos demo ignorados (defina SEED_DEMO_CATALOG=1 para criá-los)');
+  for (const p of seedDemoCatalog ? productsData : []) {
     const categoryId = categoriesBySlug[p.categorySlug];
     if (!categoryId) throw new Error(`Categoria não encontrada para slug ${p.categorySlug}`);
     await prisma.product.upsert({
@@ -294,7 +302,7 @@ async function main() {
           },
     });
   }
-  console.log(`[seed] produtos: ${productsData.length}`);
+  if (seedDemoCatalog) console.log(`[seed] produtos: ${productsData.length}`);
 
   // -----------------------------------------------------------------------
   // 4. SiteSettings (registro único — id "main")

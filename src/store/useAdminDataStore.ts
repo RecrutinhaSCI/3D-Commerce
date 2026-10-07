@@ -84,10 +84,13 @@ interface AdminDataState {
   refreshAdmin: () => Promise<void>;
 
   // Produtos
+  /** Erros sobem como ApiError (a tela mostra a mensagem real do backend). */
   addProduct: (p: Product) => Promise<Product>;
+  /** Salva no banco e atualiza o cache. Lança ApiError em falha. */
   updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
+  /** Exclusão definitiva no banco (e no cache). Lança ApiError em falha. */
   removeProduct: (id: string) => Promise<void>;
-  bulkRemoveProducts: (ids: string[]) => Promise<{ deactivated: number; notFound: string[]; alreadyInactive: string[] } | null>;
+  bulkRemoveProducts: (ids: string[]) => Promise<{ deleted: number; notFound: string[] } | null>;
 
   // Categorias
   addCategory: (c: Category) => Promise<Category | null>;
@@ -146,16 +149,18 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
 
   async refreshPublic() {
     try {
-      const [{ settings }, { categories: cats }, prodResp, bannersResp] = await Promise.all([
+      // Todas as páginas: antes vinha só a 1ª (limit 100) e a loja pública
+      // "perdia" os produtos excedentes do catálogo.
+      const [{ settings }, { categories: cats }, publicProducts, bannersResp] = await Promise.all([
         settingsService.getPublic(),
         categoryService.listPublic(),
-        productService.listPublic({ limit: 100 }),
+        productService.listAllPublic(),
         bannerService.listPublic(),
       ]);
       set({
         settings: apiSettingsToInternal(settings),
         categories: cats.map((c, i) => apiCategoryToInternal(c, i)),
-        products: prodResp.products.map(apiProductToInternal),
+        products: publicProducts.map(apiProductToInternal),
         banners: bannersResp.banners.map(apiBannerToInternal),
       });
     } catch {
@@ -165,18 +170,16 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
 
   async refreshAdmin() {
     try {
-      // Só faz sentido se admin token existir.
-      // R19-A: limit ampliado 100 → 500 (era o motivo de produtos "sumirem"
-      // da tela do admin quando o catálogo passava de 100). Dívida técnica:
-      // catálogos >500 pedem paginação real na listagem — fora do escopo.
+      // Só faz sentido se admin token existir. Carrega TODAS as páginas
+      // (inclui inativos — o admin precisa vê-los para reativar).
       const [prod, cats, banners, orders] = await Promise.all([
-        productService.listAdmin({ limit: 500 }).catch(() => null),
+        productService.listAllAdmin().catch(() => null),
         categoryService.listAdmin().catch(() => null),
         bannerService.listAdmin().catch(() => null),
         orderService.listAdmin({ limit: 100 }).catch(() => null),
       ]);
       const patch: Partial<AdminDataState> = {};
-      if (prod) patch.products = prod.products.map(apiProductToInternal);
+      if (prod) patch.products = prod.map(apiProductToInternal);
       if (cats) patch.categories = cats.categories.map((c, i) => apiCategoryToInternal(c, i));
       if (banners) patch.banners = banners.banners.map(apiBannerToInternal);
       if (orders) patch.orders = orders.orders.map(apiOrderToInternal);
@@ -248,28 +251,27 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
   },
 
   async removeProduct(id) {
-    // Erros SOBEM (ApiError) — a tela mostra a falha em vez de "removido".
-    await productService.remove(id);
-    // soft delete: reduz do cache também
+    // Erros SOBEM (ApiError) — a tela mostra a falha em vez de "excluído".
+    try {
+      await productService.remove(id);
+    } catch (err) {
+      // 404 = já não existe no banco; limpa o cache para não exibir fantasma.
+      if (err instanceof ApiError && err.status === 404) {
+        set({ products: get().products.filter((p) => p.id !== id) });
+      }
+      throw err;
+    }
+    // Exclusão definitiva no banco — nenhum refresh traz o produto de volta.
     set({ products: get().products.filter((p) => p.id !== id) });
   },
 
   async bulkRemoveProducts(ids) {
     try {
       const report = await productService.bulkDelete(ids);
-      // Remove do cache local os que foram efetivamente desativados +
-      // os que já estavam inativos (também não devem aparecer na lista
-      // ativa do admin). Mantém os notFound intocados no cache — pode
-      // ser que apareçam em uma re-listagem.
-      const removed = new Set<string>([
-        ...ids.filter((id) => !report.notFound.includes(id)),
-      ]);
-      set({ products: get().products.filter((p) => !removed.has(p.id)) });
-      return {
-        deactivated: report.deactivated,
-        notFound: report.notFound,
-        alreadyInactive: report.alreadyInactive,
-      };
+      // Apagados + inexistentes saem do cache: nenhum dos dois existe no banco.
+      const gone = new Set<string>([...report.deletedIds, ...report.notFound]);
+      set({ products: get().products.filter((p) => !gone.has(p.id)) });
+      return { deleted: report.deleted, notFound: report.notFound };
     } catch {
       return null;
     }
