@@ -35,7 +35,19 @@ const envSchema = z.object({
     .refine((v) => v !== 'change-me', 'Defina um JWT_SECRET real (não use "change-me").'),
   JWT_EXPIRES_IN: z.string().default('7d'),
 
+  // Origens fixas — aceita `CORS_ORIGINS` (novo, plural) ou `CORS_ORIGIN`
+  // (legado, mantido por compat). CSV separado por vírgula. Vazio é OK: dá
+  // para autorizar tudo via `VERCEL_PREVIEW_REGEX` sem listar origem fixa.
+  CORS_ORIGINS: z.string().optional(),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  /**
+   * Regex OPCIONAL para autorizar previews da Vercel (ou similares) sem
+   * precisar listar cada URL. Em produção defaultamos ao padrão do projeto
+   * 3d-commerce da conta recrutinha-sci-s-projects para autorizar previews
+   * automáticos gerados a cada PR. NUNCA use `.*\.vercel\.app$` aqui — isso
+   * abriria o backend para qualquer projeto Vercel de qualquer conta.
+   */
+  VERCEL_PREVIEW_REGEX: z.string().optional(),
   UPLOAD_DIR: z.string().default('uploads'),
   // Segredo do Vercel Cron (expiração de pedidos). Sem ele a rota fica desligada.
   CRON_SECRET: z.preprocess(emptyToUndefined, z.string().min(16, 'CRON_SECRET precisa ter 16+ caracteres.').optional()),
@@ -67,6 +79,26 @@ const envSchema = z.object({
 
   // Base do frontend, usada para montar links (reset de senha, verificação).
   APP_URL: z.string().default('http://localhost:5173'),
+
+  // --- Pix Banco Inter / mock (R19) — módulo modules/pix-inter, SEM rotas ativas ---
+  // A integração de pagamento em uso é o Mercado Pago (acima).
+  // Provider ativo: "mock" (simulado, para dev/testes) ou "inter" (Banco Inter,
+  // ainda não implementado — preparado para integração futura).
+  PAYMENT_PROVIDER: z.enum(['mock', 'inter']).default('mock'),
+  // Validade da cobrança Pix, em minutos.
+  PAYMENT_PIX_EXPIRATION_MINUTES: z.coerce.number().int().positive().default(30),
+  // Secret usado para assinar/validar webhooks do provider MOCK (HMAC-SHA256).
+  // Só relevante se o módulo pix-inter for reativado.
+  PAYMENT_WEBHOOK_SECRET: z.string().min(16).optional(),
+
+  // --- Banco Inter (futuro — NÃO usados ainda; módulo modules/pix-inter desligado) ---
+  INTER_CLIENT_ID: z.string().optional(),
+  INTER_CLIENT_SECRET: z.string().optional(),
+  INTER_CERT_PATH: z.string().optional(),
+  INTER_KEY_PATH: z.string().optional(),
+  INTER_PIX_KEY: z.string().optional(),
+  INTER_WEBHOOK_SECRET: z.string().optional(),
+  INTER_BASE_URL: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -81,8 +113,58 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
-/** Lista de origens permitidas no CORS, separadas por vírgula no .env. */
-export const corsOrigins = env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean);
+/** Normaliza uma origem: minúscula + sem barra final (o header Origin nunca traz path). */
+function normalizeOrigin(raw: string): string {
+  return raw.trim().replace(/\/+$/, '').toLowerCase();
+}
+
+/**
+ * Lista de origens fixas permitidas no CORS.
+ * Aceita `CORS_ORIGINS` (novo, preferido) ou cai no legado `CORS_ORIGIN`.
+ * Cada valor é normalizado uma única vez aqui — o comparador não precisa
+ * repetir a lógica em cada request.
+ */
+export const corsOrigins: string[] = (env.CORS_ORIGINS ?? env.CORS_ORIGIN)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map(normalizeOrigin);
+
+/**
+ * Regex de previews permitidos. Em produção, sem override explícito, usamos
+ * o padrão do projeto 3d-commerce da conta recrutinha-sci-s-projects — cada
+ * PR gera uma URL única do tipo:
+ *   https://3d-commerce-<hash>-recrutinha-sci-s-projects.vercel.app
+ * Fora de produção, previews não são liberados automaticamente para não
+ * mascarar erros de configuração local.
+ */
+const DEFAULT_VERCEL_PREVIEW_REGEX =
+  /^https:\/\/3d-commerce-[a-z0-9-]+-recrutinha-sci-s-projects\.vercel\.app$/;
+
+export const corsPreviewRegex: RegExp | null = env.VERCEL_PREVIEW_REGEX
+  ? new RegExp(env.VERCEL_PREVIEW_REGEX)
+  : env.NODE_ENV === 'production'
+  ? DEFAULT_VERCEL_PREVIEW_REGEX
+  : null;
+
+/**
+ * Decide se uma origem passa no CORS. Puramente síncrono — o `origin`
+ * callback nunca lança para não cair no errorHandler como 500; em vez disso
+ * responde `false` e o browser aplica o bloqueio padrão.
+ */
+export function isOriginAllowed(origin: string): boolean {
+  const o = normalizeOrigin(origin);
+  if (corsOrigins.includes(o)) return true;
+  if (corsPreviewRegex && corsPreviewRegex.test(o)) return true;
+  return false;
+}
+
+/**
+ * Secret do webhook do provider MOCK. Em dev/test, se não configurado,
+ * usa um default explícito. (Módulo pix-inter desligado — ver modules/pix-inter.)
+ */
+export const paymentWebhookSecret =
+  env.PAYMENT_WEBHOOK_SECRET ?? 'dev-mock-webhook-secret-local-only';
 
 /**
  * Dados do cliente que ainda parecem de desenvolvimento num ambiente de

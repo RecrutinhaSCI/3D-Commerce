@@ -5,6 +5,8 @@ import { HttpError } from '../../utils/httpError';
 import { productsService } from './products.service';
 import {
   adminListQuerySchema,
+  bulkDeleteSchema,
+  bulkImportSchema,
   createProductSchema,
   featuredQuerySchema,
   publicListQuerySchema,
@@ -71,5 +73,19 @@ export const productsController = {
     const { imageId } = imageIdParam.parse(req.params);
     await productsService.removeImage(imageId);
     return noContent(res);
+  },
+
+  /** R19-A — bulk import de produtos vindo de planilha Excel (parseada no frontend). */
+  async bulkImport(req: Request, res: Response) {
+    const input = bulkImportSchema.parse(req.body);
+    const report = await productsService.bulkImport(input);
+    return ok(res, report);
+  },
+
+  /** R19-E — Desativação em massa (soft delete) — protegida por auth+admin. */
+  async bulkDelete(req: Request, res: Response) {
+    const input = bulkDeleteSchema.parse(req.body);
+    const report = await productsService.bulkDelete(input.ids);
+    return ok(res, report);
   },
 };

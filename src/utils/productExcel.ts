@@ -18,7 +18,10 @@ const HEADERS = {
   id: 'id',
   nome: 'nome',
   slug: 'slug',
+  sku: 'sku',
   marca: 'marca',
+  material: 'material',
+  imagem: 'imagem',
   categoria: 'categoria',
   descricaoCurta: 'descricao_curta',
   descricaoCompleta: 'descricao_completa',
@@ -33,6 +36,25 @@ const HEADERS = {
   freteGratis: 'frete_gratis',
   criadoEm: 'criado_em',
 } as const;
+
+/**
+ * R19-B — Aliases aceitos por coluna. Uma coluna nunca é alias de outra:
+ * "marca" NUNCA vira `material`, "material" NUNCA vira `brand`.
+ */
+const COLUMN_ALIASES: Record<string, string> = {
+  // Marca
+  marca: HEADERS.marca,
+  brand: HEADERS.marca,
+  // Material
+  material: HEADERS.material,
+  // R19-C — Imagem principal (URL). Aliases comuns; nunca cruzam com outras colunas.
+  imagem: HEADERS.imagem,
+  imagemurl: HEADERS.imagem,
+  imagem_url: HEADERS.imagem,
+  image: HEADERS.imagem,
+  imageurl: HEADERS.imagem,
+  image_url: HEADERS.imagem,
+};
 
 function categoryName(product: Product, categories: Category[]): string {
   const c = categories.find((x) => product.categoryIds.includes(x.id));
@@ -56,9 +78,16 @@ function triggerDownload(wb: XLSX.WorkBook, filename: string) {
 export function exportProductsXlsx(products: Product[], categories: Category[]) {
   const rows = products.map((p) => ({
     [HEADERS.id]: p.id,
+    [HEADERS.sku]: '', // SKU real vive no backend; exportação inclui a coluna para reimport com matching seguro.
     [HEADERS.nome]: p.name,
     [HEADERS.slug]: p.slug,
-    [HEADERS.marca]: p.brand,
+    // R19-B — marca e material em colunas SEPARADAS. Nunca compartilham célula.
+    [HEADERS.marca]: p.brand ?? '',
+    [HEADERS.material]: p.material && p.material !== '-' ? p.material : '',
+    // R19-C — imagem PRINCIPAL (menor position). `apiProductToInternal` já
+    // ordenou a galeria; o [0] é a principal. Exporta a string exatamente
+    // como armazenada (path relativo /uploads/... ou URL absoluta).
+    [HEADERS.imagem]: p.images[0] ?? '',
     [HEADERS.categoria]: categoryName(p, categories),
     [HEADERS.descricaoCurta]: p.shortDescription,
     [HEADERS.descricaoCompleta]: p.description,
@@ -84,7 +113,11 @@ export function downloadProductTemplate() {
   const example = {
     [HEADERS.nome]: 'Filamento PLA Verde 1kg',
     [HEADERS.slug]: '', // opcional — gerado pelo nome se vazio
-    [HEADERS.marca]: 'PLA',
+    // R19-B — Marca (fabricante) e Material são colunas distintas.
+    [HEADERS.marca]: '3D Prime',
+    [HEADERS.material]: 'PLA',
+    // R19-C — imagem principal por URL (opcional). Só https/http ou /uploads/...
+    [HEADERS.imagem]: 'https://cdn.example.com/filamento-pla-verde.jpg',
     [HEADERS.categoria]: 'Filamentos PLA',
     [HEADERS.descricaoCurta]: 'PLA 1.75mm verde, 1kg.',
     [HEADERS.descricaoCompleta]: 'Descrição completa em **Markdown** opcional.',
@@ -104,20 +137,36 @@ export function downloadProductTemplate() {
 // Importação (parse + validação — NÃO grava)
 // -----------------------------------------------------------------------------
 
+/**
+ * R19-A — Uma linha da planilha traduzida em payload seguro para o backend.
+ *
+ * REGRA DE OURO: célula vazia vira `undefined`, NUNCA `null`/`""`/`0`.
+ * O backend só toca em campos definidos no payload — assim, célula vazia
+ * significa "não alterar" no update parcial, e o admin não perde dados por
+ * acidente. `estoque = 0` explicitamente digitado é enviado como número,
+ * então continua funcionando (0 ≠ vazio).
+ */
 export interface ParsedProductRow {
   line: number; // linha na planilha (1-based, considerando cabeçalho)
   data: {
-    name: string;
-    slug?: string;
-    material?: string | null;
+    id?: string;
+    sku?: string;
+    slug?: string; // explícito na planilha — usado pelo matching seguro do backend.
+    name?: string;
     categoryName?: string;
-    shortDescription?: string | null;
-    description?: string | null;
-    price: number;
-    promotionalPrice?: number | null;
-    stock: number;
-    active: boolean;
-    featured: boolean;
+    shortDescription?: string;
+    description?: string;
+    price?: number;
+    promotionalPrice?: number;
+    stock?: number;
+    active?: boolean;
+    featured?: boolean;
+    // R19-B — marca e material INDEPENDENTES.
+    brand?: string;
+    material?: string;
+    // R19-C — URL da imagem principal (validação sintática detalhada acontece
+    // no backend, por linha; aqui só recolhemos e mandamos como texto).
+    imageUrl?: string;
   };
   errors: string[];
 }
@@ -130,33 +179,44 @@ export interface ParseResult {
 
 const MAX_TEXT = 5000;
 
-function sanitizeText(v: unknown, max = MAX_TEXT): string {
-  return String(v ?? '').trim().slice(0, max);
+/** Vazio → `undefined` (preserva). Texto → trim + limite. */
+function optText(v: unknown, max = MAX_TEXT): string | undefined {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim();
+  return s === '' ? undefined : s.slice(0, max);
 }
 
-/** Lê valores booleanos flexíveis: sim/não, true/false, 1/0, s/n, yes/no. */
-function parseBool(v: unknown, fallback = false): boolean {
-  if (v === undefined || v === null || v === '') return fallback;
+/** Vazio → `undefined`. Aceita sim/não, true/false, 1/0, s/n. */
+function optBool(v: unknown): boolean | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
   const s = String(v).trim().toLowerCase();
   if (['sim', 's', 'true', '1', 'yes', 'y', 'ativo'].includes(s)) return true;
   if (['nao', 'não', 'n', 'false', '0', 'no', 'inativo'].includes(s)) return false;
-  return fallback;
+  return undefined;
 }
 
-function parseNumber(v: unknown): number | null {
-  if (v === undefined || v === null || v === '') return null;
-  // Aceita "129,90" e "129.90".
-  const s = String(v).trim().replace(/\s/g, '').replace(/\./g, (m, i, str) =>
-    // remove separador de milhar só quando há vírgula decimal depois
+/**
+ * Vazio → `undefined` (preserva); valor inválido → `null` (marca para o
+ * chamador validar). `0` explícito é preservado como número.
+ */
+function optNumber(v: unknown): number | undefined | null {
+  if (v === undefined || v === null || v === '') return undefined;
+  const s = String(v).trim().replace(/\s/g, '').replace(/\./g, (m, _i, str) =>
+    // separador de milhar só quando há vírgula decimal depois
     str.includes(',') ? '' : m,
   ).replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
 
-/** Lê o header real da planilha e mapeia para as chaves canônicas (case-insensitive). */
+/**
+ * Lê o header real da planilha e mapeia para a chave canônica.
+ * Aplica também os aliases de coluna (R19-B): "Brand" → "marca", etc.
+ * NUNCA promove alias entre conceitos distintos ("marca" nunca vira "material").
+ */
 function normalizeKey(key: string): string {
-  return key.trim().toLowerCase().replace(/\s+/g, '_');
+  const raw = key.trim().toLowerCase().replace(/\s+/g, '_');
+  return COLUMN_ALIASES[raw] ?? raw;
 }
 
 export async function parseProductsXlsx(file: File): Promise<ParseResult> {
@@ -179,41 +239,70 @@ export async function parseProductsXlsx(file: File): Promise<ParseResult> {
     for (const [k, v] of Object.entries(raw)) row[normalizeKey(k)] = v;
 
     const errors: string[] = [];
-    const name = sanitizeText(row[HEADERS.nome], 200);
-    if (!name || name.length < 2) errors.push('Nome é obrigatório.');
 
-    const price = parseNumber(row[HEADERS.preco]);
-    if (price === null || price < 0) errors.push('Preço inválido.');
+    const id = optText(row[HEADERS.id], 60);
+    const sku = optText(row[HEADERS.sku], 60);
+    const slug = optText(row[HEADERS.slug], 160);
+    const name = optText(row[HEADERS.nome], 200);
+    const categoryName = optText(row[HEADERS.categoria], 120);
 
-    const promo = parseNumber(row[HEADERS.precoPromocional]);
-    if (promo !== null && promo < 0) errors.push('Preço promocional não pode ser negativo.');
+    // R19-A: identidade obrigatória mínima. Sem NADA que identifique nem
+    // nome novo, a linha é lixo.
+    if (!id && !sku && !slug && !name) {
+      errors.push('Linha vazia: informe ao menos ID, SKU, slug ou nome.');
+    }
+    if (name !== undefined && name.length < 2) errors.push('Nome muito curto (mín. 2 caracteres).');
 
-    const stockNum = parseNumber(row[HEADERS.estoque]);
-    let stock = 0;
-    if (stockNum === null) {
-      stock = 0;
-    } else if (!Number.isInteger(stockNum) || stockNum < 0) {
-      errors.push('Estoque deve ser inteiro ≥ 0.');
-    } else {
-      stock = stockNum;
+    // Números: `null` = valor inválido; `undefined` = vazio (preservar).
+    const priceRaw = optNumber(row[HEADERS.preco]);
+    if (priceRaw === null) errors.push('Preço inválido.');
+    else if (priceRaw !== undefined && priceRaw <= 0) errors.push('Preço deve ser maior que zero.');
+    const price = priceRaw === null ? undefined : priceRaw;
+
+    const promoRaw = optNumber(row[HEADERS.precoPromocional]);
+    if (promoRaw === null) errors.push('Preço promocional inválido.');
+    else if (promoRaw !== undefined && promoRaw <= 0) errors.push('Preço promocional deve ser maior que zero.');
+    const promotionalPrice = promoRaw === null ? undefined : promoRaw;
+
+    const stockRaw = optNumber(row[HEADERS.estoque]);
+    let stock: number | undefined;
+    if (stockRaw === null) {
+      errors.push('Estoque inválido.');
+    } else if (stockRaw !== undefined) {
+      if (!Number.isInteger(stockRaw) || stockRaw < 0) errors.push('Estoque deve ser inteiro ≥ 0.');
+      else stock = stockRaw; // `0` explícito é preservado como número.
     }
 
-    const categoryName = sanitizeText(row[HEADERS.categoria], 120);
+    // Booleanos.
+    const active = optBool(row[HEADERS.ativo]);
+    const destaqueVal = optBool(row[HEADERS.destaque]);
+    const maisVendidoVal = optBool(row[HEADERS.maisVendido]);
+    // Só marca `featured` quando o admin explicitamente disse algo.
+    const featured = destaqueVal ?? maisVendidoVal;
 
     return {
       line: idx + 2, // +1 header, +1 base-1
       data: {
+        id,
+        sku,
+        slug,
         name,
-        slug: sanitizeText(row[HEADERS.slug], 160) || undefined,
-        material: sanitizeText(row[HEADERS.marca], 120) || null,
-        categoryName: categoryName || undefined,
-        shortDescription: sanitizeText(row[HEADERS.descricaoCurta], 300) || null,
-        description: sanitizeText(row[HEADERS.descricaoCompleta]) || null,
-        price: price ?? 0,
-        promotionalPrice: promo,
+        categoryName,
+        shortDescription: optText(row[HEADERS.descricaoCurta], 300),
+        description: optText(row[HEADERS.descricaoCompleta]),
+        price,
+        promotionalPrice,
         stock,
-        active: parseBool(row[HEADERS.ativo], true),
-        featured: parseBool(row[HEADERS.destaque]) || parseBool(row[HEADERS.maisVendido]),
+        active,
+        featured,
+        // R19-B — Marca (fabricante) e Material são independentes. A coluna
+        // "marca" (com seus aliases) vai para `brand`; a coluna "material"
+        // vai para `material`. Nenhum caminho faz um substituir o outro.
+        brand: optText(row[HEADERS.marca], 80),
+        material: optText(row[HEADERS.material], 80),
+        // R19-C — imagem por URL. Validação sintática por linha é do backend
+        // (uma URL ruim aqui só afeta a própria linha, não o lote).
+        imageUrl: optText(row[HEADERS.imagem], 2000),
       },
       errors,
     };

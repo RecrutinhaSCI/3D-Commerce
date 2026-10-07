@@ -1,6 +1,8 @@
 import { Play, Youtube } from 'lucide-react';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { productSvg } from '@/utils/productImage';
+import { youtubeAutoThumb } from '@/utils/youtube';
+import { apiAssetUrl } from '@/services/api';
 
 /**
  * Seção "Assista no YouTube" (R16/R17). Conteúdo editável via Configurações.
@@ -19,7 +21,7 @@ export function YouTubeSection() {
     <section className="container-x pb-16">
       <div className="mb-6 flex items-end justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-ink-mute">Comunidade</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-ink-mute">YouTube</p>
           <h2 className="mt-1 text-3xl font-bold">{youtubeSectionTitle}</h2>
           {youtubeSectionSubtitle && <p className="mt-1 text-sm text-ink-mute">{youtubeSectionSubtitle}</p>}
         </div>
@@ -36,7 +38,16 @@ export function YouTubeSection() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {videos.map((v, i) => (
+        {videos.map((v, i) => {
+          // Prioridade da thumbnail:
+          //   1. Cadastrada pelo admin (upload → /uploads/site ou URL externa);
+          //   2. Thumbnail automática do YouTube (i.ytimg.com/vi/<id>/hqdefault.jpg);
+          //   3. Placeholder SVG local (evita imagem quebrada em qualquer caso).
+          const uploaded = v.thumbnail ? apiAssetUrl(v.thumbnail) || v.thumbnail : '';
+          const auto = youtubeAutoThumb(v.url);
+          const fallback = productSvg(v.title, 'filament', v.title.length + i);
+          const primary = uploaded || auto || fallback;
+          return (
           <a
             key={i}
             href={v.url}
@@ -46,11 +57,14 @@ export function YouTubeSection() {
           >
             <div className="relative aspect-video overflow-hidden bg-bg-soft">
               <img
-                src={v.thumbnail || productSvg(v.title, 'filament', v.title.length + i)}
+                src={primary}
                 alt={v.title}
                 loading="lazy"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = productSvg(v.title, 'filament', v.title.length + i);
+                  const el = e.currentTarget as HTMLImageElement;
+                  // 1º erro tenta thumb do YouTube; 2º cai no placeholder.
+                  if (auto && el.src !== auto) el.src = auto;
+                  else if (el.src !== fallback) el.src = fallback;
                 }}
                 className="h-full w-full object-cover transition group-hover:scale-105"
               />
@@ -65,7 +79,8 @@ export function YouTubeSection() {
               {v.description && <p className="mt-1 line-clamp-2 text-xs text-ink-mute">{v.description}</p>}
             </div>
           </a>
-        ))}
+          );
+        })}
       </div>
 
       {youtubeChannelUrl && (

@@ -13,6 +13,11 @@ declare global {
     }
     interface Request {
       user?: AuthenticatedUser;
+      /**
+       * Body bruto capturado pelo express.json (verify) — necessário para
+       * validar assinaturas HMAC de webhooks de pagamento (R19).
+       */
+      rawBody?: Buffer;
     }
   }
 }

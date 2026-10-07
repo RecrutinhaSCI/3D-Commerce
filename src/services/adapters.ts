@@ -82,11 +82,23 @@ export function apiProductToInternal(p: ApiProduct): Product {
     description: p.description ?? '',
     shortDescription: p.shortDescription ?? '',
     categoryIds: p.categoryId ? [p.categoryId] : [],
-    brand: p.material ?? '3DCommerce',
+    // R19-B — Marca vem SOMENTE do campo `brand` do backend. Nunca cair para
+    // `material` (isso era o bug: mostrar o material como se fosse marca).
+    // Vazio é exibido como vazio; nada de default artificial "3DCommerce".
+    brand: p.brand ?? '',
     material: (p.material as Product['material']) ?? '-',
     images: p.images.length
       ? p.images.map((img) => apiAssetUrl(img.url))
       : [productSvg(p.name, 'generic', p.slug.length)],
+    media: p.images.length
+      ? p.images.map((img) => ({
+          id: img.id,
+          url: apiAssetUrl(img.url),
+          // Se o backend não enviou (rota antiga em cache), inferimos pela extensão.
+          mediaType: img.mediaType ?? (/\.mp4($|\?)/i.test(img.url) ? 'video' : 'image'),
+          mimeType: img.mimeType ?? null,
+        }))
+      : [{ url: productSvg(p.name, 'generic', p.slug.length), mediaType: 'image', mimeType: null }],
     price: p.price,
     promoPrice: p.promotionalPrice ?? undefined,
     stock: p.stock,
@@ -106,6 +118,7 @@ export function apiProductToInternal(p: ApiProduct): Product {
     width: p.width ?? undefined,
     height: p.height ?? undefined,
     depth: p.depth ?? undefined,
+    stockUpdatedAt: p.stockUpdatedAt ?? null,
     attributes: {
       ...(p.material ? { Material: p.material } : {}),
       ...(p.color ? { Cor: p.color } : {}),
@@ -145,7 +158,7 @@ export function apiBannerToInternal(b: ApiBanner): Banner {
     ctaLabel: b.buttonText ?? undefined,
     ctaLink: b.buttonLink ?? undefined,
     image: b.imageUrl ? apiAssetUrl(b.imageUrl) : '',
-    position: 'hero',
+    position: b.slot === 'PROMO' ? 'promo' : 'hero',
     active: b.active,
     order: b.position,
   };
@@ -193,6 +206,12 @@ export function apiSettingsToInternal(s: ApiSettings): StoreSettings {
     communityInstagramEnabled: s.communityInstagramEnabled,
     communityInstagramTitle: s.communityInstagramTitle || CONTENT_DEFAULTS.communityInstagramTitle,
     communityInstagramSubtitle: s.communityInstagramSubtitle ?? CONTENT_DEFAULTS.communityInstagramSubtitle,
+    instagramItems: (s.instagramItemsJson ?? []).map((it) => ({
+      image: it.image,
+      url: it.url,
+      caption: it.caption,
+      enabled: it.enabled,
+    })),
     youtubeSectionEnabled: s.youtubeSectionEnabled,
     youtubeSectionTitle: s.youtubeSectionTitle || CONTENT_DEFAULTS.youtubeSectionTitle,
     youtubeSectionSubtitle: s.youtubeSectionSubtitle || CONTENT_DEFAULTS.youtubeSectionSubtitle,

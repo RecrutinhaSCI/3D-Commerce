@@ -118,6 +118,26 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/webp': '.webp',
 };
 
+/**
+ * R20 — Galeria do PRODUTO: além de imagens tradicionais, aceita GIF e MP4
+ * para animar/demonstrar o produto. Limites por tipo — na Vercel o corpo da
+ * requisição é limitado a 4,5 MB, então no Vercel Blob tudo fica em 4 MB
+ * (o front envia um arquivo por requisição); em dev (disco) o vídeo vai a 8 MB.
+ */
+export const PRODUCT_MEDIA_MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+export const PRODUCT_MEDIA_MAX_VIDEO_BYTES = isBlobStorage() ? 4 * 1024 * 1024 : 8 * 1024 * 1024;
+const PRODUCT_MEDIA_EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'video/mp4': '.mp4',
+};
+export const PRODUCT_MEDIA_ALLOWED_MIMES = new Set(Object.keys(PRODUCT_MEDIA_EXT_BY_MIME));
+export function classifyProductMedia(mime: string): 'image' | 'video' {
+  return mime.startsWith('video/') ? 'video' : 'image';
+}
+
 function imageFileFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
   if (!ALLOWED_IMAGE_MIME.has(file.mimetype)) {
     return cb(HttpError.badRequest('Formato de imagem não suportado. Use JPG, PNG ou WEBP.'));
@@ -150,6 +170,33 @@ export const productImagesUpload = multer({
 export function safeUnlinkProductImage(urlOrFilename: string | null | undefined) {
   void removeStored(urlOrFilename, 'products');
 }
+
+// -------------------------------------------------------------------------
+// Produto — MÍDIA (imagem + GIF + MP4). Mesmo armazenamento (Blob/disco) e
+// nome imprevisível; troca o filtro e aplica limite por tipo (o service
+// revalida o tamanho por tipo antes de persistir).
+// -------------------------------------------------------------------------
+function productMediaFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+  if (!PRODUCT_MEDIA_ALLOWED_MIMES.has(file.mimetype)) {
+    return cb(HttpError.badRequest('Formato não suportado. Envie JPG, PNG, WEBP, GIF ou MP4.'));
+  }
+  const ext = path.extname(file.originalname).toLowerCase();
+  const expected = PRODUCT_MEDIA_EXT_BY_MIME[file.mimetype];
+  // .jpeg é sinônimo de .jpg — aceito.
+  if (ext && ext !== expected && !(ext === '.jpeg' && expected === '.jpg')) {
+    return cb(HttpError.badRequest('Extensão do arquivo não confere com o formato.'));
+  }
+  cb(null, true);
+}
+
+export const productMediaUpload = multer({
+  storage: createStorage(
+    'products',
+    (file) => PRODUCT_MEDIA_EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase(),
+  ),
+  fileFilter: productMediaFilter,
+  limits: { fileSize: Math.max(PRODUCT_MEDIA_MAX_IMAGE_BYTES, PRODUCT_MEDIA_MAX_VIDEO_BYTES), files: MAX_FILES },
+});
 
 // =========================================================================
 // Arquivos de ORÇAMENTO (STL/OBJ/ZIP/PDF/imagens)

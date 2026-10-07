@@ -1,36 +1,24 @@
 import { useRef, useState } from 'react';
-import slugify from 'slugify';
 import toast from 'react-hot-toast';
 import { AlertTriangle, CheckCircle2, FileUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { parseProductsXlsx, type ParsedProductRow, type ParseResult } from '@/utils/productExcel';
-import { productService } from '@/services/productService';
-import { enumAdapters } from '@/services/adapters';
+import { productService, type BulkImportReport, type BulkImportRow } from '@/services/productService';
 import { ApiError } from '@/services/api';
-import type { Category, Product } from '@/types';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  products: Product[];
-  categories: Category[];
   onDone: () => void; // refresh após gravar
 }
 
-interface ImportReport {
-  created: number;
-  updated: number;
-  skipped: number;
-  errors: string[];
-}
-
-export function ProductImportModal({ open, onClose, products, categories, onDone }: Props) {
+export function ProductImportModal({ open, onClose, onDone }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [parsing, setParsing] = useState(false);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [importing, setImporting] = useState(false);
-  const [report, setReport] = useState<ImportReport | null>(null);
+  const [report, setReport] = useState<BulkImportReport | null>(null);
 
   function reset() {
     setResult(null);
@@ -62,12 +50,6 @@ export function ProductImportModal({ open, onClose, products, categories, onDone
     }
   }
 
-  function resolveCategoryId(name?: string): string | null {
-    if (!name) return null;
-    const c = categories.find((x) => x.name.trim().toLowerCase() === name.trim().toLowerCase());
-    return c?.id ?? null;
-  }
-
   async function confirmImport() {
     if (!result) return;
     const valid = result.rows.filter((r) => r.errors.length === 0);
@@ -76,49 +58,30 @@ export function ProductImportModal({ open, onClose, products, categories, onDone
       return;
     }
     setImporting(true);
-    const rep: ImportReport = { created: 0, updated: 0, skipped: 0, errors: [] };
-
-    for (const row of valid) {
-      const categoryId = resolveCategoryId(row.data.categoryName);
-      if (!categoryId) {
-        rep.skipped += 1;
-        rep.errors.push(`Linha ${row.line}: categoria "${row.data.categoryName ?? ''}" não encontrada.`);
-        continue;
-      }
-      const slug = (row.data.slug || slugify(row.data.name, { lower: true, strict: true })).slice(0, 160);
-      const existing = products.find((p) => p.slug === slug);
-      const payload = {
-        name: row.data.name,
-        slug,
-        price: row.data.price,
-        promotionalPrice: row.data.promotionalPrice ?? null,
-        stock: row.data.stock,
-        active: row.data.active,
-        featured: row.data.featured,
-        material: row.data.material,
-        shortDescription: row.data.shortDescription,
-        description: row.data.description,
-        categoryId,
-        purchaseMode: enumAdapters.purchaseModeToApi('direct'),
-      };
-      try {
-        if (existing) {
-          await productService.update(existing.id, payload);
-          rep.updated += 1;
-        } else {
-          await productService.create(payload);
-          rep.created += 1;
-        }
-      } catch (err) {
-        rep.skipped += 1;
-        rep.errors.push(`Linha ${row.line}: ${err instanceof ApiError ? err.message : 'erro ao gravar.'}`);
-      }
+    try {
+      // R19-A: uma única chamada. Backend decide create/update/conflict lendo
+      // o banco real (não o cache do store). Só enviamos chaves DEFINIDAS —
+      // vazio = não altera lá.
+      const rows: BulkImportRow[] = valid.map((r) => stripUndefined({ line: r.line, ...r.data }));
+      const rep = await productService.bulkImport(rows);
+      setReport(rep);
+      onDone();
+      toast.success(
+        `Importação: ${rep.summary.created} criados, ${rep.summary.updated} atualizados, ` +
+        `${rep.summary.conflicts} conflito(s), ${rep.summary.skipped} ignorado(s).`,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Falha ao enviar a importação.');
+    } finally {
+      setImporting(false);
     }
+  }
 
-    setImporting(false);
-    setReport(rep);
-    onDone();
-    toast.success(`Importação: ${rep.created} criados, ${rep.updated} atualizados, ${rep.skipped} ignorados.`);
+  /** Remove chaves undefined — importante para o payload JSON. */
+  function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
+    return out as T;
   }
 
   const rowsWithErrors: ParsedProductRow[] = result ? result.rows.filter((r) => r.errors.length > 0) : [];
@@ -172,8 +135,10 @@ export function ProductImportModal({ open, onClose, products, categories, onDone
             )}
 
             <p className="text-xs text-ink-mute">
-              Produtos com o mesmo <b>slug</b> serão atualizados; os demais serão criados. Linhas com erro são ignoradas.
-              Categoria precisa existir (por nome). Imagens não são importadas nesta versão.
+              Matching seguro: <b>ID</b> → <b>SKU</b> → <b>slug explícito</b>. Sem esses,
+              linha vira <b>criação</b> — ou <b>conflito</b> se houver produto com nome parecido.
+              Nunca sobrescrevemos produto por colisão de nome. Célula vazia = <b>não alterar</b>.
+              A coluna <b>imagem</b> (URL) atualiza só a mídia principal — galeria e vídeos são preservados.
             </p>
 
             <div className="flex justify-end gap-2">
@@ -190,14 +155,41 @@ export function ProductImportModal({ open, onClose, products, categories, onDone
             <div className="flex items-center gap-2 text-emerald-700">
               <CheckCircle2 className="h-5 w-5" /> <span className="font-semibold">Importação concluída</span>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-lg bg-emerald-50 p-3"><p className="text-lg font-bold text-emerald-700">{report.created}</p><p className="text-[11px] uppercase text-emerald-700">Criados</p></div>
-              <div className="rounded-lg bg-sky-50 p-3"><p className="text-lg font-bold text-sky-700">{report.updated}</p><p className="text-[11px] uppercase text-sky-700">Atualizados</p></div>
-              <div className="rounded-lg bg-ink/5 p-3"><p className="text-lg font-bold text-ink-mute">{report.skipped}</p><p className="text-[11px] uppercase text-ink-mute">Ignorados</p></div>
+            <div className="grid grid-cols-4 gap-3 text-center">
+              <div className="rounded-lg bg-emerald-50 p-3"><p className="text-lg font-bold text-emerald-700">{report.summary.created}</p><p className="text-[11px] uppercase text-emerald-700">Criados</p></div>
+              <div className="rounded-lg bg-sky-50 p-3"><p className="text-lg font-bold text-sky-700">{report.summary.updated}</p><p className="text-[11px] uppercase text-sky-700">Atualizados</p></div>
+              <div className="rounded-lg bg-amber-50 p-3"><p className="text-lg font-bold text-amber-700">{report.summary.conflicts}</p><p className="text-[11px] uppercase text-amber-700">Conflitos</p></div>
+              <div className="rounded-lg bg-ink/5 p-3"><p className="text-lg font-bold text-ink-mute">{report.summary.skipped}</p><p className="text-[11px] uppercase text-ink-mute">Ignorados</p></div>
             </div>
-            {report.errors.length > 0 && (
-              <div className="max-h-40 overflow-y-auto rounded-lg border border-ink-line px-3 py-2 text-xs text-ink-soft">
-                {report.errors.map((e, i) => <p key={i}>{e}</p>)}
+            {/* R19-C — resumo curto de imagens principais afetadas (não é bucket novo). */}
+            {(() => {
+              const withImg = [...report.created, ...report.updated].filter((i) => i.imageUpdated).length;
+              return withImg > 0 ? (
+                <p className="text-xs text-ink-mute">
+                  {withImg} linha(s) também alteraram a <b>imagem principal</b>.
+                </p>
+              ) : null;
+            })()}
+
+            {(report.conflicts.length > 0 || report.skipped.length > 0) && (
+              <div className="max-h-52 overflow-y-auto rounded-lg border border-ink-line text-xs">
+                {report.conflicts.map((c, i) => (
+                  <div key={`c${i}`} className="flex items-start gap-2 border-b border-ink-line/50 bg-amber-50/40 px-3 py-2 last:border-0">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span>
+                      <b>Linha {c.line}</b>{c.name ? ` (${c.name})` : ''} — <b>Conflito:</b> {c.reason}
+                      {c.identifier ? <span className="ml-1 text-ink-mute">[{c.identifier}]</span> : null}
+                    </span>
+                  </div>
+                ))}
+                {report.skipped.map((s, i) => (
+                  <div key={`s${i}`} className="flex items-start gap-2 border-b border-ink-line/50 px-3 py-2 last:border-0">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-mute" />
+                    <span>
+                      <b>Linha {s.line}</b>{s.name ? ` (${s.name})` : ''} — Ignorada: {s.reason}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
             <div className="flex justify-end gap-2">

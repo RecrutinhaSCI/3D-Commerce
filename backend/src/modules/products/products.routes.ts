@@ -3,7 +3,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
 import { uploadRateLimiter } from '../../middlewares/rateLimiters';
-import { productImagesUpload } from '../../lib/upload';
+import { productMediaUpload } from '../../lib/upload';
 import { productsController } from './products.controller';
 
 /**
@@ -42,8 +42,18 @@ productsRouter.delete(
 productsRouter.post(
   '/admin/products/:id/images',
   uploadRateLimiter,
-  productImagesUpload.array('images', 10),
+  // R20: campo continua "images" (compat com frontend), mas agora aceita
+  // imagens + GIF + MP4 via productMediaUpload (validação por tipo no service).
+  productMediaUpload.array('images', 10),
   asyncHandler(productsController.addImages),
 );
 productsRouter.put('/admin/products/:id', asyncHandler(productsController.update));
 productsRouter.delete('/admin/products/:id', asyncHandler(productsController.remove));
+
+// R19-A — Import em lote. Idempotente, nunca deleta, matching feito no banco
+// (id → sku → slug explícito → conflito seguro em ambiguidade de nome).
+productsRouter.post('/admin/products/import', asyncHandler(productsController.bulkImport));
+
+// R19-E — Desativação em massa (soft delete). Body: { ids: string[] }.
+// Herdou auth+admin do `router.use` acima.
+productsRouter.post('/admin/products/bulk-delete', asyncHandler(productsController.bulkDelete));

@@ -138,6 +138,9 @@ export interface ApiProductImage {
   url: string;
   alt: string | null;
   position: number;
+  /** R20 — "image" cobre JPG/PNG/WEBP/GIF; "video" cobre MP4. Antigos → "image". */
+  mediaType: 'image' | 'video';
+  mimeType: string | null;
 }
 
 export interface ApiProduct {
@@ -158,12 +161,15 @@ export interface ApiProduct {
   width: number | null;
   height: number | null;
   depth: number | null;
+  // R19-B — brand (fabricante) e material são independentes no backend.
+  brand: string | null;
   material: string | null;
   color: string | null;
   printTime: string | null;
   purchaseMode: ApiPurchaseMode;
   createdAt: string;
   updatedAt: string;
+  stockUpdatedAt: string | null;
   images: ApiProductImage[];
 }
 
@@ -290,6 +296,8 @@ export interface ApiQuote {
   user?: { id: string; name: string; email: string } | null;
 }
 
+export type ApiBannerSlot = 'HERO' | 'PROMO';
+
 export interface ApiBanner {
   id: string;
   title: string;
@@ -299,6 +307,7 @@ export interface ApiBanner {
   buttonLink: string | null;
   active: boolean;
   position: number;
+  slot: ApiBannerSlot;
   createdAt: string;
   updatedAt: string;
 }
@@ -407,6 +416,13 @@ export interface ApiTrustItem {
   enabled?: boolean;
 }
 
+export interface ApiInstagramItem {
+  image: string;
+  url: string;
+  caption?: string;
+  enabled?: boolean;
+}
+
 export interface ApiSettings {
   id: string;
   storeName: string;
@@ -434,6 +450,7 @@ export interface ApiSettings {
   communityInstagramEnabled: boolean;
   communityInstagramTitle: string | null;
   communityInstagramSubtitle: string | null;
+  instagramItemsJson: ApiInstagramItem[];
   youtubeSectionEnabled: boolean;
   youtubeSectionTitle: string | null;
   youtubeSectionSubtitle: string | null;

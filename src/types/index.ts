@@ -20,6 +20,14 @@ export interface ProductVariation {
   swatch?: string;
 }
 
+/** R20 — item da galeria do produto (imagem ou vídeo MP4). */
+export interface ProductMediaItem {
+  url: string;
+  mediaType: 'image' | 'video';
+  mimeType?: string | null;
+  id?: string;
+}
+
 export interface Product {
   id: string;
   slug: string;
@@ -36,7 +44,11 @@ export interface Product {
   width?: number;
   height?: number;
   depth?: number;
+  /** URLs simples (compat com código antigo — sempre em ordem). */
   images: string[];
+  /** R20 — mídias com tipo (fonte da verdade para galeria/uploads).
+   *  Opcional: mocks locais e criação otimista continuam válidos sem preencher. */
+  media?: ProductMediaItem[];
   price: number;
   promoPrice?: number;
   pixPrice?: number;
@@ -51,6 +63,8 @@ export interface Product {
   isBestSeller: boolean;
   active: boolean;
   createdAt: string;
+  /** R19-E — Data em que o estoque foi tocado de fato. `null`/ausente = sem histórico. */
+  stockUpdatedAt?: string | null;
   attributes: Record<string, string>;
 }
 
@@ -87,7 +101,7 @@ export interface Banner {
   ctaLabel?: string;
   ctaLink?: string;
   image: string;
-  position: 'hero' | 'filamentos' | 'impressoras' | 'sazonal';
+  position: 'hero' | 'promo' | 'filamentos' | 'impressoras' | 'sazonal';
   active: boolean;
   order: number;
   bgFrom?: string;
@@ -196,6 +210,13 @@ export interface TrackingResult {
   linkDetalhesCompletos?: string;
 }
 
+export interface InstagramItemContent {
+  image: string;
+  url: string;
+  caption?: string;
+  enabled?: boolean;
+}
+
 export interface StoreSettings {
   name: string;
   whatsapp: string;
@@ -217,6 +238,7 @@ export interface StoreSettings {
   communityInstagramEnabled: boolean;
   communityInstagramTitle: string;
   communityInstagramSubtitle: string;
+  instagramItems: InstagramItemContent[];
   youtubeSectionEnabled: boolean;
   youtubeSectionTitle: string;
   youtubeSectionSubtitle: string;

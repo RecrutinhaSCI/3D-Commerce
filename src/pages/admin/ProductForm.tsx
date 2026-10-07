@@ -24,11 +24,13 @@ const emptyToUndefined = (v: unknown) => (v === '' || v === null ? undefined : v
 const optionalPositive = (msg: string) =>
   z.preprocess(emptyToUndefined, z.coerce.number().positive(msg).optional());
 
-// Só campos que o backend PERSISTE. (Marca, variações, especificações livres e
+// Só campos que o backend PERSISTE. (Variações, especificações livres e
 // flags como "lançamento"/"frete grátis" não existem no banco — foram removidos
 // da tela para não parecer que salvam.)
 const schema = z.object({
   name: z.string().min(3, 'Nome com no mínimo 3 caracteres'),
+  // Marca persistida separada do material (coluna products.brand).
+  brand: z.string().trim().max(80).optional(),
   shortDescription: z.string().min(5, 'Descrição curta com no mínimo 5 caracteres'),
   description: z.string().min(10, 'Descrição com no mínimo 10 caracteres'),
   price: z.coerce.number({ invalid_type_error: 'Informe um preço válido' }).min(0.01, 'Preço deve ser maior que zero'),
@@ -73,6 +75,7 @@ function ProductForm() {
     defaultValues: existing
       ? {
           name: existing.name,
+          brand: existing.brand ?? '',
           shortDescription: existing.shortDescription,
           description: existing.description,
           price: existing.price,
@@ -103,8 +106,13 @@ function ProductForm() {
   const descriptionValue = watch('description') ?? '';
   const [showPreview, setShowPreview] = useState(false);
   // Cada imagem carrega o id do backend para permitir remoção real.
-  const [images, setImages] = useState<Array<{ id: string | null; url: string }>>(
-    existing ? existing.images.map((u) => ({ id: null, url: u })) : [],
+  // Se `id === null`, é placeholder local (produto ainda não persistido).
+  const [images, setImages] = useState<Array<{ id: string | null; url: string; mediaType?: 'image' | 'video' }>>(
+    existing
+      ? existing.media && existing.media.length > 0
+        ? existing.media.map((m) => ({ id: m.id ?? null, url: m.url, mediaType: m.mediaType }))
+        : existing.images.map((u) => ({ id: null, url: u }))
+      : [],
   );
 
   // Ao entrar em edição, busca o produto real do backend para pegar os IDs
@@ -117,7 +125,11 @@ function ProductForm() {
         const { product } = await productService.getPublicBySlug(existing.slug);
         if (cancelled) return;
         if (product.images.length > 0) {
-          setImages(product.images.map((img) => ({ id: img.id, url: img.url })));
+          setImages(product.images.map((img) => ({
+            id: img.id,
+            url: img.url,
+            mediaType: img.mediaType,
+          })));
         }
       } catch {
         // mantém as imagens do store como fallback
@@ -138,6 +150,7 @@ function ProductForm() {
       categoryIds: [d.categoryId],
       material: d.material as Product['material'],
       purchaseMode: d.purchaseMode,
+      brand: d.brand ?? '',
       sku: d.sku ?? '',
       color: d.color ?? '',
       weight: d.weight,
@@ -158,7 +171,6 @@ function ProductForm() {
           ...fields,
           id: '',
           slug: slugify(d.name, { lower: true, strict: true }),
-          brand: '',
           images: [],
           freeShipping: false,
           variations: [],
@@ -192,9 +204,15 @@ function ProductForm() {
           <section className="card p-5">
             <h2 className="text-base font-bold">Informações</h2>
             <div className="mt-4 space-y-3">
-              <div>
-                <Label>Nome</Label>
-                <Input {...register('name')} error={errors.name?.message} />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr]">
+                <div>
+                  <Label>Nome</Label>
+                  <Input {...register('name')} error={errors.name?.message} />
+                </div>
+                <div>
+                  <Label>Marca</Label>
+                  <Input {...register('brand')} placeholder="ex.: Bambu Lab" error={errors.brand?.message} />
+                </div>
               </div>
               <div>
                 <Label>Descrição curta</Label>
@@ -327,33 +345,43 @@ function ProductForm() {
 
         <aside className="space-y-5">
           <div className="card p-5">
-            <h2 className="text-base font-bold">Imagens do produto</h2>
+            <h2 className="text-base font-bold">Mídias do produto</h2>
             {!isEdit && (
               <p className="mt-1 text-[11px] text-ink-mute">
-                Salve o produto primeiro; em seguida você já pode enviar as imagens.
+                Salve o produto primeiro; em seguida você já pode enviar imagens e vídeos.
               </p>
             )}
             <div className="mt-4">
               <RemoteImageUploader
                 multiple
-                max={6}
+                allowVideo
+                max={10}
                 value={images.map((i) => i.url)}
+                mediaTypes={images.map((i) => i.mediaType ?? (/\.mp4($|\?)/i.test(i.url) ? 'video' : 'image'))}
                 onUploadMany={async (files) => {
                   if (!isEdit || !existing) {
-                    throw new Error('Salve o produto antes de enviar imagens.');
+                    throw new Error('Salve o produto antes de enviar mídias.');
                   }
                   try {
                     const { product } = await productService.addImages(existing.id, files);
-                    const next = product.images.map((img) => ({ id: img.id, url: img.url }));
+                    const next = product.images.map((img) => ({
+                      id: img.id,
+                      url: img.url,
+                      mediaType: img.mediaType,
+                    }));
                     setImages(next);
                     // Atualiza só o cache local (as imagens já foram salvas no upload).
                     const internal = apiProductToInternal(product);
+                    // Só o cache local (as mídias já foram salvas no upload) —
+                    // não chama a API de novo.
                     useAdminDataStore.setState((s) => ({
-                      products: s.products.map((p) => (p.id === existing.id ? { ...p, images: internal.images } : p)),
+                      products: s.products.map((p) =>
+                        p.id === existing.id ? { ...p, images: internal.images, media: internal.media } : p,
+                      ),
                     }));
                     return next.map((n) => n.url);
                   } catch (err) {
-                    const msg = err instanceof ApiError ? err.message : 'Falha ao enviar imagens.';
+                    const msg = err instanceof ApiError ? err.message : 'Falha ao enviar mídias.';
                     throw new Error(msg);
                   }
                 }}
@@ -364,12 +392,12 @@ function ProductForm() {
                     try {
                       await productService.removeImage(img.id);
                     } catch (err) {
-                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover imagem.');
+                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover mídia.');
                     }
                   }
                   setImages((prev) => prev.filter((_, i) => i !== idx));
                 }}
-                hint="JPG/PNG/WEBP até 4MB. Primeira imagem vira a principal."
+                hint="JPG/PNG/WEBP/GIF ou MP4 até 4MB. A primeira mídia vira a principal."
               />
             </div>
           </div>

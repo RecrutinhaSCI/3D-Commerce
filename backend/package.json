@@ -19,7 +19,8 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "db:setup": "prisma migrate dev --name init && tsx prisma/seed.ts",
     "db:deploy": "prisma migrate deploy",
-    "check:config": "tsx scripts/check-config.ts"
+    "check:config": "tsx scripts/check-config.ts",
+    "test": "vitest run"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -49,7 +50,8 @@
     "@types/node": "^20.16.10",
     "@types/nodemailer": "^8.0.1",
     "tsx": "^4.19.1",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=18"

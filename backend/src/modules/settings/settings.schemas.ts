@@ -31,6 +31,14 @@ const trustItemSchema = z.object({
   enabled: z.boolean().optional().default(true),
 });
 
+/** Post curado do Instagram — imagem local (upload) + link do post. */
+const instagramItemSchema = z.object({
+  image: z.string().trim().min(1, 'Imagem é obrigatória.').max(500),
+  url: safeUrl.refine((v) => v !== '', 'Informe o link do post.'),
+  caption: z.string().trim().max(140).optional().default(''),
+  enabled: z.boolean().optional().default(true),
+});
+
 // Todos os campos são opcionais no update, mas se enviados precisam ser válidos.
 export const updateSettingsSchema = z
   .object({
@@ -61,6 +69,7 @@ export const updateSettingsSchema = z
     communityInstagramEnabled: z.boolean(),
     communityInstagramTitle: z.string().trim().max(120).nullable(),
     communityInstagramSubtitle: z.string().trim().max(300).nullable(),
+    instagramItemsJson: z.array(instagramItemSchema).max(12, 'Máximo de 12 posts.').nullable(),
 
     youtubeSectionEnabled: z.boolean(),
     youtubeSectionTitle: z.string().trim().max(120).nullable(),
@@ -88,3 +97,4 @@ export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
 export type YoutubeVideo = z.infer<typeof youtubeVideoSchema>;
 export type TrustItem = z.infer<typeof trustItemSchema>;
+export type InstagramItem = z.infer<typeof instagramItemSchema>;

@@ -5,7 +5,9 @@ import { site } from '@/config/site';
 
 export function PhysicalStore() {
   const settings = useAdminDataStore((s) => s.settings);
-  const mapsEmbed = `https://www.google.com/maps?q=${encodeURIComponent(site.mapsEmbedQuery)}&output=embed`;
+  // Iframe usa a URL de embed dedicada (foca no L'América Shopping Center).
+  // Links externos (âncora envolvendo o iframe + botão abaixo) usam `site.mapsUrl`.
+  const mapsEmbed = site.mapsEmbedUrl;
   return (
     <section className="container-x py-16">
       <div className="grid grid-cols-1 gap-8 rounded-3xl border border-ink-line bg-bg-card p-6 md:grid-cols-2 md:p-10">
