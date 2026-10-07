@@ -7,9 +7,10 @@
  *   npm run prisma:seed
  *
  * Admin vem do .env (ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME). Em produção
- * ADMIN_PASSWORD é obrigatória — não existe senha padrão. A senha só é
- * (re)gravada quando ADMIN_PASSWORD está definida, então rodar o seed de novo
- * sem ela não reseta a senha que o cliente já trocou.
+ * ADMIN_PASSWORD é obrigatória para CRIAR o admin — não existe senha padrão.
+ * ADMIN_PASSWORD só é usada na criação inicial: se o admin já existe, o seed
+ * nunca sobrescreve a senha atual (nem com a do .env), então rodar o seed de
+ * novo não desfaz a senha que o cliente trocou pelo painel.
  */
 import 'dotenv/config';
 import { PrismaClient, ProductPurchaseMode, UserRole, CouponDiscountType, ScriptCategory } from '@prisma/client';
@@ -30,37 +31,36 @@ async function main() {
   // -----------------------------------------------------------------------
   // 1. Admin
   // -----------------------------------------------------------------------
-  if (IS_PRODUCTION && (!ADMIN_PASSWORD_ENV || ADMIN_PASSWORD_ENV.length < 8)) {
-    throw new Error('[seed] Em produção defina ADMIN_PASSWORD (mínimo 8 caracteres) no .env.');
-  }
   const existingAdmin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
-  // Cria com a senha do .env (ou a de dev). Se o admin já existe, só troca a
-  // senha quando ADMIN_PASSWORD foi passada explicitamente.
-  const passwordToSet = ADMIN_PASSWORD_ENV ?? (existingAdmin ? undefined : DEV_ADMIN_PASSWORD);
-  const passwordHash = passwordToSet ? await bcrypt.hash(passwordToSet, 10) : undefined;
-  const admin = await prisma.user.upsert({
-    where: { email: ADMIN_EMAIL },
-    create: {
-      name: ADMIN_NAME,
-      email: ADMIN_EMAIL,
-      passwordHash: passwordHash!,
-      role: UserRole.ADMIN,
-      active: true,
-      emailVerified: true,
-    },
-    // NUNCA reseta a senha de um admin existente para a padrão: o seed também
-    // roda automaticamente em `prisma migrate dev/reset`. Só regrava a senha
-    // quando ADMIN_PASSWORD foi definida explicitamente (passwordHash fica
-    // undefined caso contrário).
-    update: {
-      ...(passwordHash ? { passwordHash } : {}),
-      role: UserRole.ADMIN,
-      active: true,
-    },
-  });
-  console.log(`[seed] admin: ${admin.email}${passwordHash ? ' (senha definida)' : ' (senha mantida)'}`);
-  if (!ADMIN_PASSWORD_ENV && !existingAdmin) {
-    console.warn(`[seed] ATENÇÃO: admin criado com a senha de desenvolvimento "${DEV_ADMIN_PASSWORD}". Defina ADMIN_PASSWORD antes de ir para produção.`);
+  if (existingAdmin) {
+    // Admin já existe: ADMIN_PASSWORD é ignorada — a senha atual NUNCA é
+    // sobrescrita (o seed também roda em `prisma migrate dev/reset`).
+    // Só garante papel e status.
+    await prisma.user.update({
+      where: { id: existingAdmin.id },
+      data: { role: UserRole.ADMIN, active: true },
+    });
+    console.log(`[seed] admin: ${existingAdmin.email} (já existe — senha mantida)`);
+  } else {
+    if (IS_PRODUCTION && (!ADMIN_PASSWORD_ENV || ADMIN_PASSWORD_ENV.length < 8)) {
+      throw new Error('[seed] Em produção defina ADMIN_PASSWORD (mínimo 8 caracteres) no .env para criar o admin.');
+    }
+    // Criação inicial: senha do .env (ou a de dev, só fora de produção).
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD_ENV ?? DEV_ADMIN_PASSWORD, 10);
+    const admin = await prisma.user.create({
+      data: {
+        name: ADMIN_NAME,
+        email: ADMIN_EMAIL,
+        passwordHash,
+        role: UserRole.ADMIN,
+        active: true,
+        emailVerified: true,
+      },
+    });
+    console.log(`[seed] admin: ${admin.email} (criado)`);
+    if (!ADMIN_PASSWORD_ENV) {
+      console.warn(`[seed] ATENÇÃO: admin criado com a senha de desenvolvimento "${DEV_ADMIN_PASSWORD}". Defina ADMIN_PASSWORD antes de ir para produção.`);
+    }
   }
 
   // -----------------------------------------------------------------------

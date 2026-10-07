@@ -108,8 +108,8 @@ Se for o e-mail do domínio (Hostinger, Zoho, Locaweb...), usar host e porta do 
 `npm run check:config` testa o login no SMTP sem enviar nada.
 
 ### 3.4 Admin
-- O seed roda **na sua máquina**, apontando para o Neon de produção (seção 4). Definir `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mínimo 8) nesse `.env` antes de rodar. Com `NODE_ENV=production`, o seed recusa rodar sem `ADMIN_PASSWORD`.
-- Para trocar a senha do admin depois: rodar o seed de novo com o novo `ADMIN_PASSWORD`. Sem essa variável, o seed não mexe na senha.
+- O seed roda **na sua máquina**, apontando para o Neon de produção (seção 4). Definir `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mínimo 8) nesse `.env` antes de rodar. Com `NODE_ENV=production`, o seed recusa **criar** o admin sem `ADMIN_PASSWORD`.
+- `ADMIN_PASSWORD` só vale na **criação inicial** do admin. Se o admin já existe, o seed nunca altera a senha (nem com essa variável). Para trocar a senha depois, use **Esqueci minha senha** (`/esqueci-senha`) com o e-mail do admin — exige o envio de e-mail configurado.
 - `check:config` acusa erro se algum admin ainda usar a senha de desenvolvimento `admin123`.
 
 ### 3.5 Neon (banco)

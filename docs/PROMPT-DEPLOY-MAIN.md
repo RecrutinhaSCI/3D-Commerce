@@ -68,7 +68,7 @@ Você vai me ajudar a colocar a branch `api-mercado-pago` em produção no proje
 
 ### Etapa 3 — Seed (só se for a primeira subida OU para trocar a senha do admin)
 - Me pergunte se é necessário. Se não for, pule.
-- Se for: com `DATABASE_URL` (direta) definida por mim, `NODE_ENV=production`, `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mín. 8) definidos por mim no terminal, rode `npm run prisma:seed`. O seed não sobrescreve produtos nem configurações que já existem, e sem ADMIN_PASSWORD não mexe na senha.
+- Se for: com `DATABASE_URL` (direta) definida por mim, `NODE_ENV=production`, `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mín. 8) definidos por mim no terminal, rode `npm run prisma:seed`. O seed não sobrescreve produtos nem configurações que já existem, e nunca altera a senha de um admin que já existe (ADMIN_PASSWORD só é usada na criação inicial).
 
 ### Etapa 4 — Variáveis na Vercel (EU faço no painel)
 Me dê a lista para eu conferir/cadastrar, por projeto e ambiente, sem você ver os valores:
