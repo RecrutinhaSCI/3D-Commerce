@@ -194,10 +194,6 @@ export default function Product() {
                 src={currentMedia?.url}
                 alt={product.name}
                 loading="eager"
-                onError={(e) => {
-                  // Fallback elegante: some com a imagem quebrada e revela o fundo do card.
-                  (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-                }}
                 className="h-full w-full object-cover"
               />
             )}

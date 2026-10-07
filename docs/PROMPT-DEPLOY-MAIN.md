@@ -80,6 +80,7 @@ Me dê a lista para eu conferir/cadastrar, por projeto e ambiente, sem você ver
 
 ### Etapa 5 — Conferência da configuração de produção
 - Me oriente a criar LOCALMENTE um arquivo `backend/.env.production.local` (não versionado; confirme com `git check-ignore -v backend/.env.production.local`) com os mesmos valores do backend de produção, e rode a conferência apontando para ele — dentro de `backend/`: Git Bash `DOTENV_CONFIG_PATH=.env.production.local npm run check:config` | PowerShell `$env:DOTENV_CONFIG_PATH=".env.production.local"; npm run check:config`. Precisa terminar com 0 erros. Em especial: "Token de PRODUÇÃO válido" no Mercado Pago, Blob configurado, CRON_SECRET definido, admin sem senha "admin123".
+- Imagens antigas: se o check:config avisar "URL antiga (/uploads/...)", rode com o MESMO arquivo, dentro de `backend/`: Git Bash `DOTENV_CONFIG_PATH=.env.production.local npm run uploads:migrate` | PowerShell `$env:DOTENV_CONFIG_PATH=".env.production.local"; npm run uploads:migrate`. É só simulação: lista cada imagem com "arquivo encontrado" ou "não encontrado". Os arquivos são procurados em `backend/uploads/` (se eu tiver as imagens originais em outra pasta, acrescente `-- --dir=<pasta>`). Me mostre o relatório e, com meu ok, rode de novo com `-- --apply --remove-missing`: o que tiver arquivo vai para o Blob, e as imagens de PRODUTO sem arquivo saem do banco. No fim, me dê a lista do que precisa ser reenviado pelo admin (produtos, logo, banners, depoimentos).
 - Depois, me peça para apagar esse arquivo.
 
 ### Etapa 6 — Push e preview

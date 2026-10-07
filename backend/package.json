@@ -20,6 +20,7 @@
     "db:setup": "prisma migrate dev --name init && tsx prisma/seed.ts",
     "db:deploy": "prisma migrate deploy",
     "check:config": "tsx scripts/check-config.ts",
+    "uploads:migrate": "tsx scripts/migrate-uploads.ts",
     "test": "vitest run"
   },
   "prisma": {

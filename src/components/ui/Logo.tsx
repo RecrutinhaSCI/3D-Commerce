@@ -1,15 +1,18 @@
+import { useState } from 'react';
 import { cn } from '@/utils/cn';
 import { Link } from 'react-router-dom';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 
 export function Logo({ className, variant = 'dark' }: { className?: string; variant?: 'dark' | 'light' }) {
   const customLogo = useAdminDataStore((s) => s.settings.logo);
+  // Logo enviado que não carrega (arquivo apagado) volta para o logo em texto.
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
   const color = variant === 'dark' ? 'text-ink' : 'text-bg';
 
-  if (customLogo) {
+  if (customLogo && failedLogo !== customLogo) {
     return (
       <Link to="/" className={cn('inline-flex items-center', className)} aria-label="3DCommerce — Início">
-        <img src={customLogo} alt="3DCommerce" className="h-8 w-auto max-w-[180px] object-contain" />
+        <img src={customLogo} alt="3DCommerce" data-no-fallback onError={() => setFailedLogo(customLogo)} className="h-8 w-auto max-w-[180px] object-contain" />
       </Link>
     );
   }

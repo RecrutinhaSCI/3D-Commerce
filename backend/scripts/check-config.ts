@@ -19,6 +19,7 @@ import nodemailer from 'nodemailer';
 import { UserRole } from '@prisma/client';
 import { env, corsOrigins, productionConfigWarnings } from '../src/config/env';
 import { prisma } from '../src/lib/prisma';
+import { findLegacyUploads } from './legacy-uploads';
 
 type Level = 'ok' | 'warn' | 'error';
 const results: Array<{ level: Level; area: string; msg: string }> = [];
@@ -163,6 +164,15 @@ function checkUploads() {
   }
 }
 
+async function checkLegacyUploads() {
+  const refs = await findLegacyUploads();
+  if (refs.length === 0) {
+    add('ok', 'Uploads', 'Nenhuma imagem no formato antigo (/uploads/...) no banco.');
+  } else {
+    add('warn', 'Uploads', `${refs.length} arquivo(s) com URL antiga (/uploads/...) — provavelmente quebrados na Vercel. Rode \`npm run uploads:migrate\` para ver quais.`);
+  }
+}
+
 function checkUrls() {
   add('ok', 'URLs', `APP_URL=${env.APP_URL} · CORS_ORIGIN=${corsOrigins.join(', ')}`);
   for (const w of productionConfigWarnings()) {
@@ -177,6 +187,7 @@ async function main() {
   if (dbOk) {
     await checkAdmin();
     await checkStoreSettings();
+    await checkLegacyUploads();
   }
   await checkMercadoPago();
   await checkSmtp();
