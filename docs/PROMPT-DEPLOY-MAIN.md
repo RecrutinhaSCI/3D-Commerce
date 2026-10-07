@@ -23,15 +23,19 @@ Você vai me ajudar a colocar a branch `api-mercado-pago` em produção no proje
 ## Contexto
 - Stack: frontend React/Vite e backend Express + Prisma, os dois na Vercel em projetos separados (front = raiz do repo; back = Root Directory `backend/`). Banco: Neon (PostgreSQL). Pagamentos: Mercado Pago (Orders API).
 - Guias do projeto que você DEVE ler antes de começar: `CONFIGURAR-CLIENTE.md`, `CHECKLIST-PRODUCAO.md`, `backend/.env.example`, `.env.example`, `backend/vercel.json`.
-- A branch adiciona 7 migrations Prisma que ainda NÃO existem no Neon de produção:
-  1. 20260915113510_order_mp_payment_fields
-  2. 20260915194135_order_stock_applied
-  3. 20260915195100_auth_reset_verify
-  4. 20261006120000_checkout_hardening
-  5. 20261006150000_order_customer_cpf
-  6. 20261006170000_user_privacy_consent
-  7. 20261006190000_newsletter_subscribers
-  Todas só ADICIONAM colunas/tabelas (+ um UPDATE de backfill em `orders.stock_applied`). Por isso devem ser aplicadas ANTES do merge: o código antigo continua funcionando com elas, mas o código novo quebra sem elas (até o login).
+- Repositório: RecrutinhaSCI/3D-Commerce (o `main` de lá já foi integrado nesta branch). Projeto Vercel na conta recrutinha-sci-s-projects.
+- Em relação ao `main` de RecrutinhaSCI, a branch adiciona ATÉ 8 migrations Prisma que podem ainda NÃO existir no Neon de produção:
+  1. 20260721000000_order_tracking_code   (rastreio — pode já existir no Neon)
+  2. 20260915113510_order_mp_payment_fields
+  3. 20260915194135_order_stock_applied
+  4. 20260915195100_auth_reset_verify
+  5. 20261006120000_checkout_hardening
+  6. 20261006150000_order_customer_cpf
+  7. 20261006170000_user_privacy_consent
+  8. 20261006190000_newsletter_subscribers
+  As migrations do `main` (payments_pix, product_media, product_brand, banner_slot, instagram_items, product_stock_updated_at) já devem estar no Neon; se alguma delas aparecer como pendente também é aceitável (são aditivas) — mas qualquer migration FORA dessas 14 conhecidas, drift ou "failed" = PARE.
+  Todas só ADICIONAM colunas/tabelas (+ um UPDATE de backfill em `orders.stock_applied`). Foram testadas aplicando por cima do estado do `main` (banco final idêntico ao schema). Por isso devem ser aplicadas ANTES do merge: o código antigo continua funcionando com elas, mas o código novo quebra sem elas (até o login).
+- O módulo Pix/Banco Inter que existia no `main` está DESLIGADO (backend/src/modules/pix-inter, sem rotas). NÃO é preciso configurar PAYMENT_PROVIDER, PAYMENT_WEBHOOK_SECRET nem INTER_*.
 - O backend novo NÃO sobe sem `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET` (o env.ts encerra o processo). Por isso as variáveis também vão ANTES do merge.
 
 ## Regras inegociáveis
@@ -57,7 +61,7 @@ Você vai me ajudar a colocar a branch `api-mercado-pago` em produção no proje
 
 ### Etapa 2 — Migrations no Neon de produção
 - Me peça a connection string DIRETA (sem `-pooler` no host) do Neon de produção, mas para eu definir no MEU terminal como `DATABASE_URL`. Você não recebe o valor.
-- Primeiro rode só leitura: `cd backend && npx prisma migrate status` e me mostre quais migrations estão pendentes. Devem ser exatamente as 7 acima (ou um subconjunto, se alguma já tiver sido aplicada). Se aparecer qualquer outra coisa (drift, migration desconhecida, "failed"), PARE.
+- Primeiro rode só leitura: `cd backend && npx prisma migrate status` e me mostre quais migrations estão pendentes. Devem estar entre as 14 conhecidas listadas no Contexto (normalmente as 8 da branch, ou menos se alguma já tiver sido aplicada). Se aparecer qualquer outra coisa (drift, migration desconhecida, "failed"), PARE.
 - Com meu ok: `npx prisma migrate deploy`.
 - Rode `npx prisma migrate status` de novo e confirme "Database schema is up to date".
 - Me lembre de fechar/limpar a variável `DATABASE_URL` do terminal depois.
@@ -68,7 +72,7 @@ Você vai me ajudar a colocar a branch `api-mercado-pago` em produção no proje
 
 ### Etapa 4 — Variáveis na Vercel (EU faço no painel)
 Me dê a lista para eu conferir/cadastrar, por projeto e ambiente, sem você ver os valores:
-- Projeto BACKEND (Production): DATABASE_URL (a URL COM pooler), JWT_SECRET, NODE_ENV=production, CORS_ORIGIN (domínio(s) da loja), APP_URL (domínio da loja, igual ao VITE_SITE_URL), MP_ACCESS_TOKEN e MP_WEBHOOK_SECRET (credenciais de PRODUÇÃO do cliente), CRON_SECRET (gerar com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`), SMTP_HOST/SMTP_PORT/SMTP_SECURE/SMTP_USER/SMTP_PASS/SMTP_FROM.
+- Projeto BACKEND (Production): DATABASE_URL (a URL COM pooler), JWT_SECRET, NODE_ENV=production, CORS_ORIGINS (domínio(s) da loja; as previews `3d-commerce-*-recrutinha-sci-s-projects.vercel.app` já são liberadas automaticamente), APP_URL (domínio da loja, igual ao VITE_SITE_URL), MP_ACCESS_TOKEN e MP_WEBHOOK_SECRET (credenciais de PRODUÇÃO do cliente), CRON_SECRET (gerar com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`), SMTP_HOST/SMTP_PORT/SMTP_SECURE/SMTP_USER/SMTP_PASS/SMTP_FROM.
 - Projeto BACKEND: criar e conectar um Blob Store (Storage → Blob → Connect) em Production e Preview. Isso cria BLOB_READ_WRITE_TOKEN sozinho.
 - Projeto BACKEND (Preview e Development): MP_ACCESS_TOKEN/MP_WEBHOOK_SECRET de TESTE (sem elas a preview não sobe). DATABASE_URL de preview NÃO deve ser o banco de produção.
 - Projeto FRONT (Production): VITE_API_URL (domínio do backend), VITE_SITE_URL (domínio da loja), VITE_MP_PUBLIC_KEY (public key de PRODUÇÃO). Opcional: VITE_GA_MEASUREMENT_ID.
@@ -106,7 +110,7 @@ Ao terminar, me entregue: o que foi feito em cada etapa (com evidência), o que 
 ---
 
 ## Quando chamar o líder
-- `prisma migrate status` mostrou algo diferente das 7 migrations.
+- `prisma migrate status` mostrou alguma migration fora das 14 conhecidas, drift ou "failed".
 - O `check:config` não fecha com 0 erros.
 - O deploy da Vercel falhou ou a API não responde no `/health`.
 - O pagamento de teste não confirmou sozinho em alguns minutos.

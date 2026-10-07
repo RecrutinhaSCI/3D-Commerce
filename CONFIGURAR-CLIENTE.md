@@ -41,7 +41,7 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 | Access Token do Mercado Pago | Cliente (conta MP) | Vercel (back) → `MP_ACCESS_TOKEN` | Sim |
 | Segredo do webhook MP | Gerado no painel MP | Vercel (back) → `MP_WEBHOOK_SECRET` | Sim |
 | SMTP (host, porta, usuário, senha, remetente) | Cliente | Vercel (back) → `SMTP_*` | Sim em produção* |
-| Domínio da loja | Cliente | Vercel (front) → `VITE_SITE_URL` · Vercel (back) → `APP_URL` e `CORS_ORIGIN` | Sim |
+| Domínio da loja | Cliente | Vercel (front) → `VITE_SITE_URL` · Vercel (back) → `APP_URL` e `CORS_ORIGINS` | Sim |
 | E-mail e senha do admin | Cliente / G-Rec | `.env` local na hora de rodar o seed (`ADMIN_EMAIL`, `ADMIN_PASSWORD`) | Sim |
 | Banco de produção | G-Rec (Neon) | Vercel (back) → `DATABASE_URL` (URL **com pooler**) | Sim |
 | Chave JWT | G-Rec (gerar) | Vercel (back) → `JWT_SECRET` | Sim |
@@ -124,16 +124,16 @@ Antes de qualquer migration em produção, criar uma **branch de backup** no Neo
 - Vercel (front): `VITE_SITE_URL=https://www.dominio.com.br` (gera o sitemap e o robots com o domínio), depois redeploy.
   - O `robots.txt` aponta também para o **sitemap dinâmico** da API (`/api/public/sitemap.xml`, com todos os produtos ativos). Ele usa o `APP_URL` do backend nos links, que por isso precisa ser **igual** ao `VITE_SITE_URL`.
   - Depois de publicar, cadastrar o domínio no **Google Search Console** e enviar o sitemap.
-- Vercel (back): `APP_URL=https://www.dominio.com.br` (links dos e-mails) e `CORS_ORIGIN=https://www.dominio.com.br,https://dominio.com.br`, depois redeploy.
+- Vercel (back): `APP_URL=https://www.dominio.com.br` (links dos e-mails) e `CORS_ORIGINS=https://www.dominio.com.br,https://dominio.com.br` (as previews `3d-commerce-*-recrutinha-sci-s-projects.vercel.app` já são liberadas sozinhas), depois redeploy.
 - **JWT_SECRET**: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
 
 ---
 
 ## 4. Migrations e seed no Neon (rodar da sua máquina)
 
-Esta branch adiciona **7 migrations**: campos do Mercado Pago no pedido, `stock_applied`, verificação de e-mail e reset de senha, `checkout_hardening` (frete, desconto Pix e backfill de estoque), `customer_cpf`, `user_privacy_consent` e `newsletter_subscribers`. **Elas precisam estar aplicadas no Neon antes de o código novo chegar em produção.** Sem elas, até o login quebra, porque o Prisma lê colunas que ainda não existem.
+Em relação ao `main` de RecrutinhaSCI, esta branch adiciona **até 8 migrations**: `order_tracking_code` (rastreio — pode já existir no Neon), campos do Mercado Pago no pedido, `stock_applied`, verificação de e-mail e reset de senha, `checkout_hardening` (frete, desconto Pix e backfill de estoque), `customer_cpf`, `user_privacy_consent` e `newsletter_subscribers`. **Elas precisam estar aplicadas no Neon antes de o código novo chegar em produção.** Sem elas, até o login quebra, porque o Prisma lê colunas que ainda não existem.
 
-As 7 só **adicionam** colunas ou tabelas, com valor padrão ou permitindo nulo. Por isso é seguro aplicá-las antes do merge: o código antigo que está no ar continua funcionando.
+Todas só **adicionam** colunas ou tabelas, com valor padrão ou permitindo nulo, e foram testadas aplicando por cima do estado do `main` (banco final idêntico ao schema). Por isso é seguro aplicá-las antes do merge: o código antigo que está no ar continua funcionando.
 
 ```bash
 cd backend
@@ -157,7 +157,7 @@ NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..
 3. **Seed**, se for a primeira subida ou para definir a senha do admin (seção 4).
 4. **Vercel (front)**: `VITE_API_URL`, `VITE_MP_PUBLIC_KEY`, `VITE_SITE_URL`, depois redeploy.
 5. **Merge na `main`**: dispara o deploy de produção dos dois projetos.
-6. **Domínio**: conectar e ajustar `APP_URL`/`CORS_ORIGIN` (seção 3.6).
+6. **Domínio**: conectar e ajustar `APP_URL`/`CORS_ORIGINS` (seção 3.6).
 7. **Mercado Pago**: cadastrar o webhook com o domínio de produção do backend, colar o segredo e fazer redeploy do backend.
 8. **Conferência**: `npm run check:config` com o `.env` de produção, **0 erros**.
 9. **Teste real**: comprar um produto barato via Pix → o pedido deve virar *Confirmado* sozinho e chegar o e-mail de pagamento aprovado → estornar pelo painel do Mercado Pago.

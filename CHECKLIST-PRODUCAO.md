@@ -12,7 +12,7 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 - [x] **Frete** calculado no backend + modalidade (PAC/Sedex/retirada) salva no pedido
 - [x] Remover o texto "Ambiente de teste (sandbox)" da tela de sucesso
 - [x] Migration de backfill: `stock_applied = true` nos pedidos antigos (`20261006120000_checkout_hardening`)
-- [ ] ⏳ **Você:** aplicar as migrations no **Neon** (branch de backup antes) — 7 pendentes, comandos na seção 4 do CONFIGURAR-CLIENTE.md
+- [ ] ⏳ **Você:** aplicar as migrations no **Neon** (branch de backup antes) — até 8 pendentes (confira com `prisma migrate status`), comandos na seção 4 do CONFIGURAR-CLIENTE.md
 - [ ] ⏳ **Você:** na Vercel (backend) criar o Blob Store, cadastrar `MP_ACCESS_TOKEN`/`MP_WEBHOOK_SECRET` (Production e Preview) e conferir o entrypoint no log de build
 
 ## Etapa 2 — Operação da loja
