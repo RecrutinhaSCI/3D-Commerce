@@ -13,7 +13,9 @@ import type { ApiProduct } from '@/services/types';
  * sanitizados (trim + limite de tamanho) e números validados.
  */
 
-export const IMPORT_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+// A planilha é lida no navegador; só as fotos (já comprimidas) sobem para a
+// API, uma por requisição. O limite alto comporta planilhas com fotos coladas.
+export const IMPORT_MAX_BYTES = 60 * 1024 * 1024; // 60 MB
 
 // Cabeçalhos amigáveis (pt-BR). A importação casa por estes nomes (case-insensitive).
 const HEADERS = {
@@ -173,6 +175,8 @@ export interface ParsedProductRow {
     // no backend, por linha; aqui só recolhemos e mandamos como texto).
     imageUrl?: string;
   };
+  /** Foto colada na planilha (na célula ou sobre a linha). Enviada após criar o produto. */
+  embeddedImage?: File;
   errors: string[];
 }
 
@@ -180,6 +184,154 @@ export interface ParseResult {
   rows: ParsedProductRow[];
   validCount: number;
   errorCount: number;
+  /** Quantas linhas trazem foto colada na planilha. */
+  imageCount: number;
+}
+
+// -----------------------------------------------------------------------------
+// Fotos coladas na planilha
+// -----------------------------------------------------------------------------
+// O Excel guarda as fotos dentro do .xlsx (um zip) de dois jeitos:
+//  1. "Colocar na célula": a célula tem `vm="N"` e o caminho até o arquivo passa
+//     por metadata.xml → richData (rdrichvalue + richValueRel) → xl/media/.
+//  2. Flutuando sobre a planilha: drawing ligado à aba, com a âncora `from.row`.
+// Devolvemos a 1ª foto de cada linha (número da linha 1-based).
+
+type ZipEntry = { content?: Uint8Array | ArrayBuffer | string | number[] };
+type ZipFiles = Record<string, ZipEntry>;
+
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
+function zipBytes(files: ZipFiles, path: string): Uint8Array | undefined {
+  const c = (files[path] ?? files[`/${path}`])?.content;
+  if (c === undefined) return undefined;
+  if (typeof c === 'string') return new TextEncoder().encode(c);
+  return c instanceof Uint8Array ? c : new Uint8Array(c as ArrayBuffer);
+}
+
+function zipXml(files: ZipFiles, path: string): Document | undefined {
+  const bytes = zipBytes(files, path);
+  if (!bytes) return undefined;
+  return new DOMParser().parseFromString(new TextDecoder().decode(bytes), 'application/xml');
+}
+
+const byTag = (node: Document | Element, tag: string) => Array.from(node.getElementsByTagNameNS('*', tag));
+const relId = (el: Element, attr: string) =>
+  el.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', attr) ?? el.getAttribute(`r:${attr}`);
+
+/** Resolve o Target de um .rels relativo à pasta do arquivo de origem. */
+function resolveTarget(fromFile: string, target: string): string {
+  if (target.startsWith('/')) return target.slice(1);
+  const parts = fromFile.split('/').slice(0, -1);
+  for (const seg of target.split('/')) {
+    if (seg === '..') parts.pop();
+    else if (seg !== '.') parts.push(seg);
+  }
+  return parts.join('/');
+}
+
+/** Lê um .rels e devolve Id → caminho absoluto no zip. */
+function readRels(files: ZipFiles, ownerFile: string): Map<string, string> {
+  const dir = ownerFile.split('/').slice(0, -1).join('/');
+  const name = ownerFile.split('/').pop();
+  const doc = zipXml(files, `${dir}/_rels/${name}.rels`);
+  const map = new Map<string, string>();
+  if (!doc) return map;
+  for (const r of byTag(doc, 'Relationship')) {
+    const id = r.getAttribute('Id');
+    const target = r.getAttribute('Target');
+    if (id && target && r.getAttribute('TargetMode') !== 'External') map.set(id, resolveTarget(ownerFile, target));
+  }
+  return map;
+}
+
+function rowOf(cellRef: string): number {
+  return Number(cellRef.replace(/^[A-Z]+/i, ''));
+}
+
+/** Imagens "na célula" (Excel 365): célula com vm → richData → mídia. */
+function inCellImages(files: ZipFiles, sheetPath: string, out: Map<number, string>) {
+  const sheet = zipXml(files, sheetPath);
+  const meta = zipXml(files, 'xl/metadata.xml');
+  const rv = zipXml(files, 'xl/richData/rdrichvalue.xml');
+  const rvStruct = zipXml(files, 'xl/richData/rdrichvaluestructure.xml');
+  const rvRel = zipXml(files, 'xl/richData/richValueRel.xml');
+  if (!sheet || !meta || !rv || !rvRel) return;
+
+  const relTargets = readRels(files, 'xl/richData/richValueRel.xml');
+  const relIds = byTag(rvRel, 'rel').map((el) => relId(el, 'id'));
+  const futureBk = byTag(meta, 'futureMetadata')
+    .filter((f) => f.getAttribute('name') === 'XLRICHVALUE')
+    .flatMap((f) => byTag(f, 'bk'));
+  const valueBk = byTag(meta, 'valueMetadata').flatMap((v) => byTag(v, 'bk'));
+  const structures = rvStruct ? byTag(rvStruct, 's') : [];
+  const values = byTag(rv, 'rv');
+
+  for (const c of byTag(sheet, 'c')) {
+    const vm = Number(c.getAttribute('vm'));
+    const ref = c.getAttribute('r');
+    if (!vm || !ref) continue;
+    const rc = valueBk[vm - 1] ? byTag(valueBk[vm - 1], 'rc')[0] : undefined;
+    const fut = rc ? futureBk[Number(rc.getAttribute('v'))] : undefined;
+    const rvb = fut ? byTag(fut, 'rvb')[0] : undefined;
+    const value = rvb ? values[Number(rvb.getAttribute('i'))] : undefined;
+    if (!value) continue;
+    // A posição do identificador da imagem vem da estrutura do valor.
+    const keys = byTag(structures[Number(value.getAttribute('s'))] ?? value, 'k').map((k) => k.getAttribute('n'));
+    const pos = Math.max(0, keys.indexOf('_rvRel:LocalImageIdentifier'));
+    const relIndex = Number(byTag(value, 'v')[pos]?.textContent);
+    const target = relTargets.get(relIds[relIndex] ?? '');
+    const row = rowOf(ref);
+    if (target && !out.has(row)) out.set(row, target);
+  }
+}
+
+/** Imagens flutuantes: drawing da aba, ancoradas pela linha de início. */
+function drawingImages(files: ZipFiles, sheetPath: string, out: Map<number, string>) {
+  for (const drawingPath of readRels(files, sheetPath).values()) {
+    if (!/\/drawings\/[^/]+\.xml$/.test(drawingPath)) continue;
+    const drawing = zipXml(files, drawingPath);
+    if (!drawing) continue;
+    const rels = readRels(files, drawingPath);
+    const anchors = [...byTag(drawing, 'twoCellAnchor'), ...byTag(drawing, 'oneCellAnchor')];
+    for (const a of anchors) {
+      const from = byTag(a, 'from')[0];
+      const blip = byTag(a, 'blip')[0];
+      const rowText = from ? byTag(from, 'row')[0]?.textContent : undefined;
+      const target = blip ? rels.get(relId(blip, 'embed') ?? '') : undefined;
+      if (rowText == null || !target) continue;
+      const row = Number(rowText) + 1; // âncora é 0-based
+      if (!out.has(row)) out.set(row, target);
+    }
+  }
+}
+
+function extractRowImages(wb: XLSX.WorkBook): Map<number, File> {
+  const files = (wb as unknown as { files?: ZipFiles }).files;
+  const sheetPath = (wb as unknown as { Directory?: { sheets?: string[] } }).Directory?.sheets?.[0]?.replace(/^\//, '');
+  const result = new Map<number, File>();
+  if (!files || !sheetPath) return result;
+
+  const targets = new Map<number, string>();
+  try {
+    inCellImages(files, sheetPath, targets);
+    drawingImages(files, sheetPath, targets);
+  } catch {
+    return result; // estrutura inesperada: segue a importação sem fotos
+  }
+  for (const [row, path] of targets) {
+    const ext = path.split('.').pop()?.toLowerCase() ?? '';
+    const bytes = zipBytes(files, path);
+    if (!bytes || !MIME_BY_EXT[ext]) continue;
+    result.set(row, new File([new Uint8Array(bytes)], `linha-${row}.${ext}`, { type: MIME_BY_EXT[ext] }));
+  }
+  return result;
 }
 
 const MAX_TEXT = 5000;
@@ -241,11 +393,12 @@ export async function parseProductsXlsx(file: File): Promise<ParseResult> {
     throw new Error('Envie um arquivo .xlsx válido.');
   }
   if (file.size > IMPORT_MAX_BYTES) {
-    throw new Error('Arquivo muito grande (máx. 2 MB).');
+    throw new Error('Arquivo muito grande (máx. 60 MB).');
   }
 
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array' });
+  // bookFiles: mantém os arquivos internos do .xlsx para extrair as fotos.
+  const wb = XLSX.read(buf, { type: 'array', bookFiles: true });
   return parseWorkbook(wb);
 }
 
@@ -255,8 +408,13 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
   // raw:true → valor real da célula (número continua número; fórmula vem
   // como o valor calculado em cache, nunca é executada). defval '' evita undefined.
   const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { raw: true, defval: '' });
+  // Fotos coladas (só existem quando o workbook foi lido com bookFiles).
+  const rowImages = extractRowImages(wb);
 
   const rows: ParsedProductRow[] = json.map((raw, idx) => {
+    // Linha real da planilha (o sheet_to_json pula linhas em branco).
+    const rowNum = (raw as { __rowNum__?: number }).__rowNum__;
+    const line = rowNum !== undefined ? rowNum + 1 : idx + 2;
     // Normaliza chaves da linha.
     const row: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(raw)) row[normalizeKey(k)] = v;
@@ -303,8 +461,18 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     // Só marca `featured` quando o admin explicitamente disse algo.
     const featured = destaqueVal ?? maisVendidoVal;
 
+    // Foto colada tem prioridade sobre URL. Célula com foto "na célula" vem
+    // como erro do Excel (#VALUE!) — nunca é uma URL; nem o placeholder SVG.
+    const embeddedImage = rowImages.get(line);
+    const imageText = optText(row[HEADERS.imagem], 2000);
+    const imageUrl =
+      embeddedImage || !imageText || imageText.startsWith('#') || isGeneratedPlaceholder(imageText)
+        ? undefined
+        : imageText;
+
     return {
-      line: idx + 2, // +1 header, +1 base-1
+      line,
+      embeddedImage,
       data: {
         id,
         sku,
@@ -325,15 +493,13 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
         material: optText(row[HEADERS.material], 80),
         // R19-C — imagem por URL. Validação sintática por linha é do backend
         // (uma URL ruim aqui só afeta a própria linha, não o lote).
-        imageUrl: (() => {
-          const v = optText(row[HEADERS.imagem], 2000);
-          return v && isGeneratedPlaceholder(v) ? undefined : v;
-        })(),
+        imageUrl,
       },
       errors,
     };
   });
 
   const validCount = rows.filter((r) => r.errors.length === 0).length;
-  return { rows, validCount, errorCount: rows.length - validCount };
+  const imageCount = rows.filter((r) => r.embeddedImage).length;
+  return { rows, validCount, errorCount: rows.length - validCount, imageCount };
 }
