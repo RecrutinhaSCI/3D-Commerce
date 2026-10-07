@@ -250,7 +250,7 @@ export default function Testimonials() {
                   onRemove={() => {
                     setEditing({ ...editing, avatarUrl: '' });
                   }}
-                  hint="JPG/PNG/WEBP até 5MB."
+                  hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente)."
                 />
               </div>
             )}

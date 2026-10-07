@@ -399,7 +399,7 @@ function ProductForm() {
                   }
                   setImages((prev) => prev.filter((_, i) => i !== idx));
                 }}
-                hint="JPG/PNG/WEBP/GIF ou MP4 até 4MB. A primeira mídia vira a principal."
+                hint="Fotos JPG, PNG ou WEBP de qualquer tamanho (reduzidas automaticamente); GIF ou MP4 até 4MB. A primeira mídia vira a principal."
               />
             </div>
           </div>

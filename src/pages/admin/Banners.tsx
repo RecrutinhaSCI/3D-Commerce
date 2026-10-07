@@ -185,7 +185,7 @@ export default function Banners() {
                 onRemove={() => {
                   setEditing({ ...editing, image: '' });
                 }}
-                hint="JPG/PNG/WEBP até 5MB. Sobrepõe o gradiente."
+                hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente). Sobrepõe o gradiente."
               />
             </div>
             {editing.position === 'hero' && (
