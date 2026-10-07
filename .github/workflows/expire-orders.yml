@@ -1,0 +1,55 @@
+# Cron diário do backend (Render): expira pedidos não pagos (48h; boleto 96h),
+# devolve estoque/cupom e reconcilia pagamentos cujo webhook se perdeu.
+#
+# Secrets do repositório (Settings → Secrets and variables → Actions):
+#   CRON_SECRET  — o mesmo valor configurado no Render
+#   BACKEND_URL  — URL do backend no Render, sem barra no fim
+#
+# O GitHub só agenda workflows da branch padrão (main). Horário em UTC:
+# 09:00 UTC = 06:00 em Brasília (pode atrasar alguns minutos).
+name: Expirar pedidos não pagos
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: expire-orders
+  cancel-in-progress: false
+
+jobs:
+  expire-orders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Chamar /api/cron/expire-orders
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$BACKEND_URL" ]; then
+            echo "::error::Defina os secrets CRON_SECRET e BACKEND_URL no repositório."
+            exit 1
+          fi
+          url="${BACKEND_URL%/}/api/cron/expire-orders"
+          # Render Free dorme após inatividade e leva ~1 min para acordar:
+          # até 3 tentativas, 2 min de timeout cada.
+          for i in 1 2 3; do
+            code=$(curl -sS -o response.json -w '%{http_code}' --max-time 120 \
+              -H "Authorization: Bearer $CRON_SECRET" "$url" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "OK (tentativa $i):"; cat response.json; echo
+              exit 0
+            fi
+            if [ "$code" = "401" ]; then
+              echo "::error::401 — CRON_SECRET do GitHub diferente do configurado no Render."
+              exit 1
+            fi
+            echo "Tentativa $i: HTTP $code"
+            [ "$i" -lt 3 ] && sleep 30
+          done
+          echo "::error::Backend não respondeu 200 após 3 tentativas (503 = CRON_SECRET ausente no Render)."
+          exit 1

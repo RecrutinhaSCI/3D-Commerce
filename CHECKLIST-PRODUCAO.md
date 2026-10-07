@@ -1,27 +1,28 @@
 # Checklist para produção — 3DCommerce
 
-Plano para deixar a loja pronta para vender de verdade (Vercel + Neon + Mercado Pago).
+Plano para deixar a loja pronta para vender de verdade (Vercel front + Render back + Neon + Mercado Pago).
 Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md).
 
 ## Etapa 1 — Antes de qualquer venda
 
-- [x] Uploads no **Vercel Blob** (produto, banner, logo, depoimento, orçamento) — código pronto; falta criar o Blob Store na Vercel (gera `BLOB_READ_WRITE_TOKEN`)
+- [x] Uploads no **Vercel Blob** (produto, banner, logo, depoimento, orçamento) — código pronto; falta criar o Blob Store na Vercel e copiar o `BLOB_READ_WRITE_TOKEN` para o Render
 - [x] **Meus pedidos** buscando `/api/me/orders` (hoje fica vazio ao recarregar)
 - [x] **Desconto Pix** aplicado no backend (% do admin sobre os produtos, frete fora)
 - [x] **Preço** recalculado na criação do pedido e total exibido vindo da API
 - [x] **Frete** calculado no backend + modalidade (PAC/Sedex/retirada) salva no pedido
 - [x] Remover o texto "Ambiente de teste (sandbox)" da tela de sucesso
 - [x] Migration de backfill: `stock_applied = true` nos pedidos antigos (`20261006120000_checkout_hardening`)
-- [x] Imagens antigas (`/uploads/...`, perdidas no disco da Vercel): script `npm run uploads:migrate` (migra para o Blob ou remove do banco; aviso no `check:config`) + placeholder na loja para imagem que não carrega
+- [x] Imagens antigas (`/uploads/...`, perdidas no disco efêmero do servidor): script `npm run uploads:migrate` (migra para o Blob ou remove do banco; aviso no `check:config`) + placeholder na loja para imagem que não carrega
 - [ ] ⏳ **Você:** rodar `npm run uploads:migrate` em produção e reenviar pelo admin as imagens sem arquivo (Etapa 5 do [prompt de deploy](docs/PROMPT-DEPLOY-MAIN.md))
 - [ ] ⏳ **Você:** aplicar as migrations no **Neon** (branch de backup antes) — até 8 pendentes (confira com `prisma migrate status`), comandos na seção 4 do CONFIGURAR-CLIENTE.md
-- [ ] ⏳ **Você:** na Vercel (backend) criar o Blob Store, cadastrar `MP_ACCESS_TOKEN`/`MP_WEBHOOK_SECRET` (Production e Preview) e conferir o entrypoint no log de build
+- [ ] ⏳ **Você:** criar o Blob Store na Vercel e cadastrar no **Render** `BLOB_READ_WRITE_TOKEN`, `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `CRON_SECRET` e `SMTP_*` (antes do merge)
+- [ ] ⏳ **Você:** GitHub → Actions secrets `CRON_SECRET` e `BACKEND_URL` (cron diário)
 
 ## Etapa 2 — Operação da loja
 
 - [x] Estorno / cancelamento pelo admin via API do Mercado Pago (com reposição de estoque)
 - [x] Cancelar a cobrança anterior ao trocar de forma de pagamento (evitar cobrança dupla)
-- [x] Expirar pedidos não pagos (48h; boleto 96h) via **Vercel Cron** e devolver o cupom — falta só `CRON_SECRET` na Vercel
+- [x] Expirar pedidos não pagos (48h; boleto 96h) via **GitHub Actions** (`.github/workflows/expire-orders.yml`) e devolver o cupom — falta `CRON_SECRET` no Render e os secrets no GitHub
 - [x] Botão "Pagar agora" em Meus pedidos (página /pagar/:orderId: cartão, novo Pix ou boleto)
 - [x] Timeout no envio de e-mail (SMTP)
 - [x] Admin marcar pedido como pago → baixa estoque; validar transições de status
