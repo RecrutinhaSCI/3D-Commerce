@@ -90,7 +90,7 @@ interface AdminDataState {
   updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
   /** Exclusão definitiva no banco (e no cache). Lança ApiError em falha. */
   removeProduct: (id: string) => Promise<void>;
-  bulkRemoveProducts: (ids: string[]) => Promise<{ deleted: number; notFound: string[] } | null>;
+  bulkRemoveProducts: (ids: string[]) => Promise<{ deleted: number; notFound: string[]; failed: number } | null>;
 
   // Categorias
   addCategory: (c: Category) => Promise<Category | null>;
@@ -266,15 +266,28 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
   },
 
   async bulkRemoveProducts(ids) {
-    try {
-      const report = await productService.bulkDelete(ids);
-      // Apagados + inexistentes saem do cache: nenhum dos dois existe no banco.
-      const gone = new Set<string>([...report.deletedIds, ...report.notFound]);
-      set({ products: get().products.filter((p) => !gone.has(p.id)) });
-      return { deleted: report.deleted, notFound: report.notFound };
-    } catch {
-      return null;
+    // O backend aceita até 200 ids por chamada: "Selecionar todos" num
+    // catálogo maior falhava inteiro. Envia em lotes e soma o resultado.
+    const BATCH = 200;
+    let deleted = 0;
+    let failed = 0;
+    const notFound: string[] = [];
+    // Apagados + inexistentes saem do cache: nenhum dos dois existe no banco.
+    const gone = new Set<string>();
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const chunk = ids.slice(i, i + BATCH);
+      try {
+        const report = await productService.bulkDelete(chunk);
+        deleted += report.deleted;
+        notFound.push(...report.notFound);
+        for (const id of [...report.deletedIds, ...report.notFound]) gone.add(id);
+      } catch {
+        failed += chunk.length;
+      }
     }
+    set({ products: get().products.filter((p) => !gone.has(p.id)) });
+    if (failed === ids.length) return null;
+    return { deleted, notFound, failed };
   },
 
   // -------------------------- Categorias -----------------------------------

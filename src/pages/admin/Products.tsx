@@ -149,7 +149,12 @@ export default function Products() {
     // Sucesso parcial: mostra números para o admin, sem esconder nada.
     const parts = [`${report.deleted} excluído(s)`];
     if (report.notFound.length) parts.push(`${report.notFound.length} já não existiam`);
-    toast.success(parts.join(', '));
+    if (report.failed) {
+      parts.push(`${report.failed} não puderam ser excluídos (tente de novo)`);
+      toast.error(parts.join(', '));
+    } else {
+      toast.success(parts.join(', '));
+    }
     setSelected(new Set());
   }
 
