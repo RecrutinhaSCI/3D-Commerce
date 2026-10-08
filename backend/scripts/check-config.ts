@@ -12,12 +12,16 @@
  *
  * Nunca imprime tokens, senhas ou segredos. Sai com código 1 se houver erro.
  */
+// PRIMEIRO import, de propósito: `env` carrega o .env indicado em
+// DOTENV_CONFIG_PATH (ex.: .env.production.local). Se o @prisma/client vier
+// antes, ele carrega o backend/.env de desenvolvimento e o NODE_ENV/variáveis
+// de lá prevalecem (o dotenv não sobrescreve o que já existe).
+import { env, corsOrigins, productionConfigWarnings } from '../src/config/env';
 import fs from 'node:fs';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
 import { UserRole } from '@prisma/client';
-import { env, corsOrigins, productionConfigWarnings } from '../src/config/env';
 import { prisma } from '../src/lib/prisma';
 import { findLegacyUploads } from './legacy-uploads';
 

@@ -18,10 +18,14 @@
  * Precisa de DATABASE_URL e, quando houver arquivo para enviar, de
  * BLOB_READ_WRITE_TOKEN. Nunca imprime tokens ou segredos.
  */
+// PRIMEIRO import, de propósito: `env` carrega o .env indicado em
+// DOTENV_CONFIG_PATH (ex.: .env.production.local). Se o @prisma/client vier
+// antes, ele carrega o backend/.env de desenvolvimento e o NODE_ENV/variáveis
+// de lá prevalecem (o dotenv não sobrescreve o que já existe).
+import { env } from '../src/config/env';
 import fs from 'node:fs';
 import path from 'node:path';
 import { put } from '@vercel/blob';
-import { env } from '../src/config/env';
 import { prisma } from '../src/lib/prisma';
 import { findLegacyUploads } from './legacy-uploads';
 
