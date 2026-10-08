@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,6 +16,7 @@ import { Markdown } from '@/components/ui/Markdown';
 import { productService } from '@/services/productService';
 import { ApiError } from '@/services/api';
 import { apiProductToInternal } from '@/services/adapters';
+import type { ApiProduct } from '@/services/types';
 
 // Inputs numéricos vazios chegam como "" e z.coerce.number() os transforma em 0.
 // Isso fazia o "Preço promo" virar 0 e a vitrine exibir "R$ 0,00".
@@ -55,9 +56,32 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
-/** Remonta o formulário ao trocar de produto (ex.: "novo" → recém-criado). */
+/**
+ * Remonta o formulário ao trocar de produto (ex.: "novo" → recém-criado).
+ *
+ * Na edição, só monta o formulário quando o produto já está no store: com F5
+ * (ou link direto) a página abria antes do carregamento — campos com valores
+ * de "produto novo", galeria vazia, fotos não buscadas, e "Salvar" criava um
+ * produto duplicado em vez de atualizar.
+ */
 export default function ProductFormPage() {
   const { id } = useParams();
+  const found = useAdminDataStore((s) => (id ? s.products.some((p) => p.id === id) : true));
+  const settled = useAdminDataStore((s) => s.ready && !s.loading);
+
+  if (id && !found) {
+    return settled ? (
+      <div className="card mx-auto mt-10 max-w-md p-6 text-center">
+        <p className="font-semibold">Produto não encontrado.</p>
+        <p className="mt-1 text-sm text-ink-mute">Ele pode ter sido excluído.</p>
+        <Link to="/admin/produtos" className="btn-secondary mt-4 inline-flex !py-2 !text-xs">
+          <ChevronLeft className="h-3.5 w-3.5" /> Voltar para produtos
+        </Link>
+      </div>
+    ) : (
+      <p className="mt-10 text-center text-sm text-ink-mute">Carregando produto...</p>
+    );
+  }
   return <ProductForm key={id ?? 'novo'} />;
 }
 
@@ -106,14 +130,29 @@ function ProductForm() {
   const descriptionValue = watch('description') ?? '';
   const [showPreview, setShowPreview] = useState(false);
   // Cada imagem carrega o id do backend para permitir remoção real.
-  // Se `id === null`, é placeholder local (produto ainda não persistido).
+  // O placeholder SVG que o adapter desenha para produto sem foto (data:) não
+  // é mídia salva: não entra na lista (senão o admin "removia" o placeholder,
+  // nada era apagado e ele voltava ao recarregar).
   const [images, setImages] = useState<Array<{ id: string | null; url: string; mediaType?: 'image' | 'video' }>>(
     existing
       ? existing.media && existing.media.length > 0
-        ? existing.media.map((m) => ({ id: m.id ?? null, url: m.url, mediaType: m.mediaType }))
-        : existing.images.map((u) => ({ id: null, url: u }))
+        ? existing.media
+            .filter((m) => !m.url.startsWith('data:'))
+            .map((m) => ({ id: m.id ?? null, url: m.url, mediaType: m.mediaType }))
+        : existing.images.filter((u) => !u.startsWith('data:')).map((u) => ({ id: null, url: u }))
       : [],
   );
+
+  /** Atualiza a galeria da tela e o cache da listagem com o produto do backend. */
+  function applyServerMedia(product: ApiProduct) {
+    setImages(product.images.map((img) => ({ id: img.id, url: img.url, mediaType: img.mediaType })));
+    const internal = apiProductToInternal(product);
+    useAdminDataStore.setState((s) => ({
+      products: s.products.map((p) =>
+        p.id === product.id ? { ...p, images: internal.images, media: internal.media } : p,
+      ),
+    }));
+  }
 
   // Ao entrar em edição, busca o produto real do backend para pegar os IDs
   // das imagens (necessário para o DELETE por imageId). Usa a rota ADMIN:
@@ -126,13 +165,9 @@ function ProductForm() {
       try {
         const { product } = await productService.getAdminById(existing.id);
         if (cancelled) return;
-        if (product.images.length > 0) {
-          setImages(product.images.map((img) => ({
-            id: img.id,
-            url: img.url,
-            mediaType: img.mediaType,
-          })));
-        }
+        // Sempre substitui pelo que está no banco — inclusive lista vazia
+        // (o cache da listagem pode ter fotos já removidas).
+        applyServerMedia(product);
       } catch {
         // mantém as imagens do store como fallback
       }
@@ -366,22 +401,9 @@ function ProductForm() {
                   }
                   try {
                     const { product } = await productService.addImages(existing.id, files);
-                    const next = product.images.map((img) => ({
-                      id: img.id,
-                      url: img.url,
-                      mediaType: img.mediaType,
-                    }));
-                    setImages(next);
-                    // Atualiza só o cache local (as imagens já foram salvas no upload).
-                    const internal = apiProductToInternal(product);
-                    // Só o cache local (as mídias já foram salvas no upload) —
-                    // não chama a API de novo.
-                    useAdminDataStore.setState((s) => ({
-                      products: s.products.map((p) =>
-                        p.id === existing.id ? { ...p, images: internal.images, media: internal.media } : p,
-                      ),
-                    }));
-                    return next.map((n) => n.url);
+                    // As mídias já foram salvas no upload: só sincroniza tela + cache.
+                    applyServerMedia(product);
+                    return product.images.map((img) => img.url);
                   } catch (err) {
                     const msg = err instanceof ApiError ? err.message : 'Falha ao enviar mídias.';
                     throw new Error(msg);
@@ -390,16 +412,21 @@ function ProductForm() {
                 onRemoveAt={async (idx) => {
                   const img = images[idx];
                   if (!img) return;
-                  if (img.id) {
-                    try {
-                      await productService.removeImage(img.id);
-                    } catch (err) {
-                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover mídia.');
-                    }
+                  if (!img.id || !existing) {
+                    // Sem id não há como apagar no banco: avisar em vez de só
+                    // sumir da tela (e voltar ao recarregar).
+                    throw new Error('Não foi possível identificar esta mídia. Recarregue a página e tente de novo.');
                   }
-                  setImages((prev) => prev.filter((_, i) => i !== idx));
+                  try {
+                    await productService.removeImage(img.id);
+                    // Relê do banco: confirma a remoção e atualiza a listagem.
+                    const { product } = await productService.getAdminById(existing.id);
+                    applyServerMedia(product);
+                  } catch (err) {
+                    throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover mídia.');
+                  }
                 }}
-                hint="JPG/PNG/WEBP/GIF ou MP4 até 4MB. A primeira mídia vira a principal."
+                hint="Fotos JPG, PNG ou WEBP de qualquer tamanho (reduzidas automaticamente); GIF ou MP4 até 4MB. A primeira mídia vira a principal."
               />
             </div>
           </div>

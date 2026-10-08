@@ -1,19 +1,26 @@
 /**
  * Reduz uma foto no navegador antes do upload: o backend aceita até 4 MB por
- * imagem (limite do corpo da requisição na Vercel), e foto de câmera/print
- * costuma passar disso. Redimensiona para no máx. `maxSide` px e converte para
- * WEBP (ou JPEG se o navegador não gerar WEBP).
+ * imagem, e foto de câmera/print costuma passar disso. Redimensiona para no
+ * máx. `maxSide` px e converte para WEBP (ou JPEG se o navegador não gerar
+ * WEBP), até caber em `maxBytes`.
  *
- * GIF volta intacto (preserva a animação) — o backend recusa se passar do limite.
+ * GIF e SVG voltam intactos (animação / vetor) — quem chama valida o tamanho.
  */
-const TARGET_BYTES = 3.5 * 1024 * 1024;
+const DEFAULT_TARGET_BYTES = 3.5 * 1024 * 1024;
+
+/** Formatos que dá para reduzir no navegador. */
+export const COMPRESSIBLE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 function toBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 }
 
-export async function compressImageForUpload(file: File, maxSide = 1600): Promise<File> {
-  if (file.type === 'image/gif') return file;
+export async function compressImageForUpload(
+  file: File,
+  maxSide = 1600,
+  maxBytes = DEFAULT_TARGET_BYTES,
+): Promise<File> {
+  if (!COMPRESSIBLE_IMAGE_TYPES.includes(file.type)) return file;
 
   const bitmap = await createImageBitmap(file);
   const baseName = file.name.replace(/\.[^.]+$/, '') || 'imagem';
@@ -37,7 +44,7 @@ export async function compressImageForUpload(file: File, maxSide = 1600): Promis
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         blob = await toBlob(canvas, 'image/jpeg', quality);
       }
-      if (blob && blob.size <= TARGET_BYTES) {
+      if (blob && blob.size <= maxBytes) {
         const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
         return new File([blob], `${baseName}.${ext}`, { type: blob.type });
       }
@@ -47,5 +54,11 @@ export async function compressImageForUpload(file: File, maxSide = 1600): Promis
   } finally {
     bitmap.close();
   }
-  throw new Error('Não foi possível reduzir a imagem para menos de 4 MB.');
+  throw new Error(`Não foi possível reduzir a imagem para menos de ${formatMB(maxBytes)}.`);
+}
+
+/** "4 MB", "0,9 MB" — para mensagens ao admin. */
+export function formatMB(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return `${mb >= 1 ? Math.round(mb) : mb.toFixed(1).replace('.', ',')} MB`;
 }

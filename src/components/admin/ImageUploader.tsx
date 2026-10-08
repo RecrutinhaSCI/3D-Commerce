@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { ImagePlus, Link as LinkIcon, Upload, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Input } from '@/components/ui/Input';
+import { COMPRESSIBLE_IMAGE_TYPES, compressImageForUpload } from '@/utils/imageCompress';
 
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
 const MAX_BYTES = 1 * 1024 * 1024; // 1 MB
@@ -56,12 +57,23 @@ export function ImageUploader(props: Props) {
         toast.error(`${f.name}: formato não suportado.`);
         continue;
       }
-      if (f.size > MAX_BYTES) {
+      // Foto grande é reduzida aqui (vira Base64 e é gravada como texto, então
+      // precisa ficar abaixo de 1 MB). SVG não é reduzido.
+      let file = f;
+      if (COMPRESSIBLE_IMAGE_TYPES.includes(f.type) && f.size > MAX_BYTES) {
+        try {
+          file = await compressImageForUpload(f, 1600, MAX_BYTES * 0.9);
+        } catch (err) {
+          toast.error(`${f.name}: ${err instanceof Error ? err.message : 'não foi possível reduzir a imagem.'}`);
+          continue;
+        }
+      }
+      if (file.size > MAX_BYTES) {
         toast.error(`${f.name}: imagem acima de 1MB.`);
         continue;
       }
       try {
-        const dataUrl = await readFileAsDataURL(f);
+        const dataUrl = await readFileAsDataURL(file);
         valid.push(dataUrl);
       } catch {
         toast.error(`${f.name}: erro ao ler arquivo.`);
@@ -159,7 +171,7 @@ export function ImageUploader(props: Props) {
         </button>
         {items.length === 0 && (
           <span className="inline-flex items-center gap-1 text-[11px] text-ink-mute">
-            <ImagePlus className="h-3 w-3" /> PNG, JPG, WEBP ou SVG, até 1MB
+            <ImagePlus className="h-3 w-3" /> PNG, JPG ou WEBP (reduzidas automaticamente) ou SVG até 1MB
           </span>
         )}
       </div>

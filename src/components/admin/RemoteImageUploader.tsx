@@ -9,11 +9,12 @@ import { useRef, useState } from 'react';
 import { ImagePlus, Upload, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiAssetUrl } from '@/services/api';
+import { COMPRESSIBLE_IMAGE_TYPES, compressImageForUpload, formatMB } from '@/utils/imageCompress';
 
 interface BaseProps {
   label?: string;
   hint?: string;
-  /** Tamanho máximo em bytes (default 4MB, inclusive vídeo — corpo de 4,5 MB na Vercel). */
+  /** Tamanho máximo em bytes (default 4MB). Fotos JPG/PNG/WEBP maiores são reduzidas antes do envio. */
   maxBytes?: number;
   /** Limite máximo específico para vídeos (default 8MB). Só usado com `allowVideo`. */
   maxVideoBytes?: number;
@@ -52,6 +53,10 @@ const DEFAULT_ACCEPT_MEDIA = [...DEFAULT_ACCEPT, 'image/gif', 'video/mp4'];
 // (upload vai para o Vercel Blob passando pela função), então vídeo também 4 MB.
 const DEFAULT_MAX = 4 * 1024 * 1024;
 const DEFAULT_MAX_VIDEO = 4 * 1024 * 1024;
+// Foto (JPG/PNG/WEBP) acima disso é reduzida no navegador antes do envio;
+// abaixo, vai como está (sem perda de qualidade à toa).
+const COMPRESS_ABOVE = 1024 * 1024;
+const COMPRESS_TARGET = 3.5 * 1024 * 1024;
 
 function isVideoUrl(u: string): boolean {
   return /\.mp4($|\?)/i.test(u);
@@ -60,32 +65,53 @@ function isVideoUrl(u: string): boolean {
 export function RemoteImageUploader(props: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
 
   const accept = props.accept ?? (props.allowVideo ? DEFAULT_ACCEPT_MEDIA : DEFAULT_ACCEPT);
   const maxBytes = props.maxBytes ?? DEFAULT_MAX;
   const maxVideoBytes = props.maxVideoBytes ?? DEFAULT_MAX_VIDEO;
 
+  /** Valida o arquivo e reduz fotos grandes. `null` = recusado (já avisou). */
+  async function prepareFile(f: File): Promise<File | null> {
+    if (!accept.includes(f.type)) {
+      toast.error(`${f.name}: formato não suportado.`);
+      return null;
+    }
+    if (COMPRESSIBLE_IMAGE_TYPES.includes(f.type) && (f.size > COMPRESS_ABOVE || f.size > maxBytes)) {
+      try {
+        return await compressImageForUpload(f, 1600, Math.min(COMPRESS_TARGET, maxBytes * 0.9));
+      } catch (err) {
+        toast.error(`${f.name}: ${err instanceof Error ? err.message : 'não foi possível reduzir a imagem.'}`);
+        return null;
+      }
+    }
+    // GIF e MP4 não são reduzidos: valem os limites que o backend aplica.
+    const limit = f.type.startsWith('video/') ? maxVideoBytes : maxBytes;
+    if (f.size > limit) {
+      toast.error(`${f.name}: acima de ${formatMB(limit)}.`);
+      return null;
+    }
+    return f;
+  }
+
   async function handleFiles(list: FileList | null) {
     if (!list || list.length === 0 || busy) return;
-    const files: File[] = [];
-    for (let i = 0; i < list.length; i++) {
-      const f = list[i];
-      if (!accept.includes(f.type)) {
-        toast.error(`${f.name}: formato não suportado.`);
-        continue;
-      }
-      // Limite por tipo: vídeo pode ser um pouco maior que imagem, respeitando
-      // exatamente o que o backend valida em products.service.
-      const limit = f.type.startsWith('video/') ? maxVideoBytes : maxBytes;
-      if (f.size > limit) {
-        toast.error(`${f.name}: acima de ${Math.round(limit / (1024 * 1024))}MB.`);
-        continue;
-      }
-      files.push(f);
-    }
-    if (files.length === 0) return;
-
     setBusy(true);
+    setOptimizing(true);
+    const files: File[] = [];
+    try {
+      for (const f of Array.from(list)) {
+        const ready = await prepareFile(f);
+        if (ready) files.push(ready);
+      }
+    } finally {
+      setOptimizing(false);
+    }
+    if (files.length === 0) {
+      setBusy(false);
+      return;
+    }
+
     try {
       if (props.multiple) {
         await props.onUploadMany(files);
@@ -186,14 +212,14 @@ export function RemoteImageUploader(props: Props) {
           className="btn-secondary !py-2 !text-xs disabled:opacity-50"
         >
           <Upload className="h-3.5 w-3.5" />
-          {busy ? 'Enviando...' : items.length === 0 ? 'Enviar imagem' : 'Adicionar mais'}
+          {optimizing ? 'Otimizando...' : busy ? 'Enviando...' : items.length === 0 ? 'Enviar imagem' : 'Adicionar mais'}
         </button>
         {items.length === 0 && (
           <span className="inline-flex items-center gap-1 text-[11px] text-ink-mute">
             <ImagePlus className="h-3 w-3" />
             {props.allowVideo
-              ? `JPG, PNG, WEBP, GIF (até ${Math.round(maxBytes / (1024 * 1024))}MB) ou MP4 (até ${Math.round(maxVideoBytes / (1024 * 1024))}MB)`
-              : `JPG, PNG ou WEBP · até ${Math.round(maxBytes / (1024 * 1024))}MB`}
+              ? `JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente), GIF ou MP4 até ${formatMB(maxVideoBytes)}`
+              : 'JPG, PNG ou WEBP · fotos grandes são reduzidas automaticamente'}
           </span>
         )}
       </div>

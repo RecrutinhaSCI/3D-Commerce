@@ -42,14 +42,21 @@ export default function Banners() {
     setEditing({ ...editing, [side]: { ...current, ...patch } });
   }
 
-  function save() {
+  async function save() {
     if (!editing) return;
-    if (banners.find((b) => b.id === editing.id)) {
-      updateBanner(editing.id, editing);
-      toast.success('Banner atualizado');
-    } else {
-      addBanner(editing);
-      toast.success('Banner criado');
+    try {
+      if (banners.find((b) => b.id === editing.id)) {
+        await updateBanner(editing.id, editing);
+        toast.success('Banner atualizado');
+      } else {
+        const created = await addBanner(editing);
+        if (!created) throw new Error('Não foi possível criar o banner.');
+        // Guarda o id real: um segundo "Salvar" atualiza em vez de duplicar.
+        setEditing({ ...editing, id: created.id });
+        toast.success('Banner criado');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao salvar o banner.');
     }
     // Mantém o modal aberto após salvar; o usuário fecha em "Fechar".
   }
@@ -93,7 +100,7 @@ export default function Banners() {
                 {b.active ? 'Ativo' : 'Inativo'}
               </span>
               <div className="flex gap-1">
-                <button onClick={() => updateBanner(b.id, { active: !b.active })} className="rounded-lg px-2 py-1 text-ink-soft hover:bg-ink/5">
+                <button onClick={() => updateBanner(b.id, { active: !b.active }).catch(() => toast.error('Falha ao atualizar o banner.'))} className="rounded-lg px-2 py-1 text-ink-soft hover:bg-ink/5">
                   {b.active ? 'Desativar' : 'Ativar'}
                 </button>
                 <button onClick={() => setEditing(b)} className="rounded-lg p-1.5 text-ink-mute hover:bg-ink/5"><Edit className="h-4 w-4" /></button>
@@ -182,10 +189,18 @@ export default function Banners() {
                     throw new Error(err instanceof ApiError ? err.message : 'Falha no upload.');
                   }
                 }}
-                onRemove={() => {
+                onRemove={async () => {
+                  // Banner já salvo: remove na hora, como o upload (que também grava na hora).
+                  if (banners.find((b) => b.id === editing.id)) {
+                    try {
+                      await updateBanner(editing.id, { image: '' });
+                    } catch (err) {
+                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover a imagem.');
+                    }
+                  }
                   setEditing({ ...editing, image: '' });
                 }}
-                hint="JPG/PNG/WEBP até 5MB. Sobrepõe o gradiente."
+                hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente). Sobrepõe o gradiente."
               />
             </div>
             {editing.position === 'hero' && (

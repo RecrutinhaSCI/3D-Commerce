@@ -181,7 +181,7 @@ export default function Settings() {
                   throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover logo.');
                 }
               }}
-              hint="JPG/PNG/WEBP até 5MB. Sobrepõe o logo padrão no header e footer."
+              hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente). Sobrepõe o logo padrão no header e footer."
             />
           </div>
           <div>
@@ -358,7 +358,7 @@ export default function Settings() {
                 <div className="mt-3 border-t border-ink-line pt-3">
                   <RemoteImageUploader
                     label="Imagem do post"
-                    hint="JPG/PNG/WEBP até 5MB. Recomendado 1080x1080 (quadrado)."
+                    hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente). Recomendado 1080x1080 (quadrado)."
                     value={it.image ? (it.image.startsWith('http') ? it.image : apiAssetUrl(it.image)) : null}
                     onUpload={async (file) => {
                       const { url } = await settingsService.uploadImage(file);
@@ -438,7 +438,7 @@ export default function Settings() {
                 <div className="mt-3 border-t border-ink-line pt-3">
                   <RemoteImageUploader
                     label="Thumbnail (upload)"
-                    hint="JPG/PNG/WEBP até 5MB. Se vazio, usamos a thumbnail automática do YouTube."
+                    hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente). Se vazio, usamos a thumbnail automática do YouTube."
                     value={v.thumbnail ? (v.thumbnail.startsWith('http') ? v.thumbnail : v.thumbnail) : null}
                     onUpload={async (file) => {
                       const { url } = await settingsService.uploadImage(file);
