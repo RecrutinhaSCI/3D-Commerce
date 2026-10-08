@@ -356,13 +356,11 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.active !== undefined) payload.active = patch.active;
     if (patch.order !== undefined) payload.position = patch.order;
     if (patch.position !== undefined) payload.slot = patch.position === 'promo' ? 'PROMO' : 'HERO';
-    try {
-      const { banner } = await bannerService.update(id, payload);
-      const updated = apiBannerToInternal(banner);
-      set({ banners: get().banners.map((b) => (b.id === id ? updated : b)) });
-    } catch {
-      // ignora
-    }
+    // Erro sobe para a tela: engolir aqui fazia o admin ver "Banner atualizado"
+    // com a gravação falhando (e a mudança sumia ao recarregar).
+    const { banner } = await bannerService.update(id, payload);
+    const updated = apiBannerToInternal(banner);
+    set({ banners: get().banners.map((b) => (b.id === id ? updated : b)) });
   },
 
   async removeBanner(id) {

@@ -247,7 +247,14 @@ export default function Testimonials() {
                       throw new Error(err instanceof ApiError ? err.message : 'Falha no upload.');
                     }
                   }}
-                  onRemove={() => {
+                  onRemove={async () => {
+                    // Remove na hora, como o upload (que também grava na hora).
+                    try {
+                      const { testimonial } = await testimonialService.update(editing.id!, { avatarUrl: null });
+                      setList((l) => l.map((x) => (x.id === testimonial.id ? testimonial : x)));
+                    } catch (err) {
+                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover o avatar.');
+                    }
                     setEditing({ ...editing, avatarUrl: '' });
                   }}
                   hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente)."
