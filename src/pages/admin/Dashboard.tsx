@@ -1,10 +1,15 @@
-import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { useCallback, useEffect, useState } from 'react';
 import { formatBRL } from '@/utils/price';
-import { Package, ShoppingCart, AlertTriangle, DollarSign, TrendingUp } from 'lucide-react';
+import { Package, ShoppingCart, AlertTriangle, DollarSign, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useSEO } from '@/utils/seo';
 import { StatusBadge } from '@/components/admin/StatusBadge';
+import { Button } from '@/components/ui/Button';
 import { motion } from 'framer-motion';
+import { dashboardService } from '@/services/dashboardService';
+import { enumAdapters } from '@/services/adapters';
+import { ApiError } from '@/services/api';
+import type { ApiDashboard } from '@/services/types';
 
 function Sparkline({ values, color = '#22D3EE' }: { values: number[]; color?: string }) {
   if (!values.length) return null;
@@ -37,22 +42,46 @@ function Sparkline({ values, color = '#22D3EE' }: { values: number[]; color?: st
 
 export default function Dashboard() {
   useSEO('Admin Dashboard');
-  const { products, orders } = useAdminDataStore();
-  const activeProducts = products.filter((p) => p.active).length;
-  const lowStock = products.filter((p) => p.stock > 0 && p.stock <= 5).length;
-  const monthRevenue = orders.reduce((s, o) => s + o.total, 0);
-  const recent = orders.slice(0, 5);
+  const [data, setData] = useState<ApiDashboard | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  const sparkOrders = [3, 5, 4, 7, 6, 9, 8];
-  const sparkRevenue = [1200, 1800, 1600, 2400, 2100, 3000, monthRevenue / 4];
-  const sparkProducts = [activeProducts - 4, activeProducts - 2, activeProducts - 3, activeProducts - 1, activeProducts, activeProducts, activeProducts];
+  // Números SEMPRE do backend (/api/admin/dashboard): receita só de pedidos
+  // pagos e não cancelados; séries reais dos últimos 7 dias.
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await dashboardService.overview());
+      setUpdatedAt(new Date());
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Não foi possível carregar o painel.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const m = data?.metrics;
+  const days = data?.last7Days ?? [];
+  const recent = data?.recentOrders ?? [];
 
   const stats = [
-    { icon: ShoppingCart, label: 'Pedidos', value: orders.length, color: '#22D3EE', tone: 'bg-cyan-50 text-cyan-700', spark: sparkOrders, to: '/admin/pedidos' },
-    { icon: DollarSign, label: 'Faturamento', value: formatBRL(monthRevenue), color: '#10B981', tone: 'bg-emerald-50 text-emerald-700', spark: sparkRevenue, to: '/admin/pedidos?status=pago' },
-    { icon: Package, label: 'Produtos ativos', value: activeProducts, color: '#A78BFA', tone: 'bg-violet-50 text-violet-700', spark: sparkProducts, to: '/admin/produtos' },
-    { icon: AlertTriangle, label: 'Estoque baixo', value: lowStock, color: '#F43F5E', tone: 'bg-rose-50 text-rose-700', spark: [1, 2, 2, 3, lowStock, lowStock, lowStock], to: '/admin/produtos?filter=low-stock' },
+    { icon: ShoppingCart, label: 'Pedidos (total)', value: m ? m.totalOrders : '—', color: '#22D3EE', tone: 'bg-cyan-50 text-cyan-700', spark: days.map((d) => d.orders), to: '/admin/pedidos' },
+    { icon: DollarSign, label: 'Faturamento do mês (pagos)', value: m ? formatBRL(m.revenueThisMonth) : '—', color: '#10B981', tone: 'bg-emerald-50 text-emerald-700', spark: days.map((d) => d.revenue), to: '/admin/pedidos' },
+    { icon: Package, label: 'Produtos ativos', value: m ? m.totalActiveProducts : '—', color: '#A78BFA', tone: 'bg-violet-50 text-violet-700', spark: [] as number[], to: '/admin/produtos' },
+    { icon: AlertTriangle, label: 'Estoque baixo (até 5)', value: m ? m.lowStockCount : '—', color: '#F43F5E', tone: 'bg-rose-50 text-rose-700', spark: [] as number[], to: '/admin/produtos?filter=low-stock' },
   ];
+
+  const summary = m
+    ? `${m.paidOrdersThisMonth} pedido(s) pago(s) no mês · ticket médio ${formatBRL(m.averageOrderValue)}`
+    : 'Carregando dados da loja…';
+  const updatedLabel = updatedAt
+    ? ` · atualizado às ${updatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+    : '';
 
   return (
     <div>
@@ -60,13 +89,19 @@ export default function Dashboard() {
         <div>
           <p className="eyebrow">Painel</p>
           <h1 className="section-title">Visão geral da loja</h1>
-          <p className="mt-1 text-sm text-ink-mute">Dados demonstrativos · atualizam ao receber novos pedidos.</p>
+          <p className="mt-1 text-sm text-ink-mute">{summary}{updatedLabel}</p>
         </div>
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-ink-line bg-bg-card px-3 py-1.5 text-xs font-semibold text-ink-soft">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Sistema online
-        </div>
+        <Button variant="secondary" size="sm" loading={loading} onClick={load}>
+          <RefreshCw className="h-4 w-4" /> Atualizar
+        </Button>
       </header>
+
+      {error && (
+        <div className="mb-6 rounded-xl bg-rose-50 p-4 text-sm text-rose-600">
+          {error}{' '}
+          <button onClick={load} className="font-semibold underline">Tentar novamente</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map((s, i) => (
@@ -85,13 +120,15 @@ export default function Dashboard() {
                 <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${s.tone}`}>
                   <s.icon className="h-5 w-5" />
                 </div>
-                <TrendingUp className="h-3.5 w-3.5 text-ink-mute" />
+                {s.spark.length > 0 && <span className="text-[10px] font-semibold text-ink-mute">7 dias</span>}
               </div>
               <p className="mt-4 price-display text-2xl font-bold leading-none">{s.value}</p>
               <p className="mt-1 text-xs text-ink-mute">{s.label}</p>
-              <div className="mt-3">
-                <Sparkline values={s.spark} color={s.color} />
-              </div>
+              {s.spark.length > 0 && (
+                <div className="mt-3">
+                  <Sparkline values={s.spark} color={s.color} />
+                </div>
+              )}
             </Link>
           </motion.div>
         ))}
@@ -104,7 +141,7 @@ export default function Dashboard() {
             Ver todos →
           </Link>
         </div>
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg-soft text-left text-[11px] uppercase tracking-[0.14em] text-ink-mute">
               <tr>
@@ -115,16 +152,16 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-line">
-              {recent.length === 0 && (
+              {!loading && recent.length === 0 && (
                 <tr><td colSpan={4} className="px-5 py-10 text-center text-sm text-ink-mute">Sem pedidos ainda.</td></tr>
               )}
               {recent.map((o) => (
                 <tr key={o.id} className="transition-colors hover:bg-bg-soft/60">
                   <td className="px-5 py-3 font-semibold tabular-nums">{o.id}</td>
-                  <td className="px-5 py-3 text-ink-soft">{o.customer.name}</td>
+                  <td className="px-5 py-3 text-ink-soft">{o.customerName}</td>
                   <td className="px-5 py-3 tabular-nums">{formatBRL(o.total)}</td>
                   <td className="px-5 py-3">
-                    <StatusBadge status={o.status} />
+                    <StatusBadge status={enumAdapters.orderStatusToInternal(o.status)} />
                   </td>
                 </tr>
               ))}

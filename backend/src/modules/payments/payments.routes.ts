@@ -2,32 +2,52 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
-import { webhookRateLimiter } from '../../middlewares/rateLimiters';
+import { orderRateLimiter } from '../../middlewares/rateLimiters';
 import { paymentsController } from './payments.controller';
 
 /**
- * Payments — R19.
- * Cliente (autenticado, dono do pedido):
- *   POST /api/orders/:orderId/payments      → cria/reusa cobrança Pix
- *   GET  /api/orders/:orderId/payments      → lista cobranças do pedido
- *   GET  /api/payments/:id                  → consulta status
- *   POST /api/payments/:id/simulate         → simula status (só MOCK, fora de produção)
- * Admin:
- *   GET  /api/admin/payments/:id            → cobrança + trilha de eventos
- * Público (autenticação própria por provider — assinatura HMAC etc.):
- *   POST /api/webhooks/payments/:provider
+ * Payments — Mercado Pago (Checkout Transparente).
+ *   POST /api/orders/:orderId/payments         cria o pagamento no MP (auth)
+ *   GET  /api/orders/:orderId/payments/status  consulta/reconcilia o status (auth)
+ *   POST /api/payments/webhook                 notificações do MP (T5, PÚBLICO)
+ *   POST /api/admin/payments/reconcile         reconciliação em lote (admin)
+ *   POST /api/admin/orders/:orderId/cancel     cancelar/estornar pedido (admin)
+ *
+ * O webhook é PÚBLICO de propósito: a MP chama sem token. A autenticidade é
+ * garantida pela assinatura `x-signature` validada no controller, não por
+ * authMiddleware. Não adicione auth aqui.
  */
 export const paymentsRouter = Router();
 
-// Cliente
-paymentsRouter.post('/orders/:orderId/payments', authMiddleware, asyncHandler(paymentsController.createForOrder));
-paymentsRouter.get('/orders/:orderId/payments', authMiddleware, asyncHandler(paymentsController.listForOrder));
-paymentsRouter.post('/payments/:id/simulate', authMiddleware, asyncHandler(paymentsController.simulate));
-paymentsRouter.get('/payments/:id', authMiddleware, asyncHandler(paymentsController.getById));
+paymentsRouter.post(
+  '/orders/:orderId/payments',
+  authMiddleware,
+  orderRateLimiter,
+  asyncHandler(paymentsController.create),
+);
+paymentsRouter.get(
+  '/orders/:orderId/payments/status',
+  authMiddleware,
+  asyncHandler(paymentsController.status),
+);
+paymentsRouter.post('/payments/webhook', asyncHandler(paymentsController.webhook));
 
-// Admin
-paymentsRouter.get('/admin/payments/:id', authMiddleware, adminMiddleware, asyncHandler(paymentsController.getAdmin));
+// Cancelar/estornar pedido (admin) — estorna no Mercado Pago se já foi pago.
+paymentsRouter.post(
+  '/admin/orders/:orderId/cancel',
+  authMiddleware,
+  adminMiddleware,
+  asyncHandler(paymentsController.cancelOrder),
+);
 
-// Webhook — sem authMiddleware: a autenticidade é validada pelo provider
-// (HMAC do body bruto no MOCK; mecanismo próprio do Inter no futuro).
-paymentsRouter.post('/webhooks/payments/:provider', webhookRateLimiter, asyncHandler(paymentsController.webhook));
+// Cron diário (Vercel Cron): reconcilia pagamentos e expira pedidos não pagos.
+// Protegido por CRON_SECRET no controller (sem a env, responde 503).
+paymentsRouter.get('/cron/expire-orders', asyncHandler(paymentsController.cronExpireOrders));
+
+// Reconciliação em lote (admin) — rede de segurança para webhooks perdidos.
+paymentsRouter.post(
+  '/admin/payments/reconcile',
+  authMiddleware,
+  adminMiddleware,
+  asyncHandler(paymentsController.reconcile),
+);

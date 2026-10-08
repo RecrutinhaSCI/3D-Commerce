@@ -13,7 +13,7 @@
 import { create } from 'zustand';
 import { seedBlogPosts } from '@/data/blogPosts'; // continua local (sem endpoint)
 import { seedFaqs } from '@/data/faqs'; // continua local (sem endpoint)
-import type { Banner, Category, Order, OrderStatus, Product, StoreSettings } from '@/types';
+import type { Banner, Category, Order, OrderStatus, PaymentStatus, Product, StoreSettings } from '@/types';
 import { productService } from '@/services/productService';
 import { categoryService } from '@/services/categoryService';
 import { bannerService } from '@/services/bannerService';
@@ -84,10 +84,13 @@ interface AdminDataState {
   refreshAdmin: () => Promise<void>;
 
   // Produtos
-  addProduct: (p: Product) => Promise<Product | null>;
+  /** Erros sobem como ApiError (a tela mostra a mensagem real do backend). */
+  addProduct: (p: Product) => Promise<Product>;
+  /** Salva no banco e atualiza o cache. Lança ApiError em falha. */
   updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
+  /** Exclusão definitiva no banco (e no cache). Lança ApiError em falha. */
   removeProduct: (id: string) => Promise<void>;
-  bulkRemoveProducts: (ids: string[]) => Promise<{ deactivated: number; notFound: string[]; alreadyInactive: string[] } | null>;
+  bulkRemoveProducts: (ids: string[]) => Promise<{ deleted: number; notFound: string[] } | null>;
 
   // Categorias
   addCategory: (c: Category) => Promise<Category | null>;
@@ -101,8 +104,14 @@ interface AdminDataState {
 
   // Orders
   addOrder: (o: Order) => void;
-  updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
-
+  updateOrderStatus: (
+    id: string,
+    patch: { status?: OrderStatus; paymentStatus?: PaymentStatus },
+  ) => Promise<Order>;
+  /** Cancela; se pago via Mercado Pago, estorna lá. Lança ApiError em falha. */
+  cancelOrder: (id: string) => Promise<{ order: Order; result: 'refunded' | 'canceled' }>;
+  refreshOrders: () => Promise<void>;
+  setTrackingCode: (id: string, code: string) => Promise<void>;
   // Settings
   updateSettings: (patch: Partial<StoreSettings>) => Promise<{ ok: boolean; error?: string }>;
 
@@ -140,16 +149,18 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
 
   async refreshPublic() {
     try {
-      const [{ settings }, { categories: cats }, prodResp, bannersResp] = await Promise.all([
+      // Todas as páginas: antes vinha só a 1ª (limit 100) e a loja pública
+      // "perdia" os produtos excedentes do catálogo.
+      const [{ settings }, { categories: cats }, publicProducts, bannersResp] = await Promise.all([
         settingsService.getPublic(),
         categoryService.listPublic(),
-        productService.listPublic({ limit: 100 }),
+        productService.listAllPublic(),
         bannerService.listPublic(),
       ]);
       set({
         settings: apiSettingsToInternal(settings),
         categories: cats.map((c, i) => apiCategoryToInternal(c, i)),
-        products: prodResp.products.map(apiProductToInternal),
+        products: publicProducts.map(apiProductToInternal),
         banners: bannersResp.banners.map(apiBannerToInternal),
       });
     } catch {
@@ -159,18 +170,16 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
 
   async refreshAdmin() {
     try {
-      // Só faz sentido se admin token existir.
-      // R19-A: limit ampliado 100 → 500 (era o motivo de produtos "sumirem"
-      // da tela do admin quando o catálogo passava de 100). Dívida técnica:
-      // catálogos >500 pedem paginação real na listagem — fora do escopo.
+      // Só faz sentido se admin token existir. Carrega TODAS as páginas
+      // (inclui inativos — o admin precisa vê-los para reativar).
       const [prod, cats, banners, orders] = await Promise.all([
-        productService.listAdmin({ limit: 500 }).catch(() => null),
+        productService.listAllAdmin().catch(() => null),
         categoryService.listAdmin().catch(() => null),
         bannerService.listAdmin().catch(() => null),
         orderService.listAdmin({ limit: 100 }).catch(() => null),
       ]);
       const patch: Partial<AdminDataState> = {};
-      if (prod) patch.products = prod.products.map(apiProductToInternal);
+      if (prod) patch.products = prod.map(apiProductToInternal);
       if (cats) patch.categories = cats.categories.map((c, i) => apiCategoryToInternal(c, i));
       if (banners) patch.banners = banners.banners.map(apiBannerToInternal);
       if (orders) patch.orders = orders.orders.map(apiOrderToInternal);
@@ -182,30 +191,33 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
 
   // -------------------------- Produtos --------------------------------------
   async addProduct(p) {
-    try {
-      const { product } = await productService.create({
-        categoryId: p.categoryIds[0] ?? '',
-        name: p.name,
-        slug: p.slug || undefined,
-        shortDescription: p.shortDescription,
-        description: p.description,
-        price: p.price,
-        promotionalPrice: p.promoPrice ?? null,
-        stock: p.stock,
-        active: p.active,
-        featured: p.isHighlight || p.isBestSeller,
-        purchaseMode: purchaseModeToApi(p.purchaseMode),
-        // R19-B — brand e material persistidos SEPARADAMENTE. Nunca derivar
-        // um do outro. String vazia vira null (não há valor real informado).
-        brand: p.brand?.trim() ? p.brand.trim() : null,
-        material: p.material === '-' ? null : p.material ?? null,
-      });
-      const created = apiProductToInternal(product);
-      set({ products: [created, ...get().products] });
-      return created;
-    } catch {
-      return null;
-    }
+    // Erros SOBEM (ApiError) para o formulário mostrar a mensagem real.
+    const { product } = await productService.create({
+      categoryId: p.categoryIds[0] ?? '',
+      name: p.name,
+      slug: p.slug || undefined,
+      shortDescription: p.shortDescription,
+      description: p.description,
+      price: p.price,
+      promotionalPrice: p.promoPrice ?? null,
+      stock: p.stock,
+      active: p.active,
+      featured: p.isHighlight || p.isBestSeller,
+      purchaseMode: purchaseModeToApi(p.purchaseMode),
+      // R19-B — brand e material persistidos SEPARADAMENTE. Nunca derivar
+      // um do outro. String vazia vira null (não há valor real informado).
+      brand: p.brand?.trim() ? p.brand.trim() : null,
+      material: p.material === '-' ? null : p.material ?? null,
+      sku: p.sku || null,
+      color: p.color || null,
+      weight: p.weight ?? null,
+      width: p.width ?? null,
+      height: p.height ?? null,
+      depth: p.depth ?? null,
+    });
+    const created = apiProductToInternal(product);
+    set({ products: [created, ...get().products] });
+    return created;
   },
 
   async updateProduct(id, patch) {
@@ -226,42 +238,40 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     // quando explicitamente definido no patch; um NUNCA altera o outro.
     if (patch.brand !== undefined) payload.brand = patch.brand?.trim() ? patch.brand.trim() : null;
     if (patch.material !== undefined) payload.material = patch.material === '-' ? null : patch.material;
-
-    try {
-      const { product } = await productService.update(id, payload);
-      const updated = apiProductToInternal(product);
-      set({ products: get().products.map((p) => (p.id === id ? updated : p)) });
-    } catch {
-      // toasts já são disparados no componente que chama
+    if (patch.sku !== undefined) payload.sku = patch.sku || null;
+    if (patch.color !== undefined) payload.color = patch.color || null;
+    for (const k of ['weight', 'width', 'height', 'depth'] as const) {
+      if (k in patch) payload[k] = patch[k] ?? null;
     }
+
+    // Erros SOBEM (ApiError): quem chama mostra a mensagem real.
+    const { product } = await productService.update(id, payload);
+    const updated = apiProductToInternal(product);
+    set({ products: get().products.map((p) => (p.id === id ? updated : p)) });
   },
 
   async removeProduct(id) {
+    // Erros SOBEM (ApiError) — a tela mostra a falha em vez de "excluído".
     try {
       await productService.remove(id);
-      // soft delete: reduz do cache também
-      set({ products: get().products.filter((p) => p.id !== id) });
-    } catch {
-      // ignora
+    } catch (err) {
+      // 404 = já não existe no banco; limpa o cache para não exibir fantasma.
+      if (err instanceof ApiError && err.status === 404) {
+        set({ products: get().products.filter((p) => p.id !== id) });
+      }
+      throw err;
     }
+    // Exclusão definitiva no banco — nenhum refresh traz o produto de volta.
+    set({ products: get().products.filter((p) => p.id !== id) });
   },
 
   async bulkRemoveProducts(ids) {
     try {
       const report = await productService.bulkDelete(ids);
-      // Remove do cache local os que foram efetivamente desativados +
-      // os que já estavam inativos (também não devem aparecer na lista
-      // ativa do admin). Mantém os notFound intocados no cache — pode
-      // ser que apareçam em uma re-listagem.
-      const removed = new Set<string>([
-        ...ids.filter((id) => !report.notFound.includes(id)),
-      ]);
-      set({ products: get().products.filter((p) => !removed.has(p.id)) });
-      return {
-        deactivated: report.deactivated,
-        notFound: report.notFound,
-        alreadyInactive: report.alreadyInactive,
-      };
+      // Apagados + inexistentes saem do cache: nenhum dos dois existe no banco.
+      const gone = new Set<string>([...report.deletedIds, ...report.notFound]);
+      set({ products: get().products.filter((p) => !gone.has(p.id)) });
+      return { deleted: report.deleted, notFound: report.notFound };
     } catch {
       return null;
     }
@@ -370,15 +380,36 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     set({ orders: [o, ...get().orders] });
   },
 
-  async updateOrderStatus(id, status) {
-    try {
-      const apiStatus: ApiOrderStatus = enumAdapters.orderStatusToApi(status);
-      const { order } = await orderService.updateStatus(id, { status: apiStatus });
-      const updated = apiOrderToInternal(order);
-      set({ orders: get().orders.map((o) => (o.id === id ? updated : o)) });
-    } catch {
-      // ignora
-    }
+  // Erros SOBEM (ApiError) para a tela mostrar a mensagem real do backend —
+  // nada de "sucesso" quando a API recusou (ex.: enviar pedido não pago).
+  async updateOrderStatus(id, patch) {
+    const { order } = await orderService.updateStatus(id, {
+      ...(patch.status ? { status: enumAdapters.orderStatusToApi(patch.status) as ApiOrderStatus } : {}),
+      ...(patch.paymentStatus ? { paymentStatus: patch.paymentStatus } : {}),
+    });
+    const updated = apiOrderToInternal(order);
+    set({ orders: get().orders.map((o) => (o.id === id ? updated : o)) });
+    return updated;
+  },
+
+  async cancelOrder(id) {
+    const { result } = await orderService.adminCancel(id);
+    const { order } = await orderService.getAdmin(id);
+    const updated = apiOrderToInternal(order);
+    set({ orders: get().orders.map((o) => (o.id === id ? updated : o)) });
+    return { order: updated, result };
+  },
+
+  async refreshOrders() {
+    const { orders } = await orderService.listAdmin({ limit: 100 });
+    set({ orders: orders.map(apiOrderToInternal) });
+  },
+
+  async setTrackingCode(id, code) {
+    // Persiste no backend e atualiza o cache local com o pedido retornado.
+    const { order } = await orderService.updateTracking(id, code.trim() || null);
+    const updated = apiOrderToInternal(order);
+    set({ orders: get().orders.map((o) => (o.id === id ? updated : o)) });
   },
 
   // -------------------------- Settings -------------------------------------

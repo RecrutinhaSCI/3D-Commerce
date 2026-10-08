@@ -5,8 +5,10 @@ import { Header } from './Header';
 import { Footer } from './Footer';
 import { MobileDrawer } from './MobileDrawer';
 import { WhatsappFloating } from './WhatsappFloating';
+import { CookieBanner } from './CookieBanner';
 import { CartDrawer } from '@/components/cart/CartDrawer';
 import { useUIStore } from '@/store/useUIStore';
+import { trackPageView } from '@/lib/analytics';
 
 export function PublicLayout() {
   const { pathname } = useLocation();
@@ -19,6 +21,13 @@ export function PublicLayout() {
     setMobileMenuOpen(false);
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
   }, [pathname, setCartOpen, setMobileMenuOpen]);
+
+  // page_view da SPA (no-op sem GA configurado ou sem consentimento).
+  // Pequeno atraso para o título da página (useSEO) já estar aplicado.
+  useEffect(() => {
+    const t = window.setTimeout(() => trackPageView(pathname), 300);
+    return () => window.clearTimeout(t);
+  }, [pathname]);
 
   return (
     // overflow-x-clip: contém qualquer transbordo horizontal de elementos
@@ -33,6 +42,7 @@ export function PublicLayout() {
       <MobileDrawer />
       <CartDrawer />
       <WhatsappFloating />
+      <CookieBanner />
       <ScrollRestoration />
     </div>
   );

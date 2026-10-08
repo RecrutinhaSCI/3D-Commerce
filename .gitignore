@@ -13,3 +13,6 @@ dist-ssr
 *.sln
 *.sw?
 *.tsbuildinfo
+
+# Backups do banco (contêm hash de senha e dados de clientes)
+backups/

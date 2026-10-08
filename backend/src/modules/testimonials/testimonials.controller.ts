@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { created, noContent, ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
-import { safeUnlinkSiteImage } from '../../lib/upload';
+import { safeUnlinkSiteImage, storedFileUrl } from '../../lib/upload';
 import { testimonialsService } from './testimonials.service';
 import { createTestimonialSchema, updateTestimonialSchema } from './testimonials.schemas';
 
@@ -43,10 +43,10 @@ export const testimonialsController = {
     const file = req.file as Express.Multer.File | undefined;
     if (!file) throw HttpError.badRequest('Envie um arquivo no campo "avatar".');
     try {
-      const testimonial = await testimonialsService.setAvatar(id, file.filename);
+      const testimonial = await testimonialsService.setAvatar(id, storedFileUrl(file, 'site'));
       return ok(res, { testimonial });
     } catch (err) {
-      safeUnlinkSiteImage(file.filename);
+      safeUnlinkSiteImage(storedFileUrl(file, 'site'));
       throw err;
     }
   },

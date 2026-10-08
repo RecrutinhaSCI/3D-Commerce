@@ -9,18 +9,18 @@ import { useUIStore } from '@/store/useUIStore';
 import { getCartDiscount, getCartShipping, getCartSubtotal, useCartStore } from '@/store/useCartStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { formatBRL } from '@/utils/price';
-import { site } from '@/config/site';
 
 export function CartDrawer() {
   const open = useUIStore((s) => s.cartOpen);
   const setOpen = useUIStore((s) => s.setCartOpen);
   const { items, updateQty, removeItem, appliedCoupon, revalidateCoupon, busyItems } = useCartStore();
   const products = useAdminDataStore((s) => s.products);
+  const freeShippingThreshold = useAdminDataStore((s) => s.settings.freeShippingThreshold);
   const navigate = useNavigate();
 
   const subtotal = getCartSubtotal(items, products);
   const discount = getCartDiscount(subtotal, appliedCoupon);
-  const shipping = getCartShipping(subtotal, appliedCoupon);
+  const shipping = getCartShipping(subtotal, appliedCoupon, freeShippingThreshold);
   const total = subtotal - discount + shipping;
 
   // Revalida o cupom quando o subtotal muda (mesma regra do Cart/Checkout).
@@ -140,7 +140,7 @@ export function CartDrawer() {
               </div>
             </dl>
             <p className="mt-2 text-[11px] text-ink-mute">
-              Frete grátis acima de {formatBRL(site.freeShippingThreshold)}.
+              Frete grátis (PAC) acima de {formatBRL(freeShippingThreshold)}.
             </p>
             <div className="mt-4 space-y-2">
               <Button

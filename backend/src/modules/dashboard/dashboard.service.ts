@@ -1,5 +1,6 @@
 import {
   OrderStatus,
+  Prisma,
   PaymentStatus,
   ProductPurchaseMode,
   QuoteStatus,
@@ -7,6 +8,40 @@ import {
 } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { decimalToNumber } from '../../utils/decimal';
+
+/**
+ * Receita = pedidos PAGOS que não foram cancelados (um estorno vira REFUNDED,
+ * mas um pagamento que chegou num pedido já cancelado ficaria PAID+CANCELED).
+ */
+const PAID_REVENUE_WHERE: Prisma.OrderWhereInput = {
+  paymentStatus: PaymentStatus.PAID,
+  status: { not: OrderStatus.CANCELED },
+};
+
+/** Últimos N dias (fuso de Brasília) com pedidos criados e receita paga por dia. */
+async function lastDaysSeries(days: number) {
+  const tz = 'America/Sao_Paulo';
+  const dayKey = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: tz }); // YYYY-MM-DD
+  const since = new Date(Date.now() - days * 24 * 3600_000);
+  const rows = await prisma.order.findMany({
+    where: { createdAt: { gte: since } },
+    select: { createdAt: true, total: true, paymentStatus: true, status: true },
+  });
+  const series: Array<{ date: string; orders: number; revenue: number }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    series.push({ date: dayKey(new Date(Date.now() - i * 24 * 3600_000)), orders: 0, revenue: 0 });
+  }
+  const byDay = new Map(series.map((s) => [s.date, s]));
+  for (const r of rows) {
+    const s = byDay.get(dayKey(r.createdAt));
+    if (!s) continue;
+    s.orders += 1;
+    if (r.paymentStatus === PaymentStatus.PAID && r.status !== OrderStatus.CANCELED) {
+      s.revenue = Number((s.revenue + (decimalToNumber(r.total) ?? 0)).toFixed(2));
+    }
+  }
+  return series;
+}
 
 const PENDING_QUOTE_STATUSES: QuoteStatus[] = [
   QuoteStatus.RECEIVED,
@@ -79,7 +114,7 @@ export const dashboardService = {
       prisma.order.count(),
       prisma.quote.count(),
       prisma.order.count({ where: { status: OrderStatus.PENDING } }),
-      prisma.order.count({ where: { paymentStatus: PaymentStatus.PAID } }),
+      prisma.order.count({ where: PAID_REVENUE_WHERE }),
       prisma.quote.count({ where: { status: { in: PENDING_QUOTE_STATUSES } } }),
       prisma.product.count({ where: { active: true, stock: { lte: 5 } } }),
       prisma.order.groupBy({ by: ['status'], _count: true, orderBy: { status: 'asc' } }),
@@ -91,7 +126,7 @@ export const dashboardService = {
       }),
       // Faturamento: soma + média sobre pedidos com paymentStatus = PAID.
       prisma.order.aggregate({
-        where: { paymentStatus: PaymentStatus.PAID },
+        where: PAID_REVENUE_WHERE,
         _sum: { total: true },
         _avg: { total: true },
       }),
@@ -223,6 +258,19 @@ export const dashboardService = {
     // `_avg` retorna null quando não há linhas.
     const averageOrderValue = decimalToNumber(paidAggregate._avg.total) ?? 0;
 
+    // Mês corrente (fuso de Brasília ≈ UTC-3) e série diária dos últimos 7 dias.
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 3, 0, 0));
+    const [monthAggregate, last7Days] = await Promise.all([
+      prisma.order.aggregate({
+        where: { ...PAID_REVENUE_WHERE, createdAt: { gte: monthStart } },
+        _sum: { total: true },
+        _count: true,
+      }),
+      lastDaysSeries(7),
+    ]);
+    const revenueThisMonth = decimalToNumber(monthAggregate._sum.total) ?? 0;
+
     return {
       metrics: {
         totalProducts,
@@ -240,7 +288,10 @@ export const dashboardService = {
         totalRevenue: estimatedRevenue, // idêntico nesta versão
         averageOrderValue,
         lowStockCount,
+        revenueThisMonth,
+        paidOrdersThisMonth: monthAggregate._count,
       },
+      last7Days,
       recentOrders,
       recentQuotes,
       lowStockProducts,

@@ -23,6 +23,7 @@ import type {
   ApiProduct,
   ApiPurchaseMode,
   ApiSettings,
+  ApiShippingMethod,
 } from './types';
 import { apiAssetUrl } from './api';
 import { productSvg } from '@/utils/productImage';
@@ -111,6 +112,12 @@ export function apiProductToInternal(p: ApiProduct): Product {
     isBestSeller: p.featured,
     active: p.active,
     createdAt: p.createdAt,
+    sku: p.sku ?? null,
+    color: p.color ?? undefined,
+    weight: p.weight ?? undefined,
+    width: p.width ?? undefined,
+    height: p.height ?? undefined,
+    depth: p.depth ?? undefined,
     stockUpdatedAt: p.stockUpdatedAt ?? null,
     attributes: {
       ...(p.material ? { Material: p.material } : {}),
@@ -237,6 +244,12 @@ export function apiSettingsToInternal(s: ApiSettings): StoreSettings {
 
 // ------ order ---------------------------------------------------------------
 
+const SHIPPING_LABELS: Record<ApiShippingMethod, string> = {
+  PAC: 'PAC',
+  SEDEX: 'Sedex',
+  PICKUP: 'Retirada na loja',
+};
+
 export function apiOrderToInternal(o: ApiOrder): Order {
   return {
     id: o.id,
@@ -264,9 +277,10 @@ export function apiOrderToInternal(o: ApiOrder): Order {
       unitPrice: it.unitPrice,
     })),
     shipping: {
-      method: 'Frete',
+      method: o.shippingMethod ? SHIPPING_LABELS[o.shippingMethod] : 'Frete',
       price: o.shippingValue,
       deadline: '',
+      trackingCode: o.trackingCode ?? undefined,
     },
     payment: {
       method:
@@ -276,6 +290,10 @@ export function apiOrderToInternal(o: ApiOrder): Order {
           ? 'credito'
           : 'boleto',
     },
+    paymentStatus: o.paymentStatus,
+    notes: o.notes ?? undefined,
+    mpOrderId: o.mpPaymentId ?? undefined,
+    paymentDiscount: o.paymentDiscount,
     coupon: o.couponCode
       ? { code: o.couponCode, discount: o.discountValue }
       : undefined,

@@ -17,12 +17,32 @@ export function createApp(): Express {
   // Confiar em proxy reverso (Vercel/Render/Cloudflare) para IPs reais.
   app.set('trust proxy', 1);
 
-  // Helmet — headers de segurança padrão.
-  // CSP desligado: este servidor é uma API pura (JSON + arquivos estáticos em
-  // /uploads), não renderiza HTML para o browser, então CSP não se aplica e
-  // poderia gerar falso senso de proteção. crossOriginResourcePolicy relaxado
-  // para "cross-origin" para o frontend (outra origem/domínio) poder carregar
-  // as imagens de /uploads/* normalmente.
+  // Helmet — mantém TODOS os demais headers de segurança ativos
+  // (HSTS, X-Content-Type-Options, X-Frame-Options/frameguard, X-DNS-Prefetch,
+  // Referrer-Policy, etc.). Só a CSP fica desligada, de propósito.
+  //
+  // Por que CSP desligada AQUI: este servidor é uma API pura (respostas JSON +
+  // arquivos estáticos em /uploads); ele não serve o HTML da loja para o
+  // browser. Ligar uma CSP no backend não protege a página do usuário (que é
+  // servida por outro host) e ainda arrisca poluir/limitar respostas de API sem
+  // ganho real. crossOriginResourcePolicy fica "cross-origin" para o frontend
+  // (outra origem) carregar as imagens de /uploads/* normalmente.
+  //
+  // CSP DE PRODUÇÃO É RESPONSABILIDADE DO HOST DO FRONTEND (Vercel/Netlify/etc.),
+  // via header ou <meta http-equiv="Content-Security-Policy">. Como o Payment
+  // Brick do Mercado Pago roda NO frontend, essa CSP PRECISA liberar os domínios
+  // do MP, senão o pagamento quebra. Política mínima recomendada para o front:
+  //
+  //   default-src 'self';
+  //   script-src  'self' https://sdk.mercadopago.com https://*.mercadopago.com;
+  //   frame-src   https://*.mercadopago.com https://*.mlstatic.com;
+  //   connect-src 'self' https://api.mercadopago.com https://*.mercadopago.com <API_URL>;
+  //   img-src     'self' data: https://http2.mlstatic.com https://*.mlstatic.com https://*.mercadopago.com;
+  //   style-src   'self' 'unsafe-inline';
+  //   font-src    'self' https://http2.mlstatic.com;
+  //
+  // Domínios do MP que a CSP do front NÃO pode bloquear: https://sdk.mercadopago.com,
+  // https://*.mercadopago.com, https://api.mercadopago.com e https://http2.mlstatic.com.
   app.use(
     helmet({
       contentSecurityPolicy: false,
@@ -78,7 +98,12 @@ export function createApp(): Express {
     app.use(requestLogger);
   }
 
-  // Arquivos estáticos de upload (Multer servirá nestes paths a partir da R4/R6).
+  // Arquivos estáticos.
+  // - `public/` (ex.: /uploads/seed/*.svg): na Vercel é servido pelo CDN direto
+  //   da pasta public/ — o express.static é ignorado lá; aqui cobre o dev local.
+  // - `UPLOAD_DIR`: uploads em disco, SÓ em desenvolvimento. Em produção os
+  //   uploads vão para o Vercel Blob e o banco guarda a URL absoluta.
+  app.use(express.static(path.resolve(process.cwd(), 'public'), { maxAge: '7d' }));
   const uploadsPath = path.resolve(process.cwd(), env.UPLOAD_DIR);
   app.use('/uploads', express.static(uploadsPath, { fallthrough: true, maxAge: '7d' }));
 

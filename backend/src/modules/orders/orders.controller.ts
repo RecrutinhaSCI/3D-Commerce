@@ -8,6 +8,7 @@ import {
   createOrderSchema,
   meOrdersQuerySchema,
   updateOrderStatusSchema,
+  updateOrderTrackingSchema,
 } from './orders.schemas';
 
 const idParam = z.object({ id: z.string().min(1) });
@@ -55,6 +56,13 @@ export const ordersController = {
     const { id } = idParam.parse(req.params);
     const input = updateOrderStatusSchema.parse(req.body);
     const order = await ordersService.updateStatus(id, input);
+    return ok(res, { order });
+  },
+
+  async updateTracking(req: Request, res: Response) {
+    const { id } = idParam.parse(req.params);
+    const input = updateOrderTrackingSchema.parse(req.body);
+    const order = await ordersService.updateTracking(id, input);
     return ok(res, { order });
   },
 };

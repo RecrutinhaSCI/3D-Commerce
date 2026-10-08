@@ -48,6 +48,13 @@ enum PaymentMethod {
   BOLETO
 }
 
+/// Modalidade de entrega escolhida no checkout (valor calculado no backend).
+enum ShippingMethod {
+  PAC
+  SEDEX
+  PICKUP
+}
+
 enum ProductPurchaseMode {
   DIRECT
   QUOTE
@@ -113,6 +120,19 @@ model User {
   phone        String?
   role         UserRole @default(CUSTOMER)
   active       Boolean  @default(true)
+
+  // Verificação de e-mail e recuperação de senha (F2).
+  // Tokens NUNCA são guardados em texto — só o hash SHA-256 do token plano.
+  emailVerified          Boolean   @default(false) @map("email_verified")
+  emailVerifyTokenHash   String?   @map("email_verify_token_hash")
+  emailVerifyExpiresAt   DateTime? @map("email_verify_expires_at")
+  passwordResetTokenHash String?   @map("password_reset_token_hash")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+
+  // LGPD: quando o cliente aceitou a Política de Privacidade e qual versão.
+  privacyConsentAt       DateTime? @map("privacy_consent_at")
+  privacyPolicyVersion   String?   @map("privacy_policy_version")
+
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -280,17 +300,39 @@ model Order {
   customerName       String              @map("customer_name")
   customerEmail      String              @map("customer_email")
   customerPhone      String              @map("customer_phone")
+  // CPF do comprador (só dígitos) — exigido por Pix/boleto e base para NF-e.
+  customerCpf        String?             @map("customer_cpf")
   // Snapshot do endereço (JSON). Estrutura:
   // { recipientName, zipCode, street, number, complement?, district, city, state, country }
   addressSnapshot    Json                @map("address_snapshot")
   subtotal           Decimal             @db.Decimal(12, 2)
   shippingValue      Decimal             @default(0) @map("shipping_value") @db.Decimal(12, 2)
+  // Modalidade de entrega. Null = pedidos anteriores à regra de frete no backend.
+  shippingMethod     ShippingMethod?     @map("shipping_method")
   discountValue      Decimal             @default(0) @map("discount_value") @db.Decimal(12, 2)
+  // Desconto da FORMA de pagamento (ex.: % no Pix), já abatido de `total`.
+  // Ao trocar de método, o total bruto é `total + paymentDiscount`.
+  paymentDiscount    Decimal             @default(0) @map("payment_discount") @db.Decimal(12, 2)
   total              Decimal             @db.Decimal(12, 2)
   status             OrderStatus         @default(PENDING)
   paymentMethod      PaymentMethod       @map("payment_method")
   paymentStatus      PaymentStatus       @default(PENDING) @map("payment_status")
+  // Mercado Pago — id da ORDER do MP (Orders API, ULID), preenchido ao criar/
+  // confirmar. É o `{id}` de GET /v1/orders/{id} e o `data.id` do webhook.
+  // (Nome mantido por compatibilidade; desde a T10 guarda o id da Order, não
+  // mais o id do payment da Payments API.)
+  mpPaymentId        String?             @map("mp_payment_id")
+  // Nossa referência (id do pedido) enviada ao MP; reconcilia via webhook.
+  externalReference  String?             @map("external_reference")
+  // Idempotência da baixa de estoque: vira true quando o estoque é decrementado
+  // (no pagamento PAID). Um guard atômico sobre este campo garante que a baixa
+  // ocorra UMA vez por pedido, mesmo com webhook duplicado ou corrida entre
+  // webhook e polling. A reposição (cancelamento/estorno) só age se true.
+  stockApplied       Boolean             @default(false) @map("stock_applied")
   notes              String?
+  // Código de rastreio da transportadora (Correios/Total Express). Consultado
+  // na API SeuRastreio pelo frontend. Preenchido pelo admin quando o pedido é enviado.
+  trackingCode       String?             @map("tracking_code")
   // Cupom aplicado — snapshot preserva o histórico mesmo que o cupom mude/some.
   // `discountValue` acima guarda o valor real descontado em R$.
   couponId           String?             @map("coupon_id")
@@ -307,6 +349,7 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([paymentStatus])
+  @@index([mpPaymentId])
   @@index([createdAt])
   @@index([couponId])
   @@map("orders")
@@ -611,4 +654,22 @@ model CouponScript {
   @@index([linkedCouponId])
   @@index([isActive])
   @@map("coupon_scripts")
+}
+
+// =========================================================================
+// Newsletter
+// =========================================================================
+
+/// Inscritos na newsletter (formulário da home). E-mail único; inscrever de
+/// novo reativa (limpa unsubscribedAt).
+model NewsletterSubscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  source         String?
+  unsubscribedAt DateTime? @map("unsubscribed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("newsletter_subscribers")
 }

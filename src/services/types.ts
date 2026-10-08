@@ -13,7 +13,79 @@ export type ApiOrderStatus =
   | 'DELIVERED'
   | 'CANCELED';
 export type ApiPaymentMethod = 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+
+export type ApiShippingMethod = 'PAC' | 'SEDEX' | 'PICKUP';
+
+export interface ApiShippingOption {
+  method: ApiShippingMethod;
+  label: string;
+  deadline: string;
+  price: number;
+}
+
+/** GET /api/public/shipping/options */
+export interface ApiShippingOptions {
+  options: ApiShippingOption[];
+  freeShippingThreshold: number;
+}
 export type ApiPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELED';
+/** Status bruto do pagamento no Mercado Pago (retornado pelo backend). */
+export type ApiMpPaymentStatus =
+  | 'approved'
+  | 'in_process'
+  | 'pending'
+  | 'rejected'
+  | 'cancelled'
+  | 'refunded'
+  | 'charged_back'
+  | 'authorized';
+
+/**
+ * Retorno de POST /api/orders/:orderId/payments.
+ * O backend (T4) devolve campos diferentes por método; discriminamos no
+ * frontend pelo `selectedPaymentMethod` que o Brick informa no onSubmit.
+ */
+export interface ApiCardPaymentResult {
+  /** 'approved' | 'in_process' | 'rejected' ... (status bruto do MP). */
+  status: ApiMpPaymentStatus | string;
+  statusDetail?: string;
+  paymentId?: string | number;
+  /** Status normalizado do pedido no nosso domínio. */
+  paymentStatus?: ApiPaymentStatus;
+}
+
+export interface ApiPixPaymentResult {
+  status?: ApiMpPaymentStatus | string;
+  paymentId?: string | number;
+  paymentStatus?: ApiPaymentStatus;
+  /** Valor cobrado (já com o desconto do Pix). */
+  amount?: number;
+  /** Desconto do Pix aplicado em R$. */
+  paymentDiscount?: number;
+  qr_code: string;
+  qr_code_base64: string;
+  ticket_url: string;
+}
+
+export interface ApiBoletoPaymentResult {
+  status?: ApiMpPaymentStatus | string;
+  paymentId?: string | number;
+  paymentStatus?: ApiPaymentStatus;
+  external_resource_url: string;
+}
+
+export type ApiCreatePaymentResult =
+  | ApiCardPaymentResult
+  | ApiPixPaymentResult
+  | ApiBoletoPaymentResult;
+
+/** Retorno de GET /api/orders/:orderId/payments/status. */
+export interface ApiPaymentStatusResult {
+  paymentStatus: ApiPaymentStatus;
+  status?: ApiMpPaymentStatus | string;
+  paymentId?: string | number | null;
+}
+
 export type ApiQuoteStatus =
   | 'RECEIVED'
   | 'ANALYZING'
@@ -29,7 +101,23 @@ export interface ApiUser {
   phone: string | null;
   role: ApiUserRole;
   active: boolean;
+  /** Cliente já confirmou o e-mail? Usado para o aviso não-bloqueante na UI. */
+  emailVerified: boolean;
   createdAt: string;
+}
+
+/** Endereço padrão do cliente (GET/PUT /api/me/address). */
+export interface ApiAddress {
+  id: string;
+  zipCode: string;
+  street: string;
+  number: string;
+  complement: string | null;
+  district: string;
+  city: string;
+  state: string;
+  recipientName: string;
+  phone: string;
 }
 
 export interface ApiCategory {
@@ -149,10 +237,16 @@ export interface ApiOrder {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  /** CPF (só dígitos) informado no checkout. */
+  customerCpf: string | null;
   addressSnapshot: ApiOrderAddress;
   subtotal: number;
   shippingValue: number;
+  /** Modalidade de entrega (null em pedidos antigos). */
+  shippingMethod: ApiShippingMethod | null;
   discountValue: number;
+  /** Desconto da forma de pagamento (ex.: Pix), já abatido de `total`. */
+  paymentDiscount: number;
   totalBeforeDiscount: number;
   total: number;
   couponId: string | null;
@@ -162,6 +256,9 @@ export interface ApiOrder {
   paymentMethod: ApiPaymentMethod;
   paymentStatus: ApiPaymentStatus;
   notes: string | null;
+  /** Id da Order no Mercado Pago. */
+  mpPaymentId: string | null;
+  trackingCode: string | null;
   createdAt: string;
   updatedAt: string;
   items: ApiOrderItem[];
@@ -392,7 +489,12 @@ export interface ApiDashboard {
     totalRevenue: number;
     averageOrderValue: number;
     lowStockCount: number;
+    /** Receita paga no mês corrente (exclui cancelados). */
+    revenueThisMonth: number;
+    paidOrdersThisMonth: number;
   };
+  /** Últimos 7 dias: pedidos criados e receita paga por dia (YYYY-MM-DD). */
+  last7Days: Array<{ date: string; orders: number; revenue: number }>;
   recentOrders: Array<{
     id: string;
     customerName: string;

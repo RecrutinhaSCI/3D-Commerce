@@ -6,6 +6,10 @@ import { categoriesRouter } from '../modules/categories/categories.routes';
 import { productsRouter } from '../modules/products/products.routes';
 import { cartRouter } from '../modules/cart/cart.routes';
 import { ordersRouter } from '../modules/orders/orders.routes';
+import { paymentsRouter } from '../modules/payments/payments.routes';
+import { shippingRouter } from '../modules/shipping/shipping.routes';
+import { contactRouter } from '../modules/contact/contact.routes';
+import { seoRouter } from '../modules/seo/seo.routes';
 import { quotesRouter } from '../modules/quotes/quotes.routes';
 import { settingsRouter } from '../modules/settings/settings.routes';
 import { bannersRouter } from '../modules/banners/banners.routes';
@@ -13,7 +17,6 @@ import { testimonialsRouter } from '../modules/testimonials/testimonials.routes'
 import { couponsRouter } from '../modules/coupons/coupons.routes';
 import { scriptsRouter } from '../modules/scripts/scripts.routes';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes';
-import { paymentsRouter } from '../modules/payments/payments.routes';
 
 /**
  * Router raiz. Os routers internos por enquanto estão vazios (R1).
@@ -31,13 +34,14 @@ apiRouter.use('/api', categoriesRouter);
 apiRouter.use('/api', productsRouter);
 apiRouter.use('/api', cartRouter);
 apiRouter.use('/api', ordersRouter);
+apiRouter.use('/api', paymentsRouter);
+apiRouter.use('/api', shippingRouter);
+apiRouter.use('/api', contactRouter);
+apiRouter.use('/api', seoRouter);
 apiRouter.use('/api', quotesRouter);
 apiRouter.use('/api', settingsRouter);
 apiRouter.use('/api', bannersRouter);
 apiRouter.use('/api', testimonialsRouter);
 apiRouter.use('/api', couponsRouter);
 apiRouter.use('/api', scriptsRouter);
-// Payments ANTES do dashboard: o dashboardRouter aplica auth+admin com
-// `router.use()` sem path, o que intercepta qualquer rota registrada depois.
-apiRouter.use('/api', paymentsRouter);
 apiRouter.use('/api', dashboardRouter);

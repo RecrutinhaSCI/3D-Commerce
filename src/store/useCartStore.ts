@@ -54,6 +54,8 @@ interface CartState {
   // Sincronização
   fetch: () => Promise<void>;
   reset: () => void;
+  /** Leva o carrinho de visitante para a conta (chamar após login/cadastro). */
+  mergeGuestCart: () => Promise<{ merged: number; failed: string[] }>;
 
   // Itens
   addItem: (productId: string, qty?: number, variationId?: string, variationLabel?: string) => Promise<AddItemResult>;
@@ -74,6 +76,14 @@ function hasCustomerToken(): boolean {
   return !!getStoredToken('customer');
 }
 
+/**
+ * Carrinho de VISITANTE: sem login os itens ficam só no navegador (persistidos)
+ * com `variationId = 'guest:<productId>'`. No login/cadastro, `mergeGuestCart`
+ * envia tudo ao carrinho da conta (o backend valida estoque) e volta à API.
+ */
+const GUEST_PREFIX = 'guest:';
+const isGuestItem = (variationId?: string) => !!variationId && variationId.startsWith(GUEST_PREFIX);
+
 export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
@@ -87,7 +97,8 @@ export const useCartStore = create<CartState>()(
 
       async fetch() {
         if (!hasCustomerToken()) {
-          set({ items: [] });
+          // Visitante: mantém só os itens locais (descarta resquício da conta).
+          set({ items: get().items.filter((i) => isGuestItem(i.variationId)) });
           return;
         }
         set({ loading: true });
@@ -113,11 +124,36 @@ export const useCartStore = create<CartState>()(
         set({ items: [], appliedCoupon: null, couponError: null, lastError: null, busyItems: [] });
       },
 
+      async mergeGuestCart() {
+        const guest = get().items.filter((i) => isGuestItem(i.variationId));
+        const failed: string[] = [];
+        let merged = 0;
+        for (const it of guest) {
+          try {
+            await cartService.addItem(it.productId, it.qty);
+            merged++;
+          } catch {
+            failed.push(it.productId); // ex.: sem estoque — o resto segue
+          }
+        }
+        set({ items: get().items.filter((i) => !isGuestItem(i.variationId)) });
+        await get().fetch();
+        return { merged, failed };
+      },
+
       async addItem(productId, qty = 1) {
         if (!hasCustomerToken()) {
-          const error = 'Faça login para adicionar ao carrinho.';
-          set({ lastError: error });
-          return { ok: false, requiresAuth: true, error };
+          // Visitante: carrinho local (vai para a conta no login).
+          const id = GUEST_PREFIX + productId;
+          const items = get().items;
+          const existing = items.find((i) => i.variationId === id);
+          set({
+            items: existing
+              ? items.map((i) => (i.variationId === id ? { ...i, qty: i.qty + qty } : i))
+              : [...items, { productId, qty, variationId: id }],
+            lastError: null,
+          });
+          return { ok: true };
         }
         try {
           const { cart } = await cartService.addItem(productId, qty);
@@ -140,6 +176,10 @@ export const useCartStore = create<CartState>()(
 
       async removeItem(_productId, variationId) {
         if (!variationId) return { ok: false, error: 'Item inválido.' };
+        if (isGuestItem(variationId)) {
+          set({ items: get().items.filter((i) => i.variationId !== variationId) });
+          return { ok: true };
+        }
         // Guard: ignora se já há operação em andamento neste item.
         if (get().busyItems.includes(variationId)) return { ok: false, error: 'Aguarde…' };
         set({ busyItems: [...get().busyItems, variationId] });
@@ -163,6 +203,10 @@ export const useCartStore = create<CartState>()(
         if (qty <= 0) {
           return get().removeItem(_productId, variationId);
         }
+        if (isGuestItem(variationId)) {
+          set({ items: get().items.map((i) => (i.variationId === variationId ? { ...i, qty } : i)) });
+          return { ok: true };
+        }
         // Guard contra clique duplo / respostas fora de ordem.
         if (get().busyItems.includes(variationId)) return { ok: false, error: 'Aguarde…' };
         set({ busyItems: [...get().busyItems, variationId] });
@@ -182,10 +226,12 @@ export const useCartStore = create<CartState>()(
       },
 
       async clear() {
-        try {
-          await cartService.clear();
-        } catch {
-          /* segue com limpeza local */
+        if (hasCustomerToken()) {
+          try {
+            await cartService.clear();
+          } catch {
+            /* segue com limpeza local */
+          }
         }
         set({ items: [], appliedCoupon: null, couponError: null, busyItems: [] });
       },
@@ -261,8 +307,12 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: '3dc-cart',
-      // Persistimos só o cupom aplicado (cache visual). Itens vêm da API.
-      partialize: (s) => ({ appliedCoupon: s.appliedCoupon }),
+      // Persistimos o cupom (cache visual) e só os itens de VISITANTE — os da
+      // conta vêm sempre da API.
+      partialize: (s) => ({
+        appliedCoupon: s.appliedCoupon,
+        items: s.items.filter((i) => isGuestItem(i.variationId)),
+      }),
     },
   ),
 );
@@ -287,9 +337,17 @@ export function getCartDiscount(subtotal: number, coupon?: AppliedCoupon | null)
   return Number(Math.min(coupon.discountAmount, subtotal).toFixed(2));
 }
 
-/** Frete: grátis por cupom FREE_SHIPPING ou por atingir o limite da loja. */
-export function getCartShipping(subtotal: number, coupon?: AppliedCoupon | null): number {
+/**
+ * ESTIMATIVA de frete (PAC) para o carrinho/drawer. O valor real vem do
+ * backend (/api/public/shipping/options) no checkout e é recalculado na
+ * criação do pedido. `threshold` = "frete grátis acima de" do admin.
+ */
+export function getCartShipping(
+  subtotal: number,
+  coupon?: AppliedCoupon | null,
+  threshold: number = site.freeShippingThreshold,
+): number {
   if (coupon?.freeShipping) return 0;
-  if (subtotal >= site.freeShippingThreshold) return 0;
+  if (threshold > 0 && subtotal >= threshold) return 0;
   return 24.9;
 }

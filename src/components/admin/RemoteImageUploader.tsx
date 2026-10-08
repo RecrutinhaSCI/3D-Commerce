@@ -13,7 +13,7 @@ import { apiAssetUrl } from '@/services/api';
 interface BaseProps {
   label?: string;
   hint?: string;
-  /** Tamanho máximo em bytes (default 5MB, ou 8MB quando `allowVideo`). */
+  /** Tamanho máximo em bytes (default 4MB, inclusive vídeo — corpo de 4,5 MB na Vercel). */
   maxBytes?: number;
   /** Limite máximo específico para vídeos (default 8MB). Só usado com `allowVideo`. */
   maxVideoBytes?: number;
@@ -48,8 +48,10 @@ type Props = SingleProps | MultipleProps;
 
 const DEFAULT_ACCEPT = ['image/jpeg', 'image/png', 'image/webp'];
 const DEFAULT_ACCEPT_MEDIA = [...DEFAULT_ACCEPT, 'image/gif', 'video/mp4'];
-const DEFAULT_MAX = 5 * 1024 * 1024;
-const DEFAULT_MAX_VIDEO = 8 * 1024 * 1024;
+// Limite do backend em produção: o corpo da requisição na Vercel é de 4,5 MB
+// (upload vai para o Vercel Blob passando pela função), então vídeo também 4 MB.
+const DEFAULT_MAX = 4 * 1024 * 1024;
+const DEFAULT_MAX_VIDEO = 4 * 1024 * 1024;
 
 function isVideoUrl(u: string): boolean {
   return /\.mp4($|\?)/i.test(u);

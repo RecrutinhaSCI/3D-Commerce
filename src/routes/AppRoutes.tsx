@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, useParams } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { PublicLayout } from '@/components/layout/PublicLayout';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -23,8 +23,12 @@ const PrivacyPolicy = lazy(() => import('@/pages/public/PrivacyPolicy'));
 const Contact = lazy(() => import('@/pages/public/Contact'));
 const CustomerLogin = lazy(() => import('@/pages/public/CustomerLogin'));
 const CustomerRegister = lazy(() => import('@/pages/public/CustomerRegister'));
+const ForgotPassword = lazy(() => import('@/pages/public/ForgotPassword'));
+const ResetPassword = lazy(() => import('@/pages/public/ResetPassword'));
+const VerifyEmail = lazy(() => import('@/pages/public/VerifyEmail'));
 const CustomerAccount = lazy(() => import('@/pages/public/CustomerAccount'));
 const CustomerOrders = lazy(() => import('@/pages/public/CustomerOrders'));
+const PayOrder = lazy(() => import('@/pages/public/PayOrder'));
 
 // Admin inteiro — code-split (visitante público não baixa)
 const AdminLogin = lazy(() => import('@/pages/admin/Login'));
@@ -37,6 +41,7 @@ const AdminBanners = lazy(() => import('@/pages/admin/Banners'));
 const AdminOrders = lazy(() => import('@/pages/admin/Orders'));
 const AdminQuotes = lazy(() => import('@/pages/admin/Quotes'));
 const AdminTestimonials = lazy(() => import('@/pages/admin/Testimonials'));
+const AdminMessages = lazy(() => import('@/pages/admin/Messages'));
 const AdminCoupons = lazy(() => import('@/pages/admin/Coupons'));
 const AdminScripts = lazy(() => import('@/pages/admin/Scripts'));
 const AdminSettings = lazy(() => import('@/pages/admin/Settings'));
@@ -51,6 +56,16 @@ function PageFallback() {
 
 function L({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
+}
+
+/**
+ * `produtos/novo` e `produtos/:id` usam o mesmo componente; sem `key` o React
+ * reaproveita a instância ao navegar entre eles (voltar/avançar, ou após criar)
+ * e o formulário mantinha valores/fotos do produto anterior.
+ */
+function AdminProductFormRoute() {
+  const { id } = useParams();
+  return <AdminProductForm key={id ?? 'novo'} />;
 }
 
 export const router = createBrowserRouter([
@@ -75,8 +90,12 @@ export const router = createBrowserRouter([
       { path: '/contato', element: <L><Contact /></L> },
       { path: '/login', element: <L><CustomerLogin /></L> },
       { path: '/criar-conta', element: <L><CustomerRegister /></L> },
+      { path: '/esqueci-senha', element: <L><ForgotPassword /></L> },
+      { path: '/redefinir-senha', element: <L><ResetPassword /></L> },
+      { path: '/verificar-email', element: <L><VerifyEmail /></L> },
       { path: '/minha-conta', element: <L><CustomerAccount /></L> },
       { path: '/meus-pedidos', element: <L><CustomerOrders /></L> },
+      { path: '/pagar/:orderId', element: <L><PayOrder /></L> },
       { path: '*', element: <NotFound /> },
     ],
   },
@@ -87,8 +106,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <L><AdminDashboard /></L> },
       { path: 'produtos', element: <L><AdminProducts /></L> },
-      { path: 'produtos/novo', element: <L><AdminProductForm /></L> },
-      { path: 'produtos/:id', element: <L><AdminProductForm /></L> },
+      { path: 'produtos/novo', element: <L><AdminProductFormRoute /></L> },
+      { path: 'produtos/:id', element: <L><AdminProductFormRoute /></L> },
       { path: 'categorias', element: <L><AdminCategories /></L> },
       { path: 'categoria-sazonal', element: <L><AdminSeasonal /></L> },
       { path: 'banners', element: <L><AdminBanners /></L> },
@@ -96,6 +115,7 @@ export const router = createBrowserRouter([
       { path: 'orcamentos', element: <L><AdminQuotes /></L> },
       { path: 'cupons', element: <L><AdminCoupons /></L> },
       { path: 'depoimentos', element: <L><AdminTestimonials /></L> },
+      { path: 'mensagens', element: <L><AdminMessages /></L> },
       { path: 'scripts', element: <L><AdminScripts /></L> },
       { path: 'configuracoes', element: <L><AdminSettings /></L> },
     ],

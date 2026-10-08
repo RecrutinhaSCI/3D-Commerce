@@ -3,12 +3,14 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
-import { LogOut, Package, ShoppingBag, User } from 'lucide-react';
+import { LogOut, MailWarning, Package, ShoppingBag, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input, Label } from '@/components/ui/Input';
 import { useCustomerAuthStore, useCurrentCustomer } from '@/store/useCustomerAuthStore';
 import { useSEO } from '@/utils/seo';
 import { useState } from 'react';
+import { authService } from '@/services/authService';
+import { ApiError } from '@/services/api';
 
 const schema = z.object({
   name: z.string().min(3),
@@ -30,6 +32,7 @@ export default function CustomerAccount() {
   const updateCustomer = useCustomerAuthStore((s) => s.updateCustomer);
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<Data>({
     resolver: zodResolver(schema),
@@ -50,9 +53,9 @@ export default function CustomerAccount() {
 
   if (!customer) return <Navigate to="/login" replace />;
 
-  function onSubmit(d: Data) {
+  async function onSubmit(d: Data) {
     const hasAddress = d.cep && d.street && d.number && d.district && d.city && d.state;
-    updateCustomer({
+    const result = await updateCustomer({
       name: d.name,
       phone: d.phone,
       defaultAddress: hasAddress
@@ -67,8 +70,29 @@ export default function CustomerAccount() {
           }
         : undefined,
     });
+    if (!result.ok) {
+      toast.error(result.error ?? 'Não foi possível salvar seus dados.');
+      return;
+    }
     toast.success('Dados atualizados.');
     setEditing(false);
+  }
+
+  async function resendVerification() {
+    setResending(true);
+    try {
+      const { alreadyVerified, message } = await authService.resendVerification();
+      if (alreadyVerified) {
+        useCustomerAuthStore.setState((s) => ({
+          customers: s.customers.map((c) => (c.id === customer!.id ? { ...c, emailVerified: true } : c)),
+        }));
+      }
+      toast.success(message);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Não foi possível reenviar o e-mail.');
+    } finally {
+      setResending(false);
+    }
   }
 
   function doLogout() {
@@ -91,6 +115,27 @@ export default function CustomerAccount() {
           <LogOut className="h-4 w-4" /> Sair
         </button>
       </header>
+
+      {customer.emailVerified === false && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <MailWarning className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div>
+            <p className="font-semibold">Confirme seu e-mail</p>
+            <p className="mt-0.5 text-amber-800">
+              Enviamos um link de confirmação para <strong>{customer.email}</strong> quando você criou a conta.
+              Você pode continuar usando a loja normalmente — é só uma verificação de segurança.
+            </p>
+            <button
+              type="button"
+              onClick={resendVerification}
+              disabled={resending}
+              className="mt-2 text-xs font-semibold text-amber-900 underline disabled:opacity-60"
+            >
+              {resending ? 'Enviando…' : 'Não recebeu? Reenviar e-mail de confirmação'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
         <section className="card p-6">

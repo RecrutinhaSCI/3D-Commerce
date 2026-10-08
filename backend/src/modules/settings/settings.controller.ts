@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
-import { safeUnlinkSiteImage } from '../../lib/upload';
+import { safeUnlinkSiteImage, storedFileUrl } from '../../lib/upload';
 import { settingsService } from './settings.service';
 import { updateSettingsSchema } from './settings.schemas';
 
@@ -30,18 +30,19 @@ export const settingsController = {
   async uploadImage(req: Request, res: Response) {
     const file = req.file as Express.Multer.File | undefined;
     if (!file) throw HttpError.badRequest('Envie um arquivo no campo "image".');
-    return ok(res, { url: `/uploads/site/${file.filename}` });
+    // URL do Vercel Blob em produção; /uploads/site/... em dev.
+    return ok(res, { url: storedFileUrl(file, 'site') });
   },
 
   async uploadLogo(req: Request, res: Response) {
     const file = req.file as Express.Multer.File | undefined;
     if (!file) throw HttpError.badRequest('Envie um arquivo no campo "logo".');
     try {
-      const settings = await settingsService.setLogo(file.filename);
+      const settings = await settingsService.setLogo(storedFileUrl(file, 'site'));
       return ok(res, { settings });
     } catch (err) {
       // Se o service falhar, remove o arquivo recém-salvo para não ficar órfão.
-      safeUnlinkSiteImage(file.filename);
+      safeUnlinkSiteImage(storedFileUrl(file, 'site'));
       throw err;
     }
   },

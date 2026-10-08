@@ -22,6 +22,9 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
+/** Limite por arquivo do upload (corpo de 4,5 MB por requisição na Vercel). */
+const MAX_QUOTE_FILE_BYTES = 4 * 1024 * 1024;
+
 export default function QuoteWhatsapp() {
   useSEO('Solicitar orçamento');
   const products = useAdminDataStore((s) => s.products.filter((p) => p.active));
@@ -40,7 +43,14 @@ export default function QuoteWhatsapp() {
     const list = e.target.files;
     if (!list) return;
     const next: File[] = [...files];
-    for (let i = 0; i < list.length && next.length < 10; i++) next.push(list[i]);
+    const tooBig: string[] = [];
+    for (let i = 0; i < list.length && next.length < 10; i++) {
+      if (list[i].size > MAX_QUOTE_FILE_BYTES) tooBig.push(list[i].name);
+      else next.push(list[i]);
+    }
+    if (tooBig.length) {
+      toast.error(`Arquivo acima de 4 MB: ${tooBig.join(', ')}. Envie esse arquivo pelo WhatsApp.`);
+    }
     setFiles(next);
     e.target.value = '';
   }
@@ -163,7 +173,7 @@ export default function QuoteWhatsapp() {
             )}
 
             <div>
-              <Label>Arquivos (STL, OBJ, ZIP, PDF ou imagens — até 25MB cada)</Label>
+              <Label>Arquivos (STL, OBJ, ZIP, PDF ou imagens — até 4 MB cada; maiores, envie pelo WhatsApp)</Label>
               <label className="mt-1 flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-ink-line bg-bg-soft px-4 py-3 text-sm text-ink-soft hover:bg-ink/5">
                 <Paperclip className="h-4 w-4" />
                 Adicionar arquivos

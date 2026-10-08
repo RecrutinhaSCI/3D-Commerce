@@ -12,6 +12,7 @@ import {
   MessageSquareQuote,
   Ticket,
   MessageCircle,
+  Mail,
   type LucideIcon,
 } from 'lucide-react';
 import { useAdminAuthStore } from '@/store/useAdminAuthStore';
@@ -50,6 +51,7 @@ const groups: NavGroup[] = [
     items: [
       { to: '/admin/pedidos', label: 'Pedidos', icon: ShoppingCart },
       { to: '/admin/orcamentos', label: 'Orçamentos', icon: FileText },
+      { to: '/admin/mensagens', label: 'Mensagens', icon: Mail },
       { to: '/admin/cupons', label: 'Cupons', icon: Ticket },
     ],
   },

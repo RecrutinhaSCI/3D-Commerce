@@ -236,8 +236,7 @@ describe('R19-D — integração das três rodadas', () => {
     const totalI = db.images.length;
 
     const r = await productsService.bulkImport({ rows: [row] });
-    expect(r.summary).toMatchObject({ created: 0, updated: 1, conflicts: 0 });
-    expect(r.updated[0].imageUpdated).toBeUndefined();
+    expect(r.summary).toMatchObject({ created: 0, updated: 0, unchanged: 1, conflicts: 0 });
     expect(db.products).toHaveLength(totalP);
     expect(db.images).toHaveLength(totalI);
   });
@@ -393,8 +392,8 @@ describe('R19-D — integração das três rodadas', () => {
         imageUrl: 'https://cdn/principal-a.jpg',
       }],
     });
-    expect(r1.summary.updated).toBe(1);
-    expect(r1.updated[0].imageUpdated).toBeUndefined();
+    // Export → reimport SEM edição: nada muda → "unchanged" (antes contava como update).
+    expect(r1.summary).toMatchObject({ updated: 0, unchanged: 1 });
     expect(db.images.filter((i) => i.productId === 'prod-a')).toHaveLength(3);
 
     const r2 = await productsService.bulkImport({

@@ -39,19 +39,37 @@ export const productService = {
       query: query as Record<string, unknown> as never,
     });
   },
+  /** Todas as páginas da listagem admin (inclui inativos). */
+  async listAllAdmin(query?: Omit<AdminListQuery, 'page' | 'limit'>) {
+    return fetchAllPages((page, limit) => productService.listAdmin({ ...query, page, limit }), 500);
+  },
+  /** Todas as páginas da listagem pública (só ativos). Máx. 100 por página no backend. */
+  async listAllPublic(query?: Omit<PublicListQuery, 'page' | 'limit'>) {
+    return fetchAllPages((page, limit) => productService.listPublic({ ...query, page, limit }), 100);
+  },
+  /** Admin — produto por ID, inclusive inativo (o endpoint público devolve 404 para inativos). */
+  getAdminById(id: string) {
+    return api.get<{ product: ApiProduct }>(`/api/admin/products/${encodeURIComponent(id)}`);
+  },
   create(input: Partial<ApiProduct> & { categoryId: string; name: string; price: number }) {
     return api.post<{ product: ApiProduct }>('/api/admin/products', input);
   },
   update(id: string, input: Partial<ApiProduct>) {
     return api.put<{ product: ApiProduct }>(`/api/admin/products/${id}`, input);
   },
+  /** Exclusão definitiva (pedidos antigos mantêm o snapshot do item). */
   remove(id: string) {
-    return api.del<{ softDeleted: boolean; product: ApiProduct }>(`/api/admin/products/${id}`);
+    return api.del<{ deleted: boolean; id: string }>(`/api/admin/products/${id}`);
   },
-  addImages(id: string, files: File[]) {
-    const form = new FormData();
-    files.forEach((f) => form.append('images', f));
-    return api.post<{ product: ApiProduct }>(`/api/admin/products/${id}/images`, form);
+  /** Uma imagem por requisição (limite de 4,5 MB do corpo na Vercel). */
+  async addImages(id: string, files: File[]) {
+    let last: { product: ApiProduct } | undefined;
+    for (const f of files) {
+      const form = new FormData();
+      form.append('images', f);
+      last = await api.post<{ product: ApiProduct }>(`/api/admin/products/${id}/images`, form);
+    }
+    return last!;
   },
   removeImage(imageId: string) {
     return api.del(`/api/admin/products/images/${imageId}`);
@@ -63,19 +81,29 @@ export const productService = {
   bulkImport(rows: BulkImportRow[]) {
     return api.post<BulkImportReport>('/api/admin/products/import', { rows });
   },
-  /**
-   * R19-E — Desativação em massa (soft delete). Consistente com `remove`:
-   * marca `active=false`; pedidos e histórico não são tocados.
-   */
+  /** Exclusão definitiva em massa — mesma regra de `remove`. */
   bulkDelete(ids: string[]) {
     return api.post<BulkDeleteReport>('/api/admin/products/bulk-delete', { ids });
   },
 };
 
+async function fetchAllPages(
+  load: (page: number, limit: number) => Promise<{ products: ApiProduct[]; pagination: ApiPagination }>,
+  limit: number,
+): Promise<ApiProduct[]> {
+  const first = await load(1, limit);
+  const all = [...first.products];
+  for (let page = 2; page <= first.pagination.totalPages; page++) {
+    const next = await load(page, limit);
+    all.push(...next.products);
+  }
+  return all;
+}
+
 export interface BulkDeleteReport {
   requested: number;
-  deactivated: number;
-  alreadyInactive: string[];
+  deleted: number;
+  deletedIds: string[];
   notFound: string[];
 }
 
@@ -116,7 +144,9 @@ export interface BulkImportItem {
 export interface BulkImportReport {
   created: BulkImportItem[];
   updated: BulkImportItem[];
+  /** Linhas que casaram com um produto mas não traziam nenhuma diferença. */
+  unchanged: BulkImportItem[];
   skipped: BulkImportItem[];
   conflicts: BulkImportItem[];
-  summary: { total: number; created: number; updated: number; skipped: number; conflicts: number };
+  summary: { total: number; created: number; updated: number; unchanged: number; skipped: number; conflicts: number };
 }

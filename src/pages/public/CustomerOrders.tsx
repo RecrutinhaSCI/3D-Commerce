@@ -1,24 +1,173 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { ChevronRight, Package } from 'lucide-react';
+import { AlertCircle, ChevronRight, ExternalLink, MapPin, Package, Truck } from 'lucide-react';
 import { useCurrentCustomer } from '@/store/useCustomerAuthStore';
-import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { orderService } from '@/services/orderService';
+import { loginUrl } from '@/utils/redirect';
+import { apiOrderToInternal } from '@/services/adapters';
+import { ApiError } from '@/services/api';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/admin/StatusBadge';
+import { PaymentStatusBadge } from '@/components/admin/PaymentStatusBadge';
 import { Drawer } from '@/components/ui/Drawer';
+import { Button } from '@/components/ui/Button';
 import { formatBRL } from '@/utils/price';
-import type { Order } from '@/types';
+import { fetchTracking } from '@/services/tracking';
+import type { Order, TrackingResult } from '@/types';
 import { useSEO } from '@/utils/seo';
+
+function formatEventDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function TrackingSection({ code }: { code: string }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<TrackingResult | null>(null);
+
+  async function handleTrack() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchTracking(code);
+      setResult(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao consultar o rastreio.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-ink-line p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Rastreamento</p>
+          <p className="mt-0.5 font-mono text-sm font-semibold tracking-wide">{code}</p>
+        </div>
+        <Button size="sm" variant="secondary" loading={loading} onClick={handleTrack}>
+          <Truck className="h-4 w-4" /> Rastrear entrega
+        </Button>
+      </div>
+
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-600">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p>{error}</p>
+            <button onClick={handleTrack} className="mt-1 font-semibold underline">
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+      )}
+
+      {result && !error && (
+        <div className="mt-4">
+          {result.carrierName && (
+            <p className="mb-2 text-xs text-ink-mute">
+              Transportadora: <span className="font-semibold text-ink">{result.carrierName}</span>
+            </p>
+          )}
+
+          {result.historico.length === 0 ? (
+            <p className="text-sm text-ink-mute">
+              Ainda não há eventos de rastreamento para este código.
+            </p>
+          ) : (
+            <ol className="relative space-y-4 border-l border-ink-line pl-5">
+              {result.historico.map((ev, i) => (
+                <li key={i} className="relative">
+                  <span
+                    className={`absolute -left-[1.4rem] top-1 h-2.5 w-2.5 rounded-full border-2 border-bg ${
+                      i === 0 ? 'bg-ink' : 'bg-ink-line'
+                    }`}
+                  />
+                  <p className={`text-sm ${i === 0 ? 'font-semibold text-ink' : 'text-ink-soft'}`}>
+                    {ev.descricao}
+                  </p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-mute">
+                    <span>{formatEventDate(ev.data)}</span>
+                    {ev.local && (
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin className="h-3 w-3" /> {ev.local}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          {result.previsaoEntrega && (
+            <p className="mt-3 text-xs text-ink-mute">
+              Previsão de entrega:{' '}
+              <span className="font-semibold text-ink">
+                {new Date(result.previsaoEntrega).toLocaleDateString('pt-BR')}
+              </span>
+            </p>
+          )}
+
+          {result.linkDetalhesCompletos && (
+            <a
+              href={result.linkDetalhesCompletos}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-ink hover:underline"
+            >
+              Ver detalhes completos <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PAGE_SIZE = 20;
 
 export default function CustomerOrders() {
   useSEO('Meus pedidos');
   const customer = useCurrentCustomer();
-  const orders = useAdminDataStore((s) => s.orders);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<Order | null>(null);
 
-  if (!customer) return <Navigate to="/login" replace />;
+  // Pedidos vêm SEMPRE do backend (/api/me/orders) — nunca do store do admin.
+  const loadPage = useCallback(async (target: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await orderService.listMine({ page: target, limit: PAGE_SIZE });
+      const mapped = res.orders.map(apiOrderToInternal);
+      setOrders((prev) => (target === 1 ? mapped : [...prev, ...mapped]));
+      setPage(res.pagination.page);
+      setTotalPages(res.pagination.totalPages);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Não foi possível carregar seus pedidos.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const mine = orders.filter((o) => o.customerId === customer.id);
+  useEffect(() => {
+    if (customer) loadPage(1);
+  }, [customer?.id, loadPage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!customer) return <Navigate to={loginUrl('/meus-pedidos')} replace />;
+
+  const mine = orders;
 
   return (
     <div className="container-x py-12">
@@ -28,7 +177,23 @@ export default function CustomerOrders() {
         Acompanhe o status dos seus pedidos na 3DCommerce.
       </p>
 
-      {mine.length === 0 ? (
+      {loading && mine.length === 0 ? (
+        <div className="mt-8 space-y-3" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="card h-[76px] animate-pulse bg-bg-soft" />
+          ))}
+        </div>
+      ) : error && mine.length === 0 ? (
+        <div className="mt-8 flex items-start gap-2 rounded-xl bg-rose-50 p-4 text-sm text-rose-600">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p>{error}</p>
+            <button onClick={() => loadPage(1)} className="mt-1 font-semibold underline">
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+      ) : mine.length === 0 ? (
         <div className="mt-8">
           <EmptyState
             title="Você ainda não tem pedidos."
@@ -57,14 +222,27 @@ export default function CustomerOrders() {
                   <p className="mt-0.5 text-xs text-ink-mute">
                     {new Date(o.createdAt).toLocaleDateString('pt-BR')} · {o.items.length} item(s)
                   </p>
+                  {o.status === 'novo' && o.paymentStatus !== 'PAID' && (
+                    <p className="mt-1 text-xs font-semibold text-amber-700">Toque para pagar →</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-4">
-                  <StatusBadge status={o.status} />
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge status={o.status} />
+                    {o.paymentStatus && <PaymentStatusBadge status={o.paymentStatus} />}
+                  </div>
                   <p className="price-display text-sm font-bold tabular-nums">{formatBRL(o.total)}</p>
                   <ChevronRight className="h-4 w-4 text-ink-mute" />
                 </div>
               </button>
             ))}
+          {page < totalPages && (
+            <div className="pt-2 text-center">
+              <Button variant="secondary" loading={loading} onClick={() => loadPage(page + 1)}>
+                Ver pedidos anteriores
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -72,11 +250,27 @@ export default function CustomerOrders() {
         {active && (
           <div className="space-y-5 p-5 text-sm">
             <div className="flex items-center justify-between">
-              <StatusBadge status={active.status} />
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={active.status} />
+                {active.paymentStatus && <PaymentStatusBadge status={active.paymentStatus} />}
+              </div>
               <span className="text-xs text-ink-mute">
                 {new Date(active.createdAt).toLocaleDateString('pt-BR')}
               </span>
             </div>
+
+            {active.status === 'novo' && active.paymentStatus !== 'PAID' && (
+              <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+                <p className="font-semibold">Pagamento pendente</p>
+                <p className="mt-0.5 text-xs">
+                  Gere um novo Pix, boleto ou pague com cartão. Pedidos sem pagamento são cancelados
+                  automaticamente após 48h.
+                </p>
+                <Link to={`/pagar/${active.id}`} className="btn-primary mt-3 inline-flex">
+                  Pagar agora
+                </Link>
+              </div>
+            )}
 
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Itens</p>
@@ -102,6 +296,15 @@ export default function CustomerOrders() {
                 {active.address.district}, {active.address.city}/{active.address.state} — {active.address.cep}
               </p>
             </div>
+
+            {active.shipping.trackingCode ? (
+              <TrackingSection code={active.shipping.trackingCode} />
+            ) : (
+              <div className="flex items-start gap-2 rounded-xl border border-dashed border-ink-line p-4 text-xs text-ink-mute">
+                <Truck className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Código de rastreio ainda não disponível. Ele aparece aqui assim que o pedido for enviado.</span>
+              </div>
+            )}
 
             <div className="space-y-1 border-t border-ink-line pt-3">
               <div className="flex justify-between"><span className="text-ink-mute">Subtotal</span><span>{formatBRL(active.subtotal)}</span></div>

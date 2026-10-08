@@ -3,14 +3,25 @@
  *
  * Fala com o backend real (JWT). Não guarda senha em localStorage.
  * O JWT fica em `localStorage['3dc-token-customer']` (gerenciado por api.ts).
+ * O endereço padrão vive no backend (/api/me/address) — o localStorage é só
+ * cache para a primeira renderização.
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { authService } from '@/services/authService';
 import { ApiError, getStoredToken, setAuthToken } from '@/services/api';
-import type { ApiUser } from '@/services/types';
+import type { ApiAddress, ApiUser } from '@/services/types';
 import type { Customer, CustomerAddress } from '@/types';
+import toast from 'react-hot-toast';
 import { useCartStore } from '@/store/useCartStore';
+
+/** Leva o carrinho de visitante para a conta e avisa se algo ficou de fora. */
+async function mergeGuestCartWithNotice() {
+  const { failed } = await useCartStore.getState().mergeGuestCart();
+  if (failed.length) {
+    toast.error('Alguns itens do carrinho não puderam ser mantidos (sem estoque suficiente).');
+  }
+}
 
 function apiUserToInternal(u: ApiUser): Customer {
   return {
@@ -19,8 +30,43 @@ function apiUserToInternal(u: ApiUser): Customer {
     email: u.email,
     phone: u.phone ?? '',
     password: '',
+    emailVerified: u.emailVerified,
     createdAt: u.createdAt,
   };
+}
+
+function apiAddressToInternal(a: ApiAddress): CustomerAddress {
+  return {
+    cep: a.zipCode.replace(/^(\d{5})(\d{3})$/, '$1-$2'),
+    street: a.street,
+    number: a.number,
+    complement: a.complement ?? undefined,
+    district: a.district,
+    city: a.city,
+    state: a.state,
+  };
+}
+
+function addressToApi(a: CustomerAddress) {
+  return {
+    zipCode: a.cep,
+    street: a.street,
+    number: a.number,
+    complement: a.complement || null,
+    district: a.district,
+    city: a.city,
+    state: a.state,
+  };
+}
+
+/** Busca o endereço padrão no backend (best-effort: falha não desloga). */
+async function fetchDefaultAddress(): Promise<CustomerAddress | undefined> {
+  try {
+    const { address } = await authService.getAddress();
+    return address ? apiAddressToInternal(address) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface RegisterInput {
@@ -28,8 +74,12 @@ interface RegisterInput {
   email: string;
   phone: string;
   password: string;
+  /** Aceite da Política de Privacidade (obrigatório; gravado no backend). */
+  privacyConsent: true;
   defaultAddress?: CustomerAddress;
 }
+
+type CustomerPatch = Partial<Omit<Customer, 'id' | 'password' | 'createdAt'>>;
 
 interface CustomerAuthState {
   /** Sempre uma lista com no máximo 1 (o próprio) — mantido pra compat com telas antigas. */
@@ -41,7 +91,8 @@ interface CustomerAuthState {
   registerCustomer: (data: RegisterInput) => Promise<{ ok: boolean; error?: string; customer?: Customer }>;
   loginCustomer: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logoutCustomer: () => void;
-  updateCustomer: (patch: Partial<Omit<Customer, 'id' | 'password' | 'createdAt'>>) => void;
+  /** Salva no backend (nome/telefone e endereço padrão). Devolve o resultado real. */
+  updateCustomer: (patch: CustomerPatch) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export const useCustomerAuthStore = create<CustomerAuthState>()(
@@ -61,6 +112,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
             return;
           }
           const c = apiUserToInternal(user);
+          c.defaultAddress = await fetchDefaultAddress();
           set({ customers: [c], currentCustomerId: c.id });
         } catch {
           setAuthToken('customer', null);
@@ -75,13 +127,23 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
             email: data.email,
             password: data.password,
             phone: data.phone,
+            privacyConsent: data.privacyConsent,
           });
           setAuthToken('customer', token);
           const c = apiUserToInternal(user);
-          if (data.defaultAddress) c.defaultAddress = data.defaultAddress;
+          if (data.defaultAddress) {
+            // Endereço informado no cadastro vai para o backend; se falhar,
+            // a conta já existe — o cliente revisa em "Minha conta".
+            try {
+              const { address } = await authService.saveAddress(addressToApi(data.defaultAddress));
+              c.defaultAddress = apiAddressToInternal(address);
+            } catch {
+              c.defaultAddress = undefined;
+            }
+          }
           set({ customers: [c], currentCustomerId: c.id });
-          // Puxa carrinho vazio recém-criado para o cliente novo.
-          void useCartStore.getState().fetch();
+          // Leva o carrinho de visitante (se houver) para a conta nova.
+          void mergeGuestCartWithNotice();
           return { ok: true, customer: c };
         } catch (err) {
           const msg = err instanceof ApiError ? err.message : 'Erro ao criar conta.';
@@ -97,8 +159,9 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
           }
           setAuthToken('customer', token);
           const c = apiUserToInternal(user);
+          c.defaultAddress = await fetchDefaultAddress();
           set({ customers: [c], currentCustomerId: c.id });
-          void useCartStore.getState().fetch();
+          void mergeGuestCartWithNotice();
           return { ok: true };
         } catch (err) {
           const msg = err instanceof ApiError ? err.message : 'E-mail ou senha inválidos.';
@@ -114,33 +177,25 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
 
       async updateCustomer(patch) {
         const id = get().currentCustomerId;
-        if (!id) return;
-
-        // 1) Salva mudanças reais no backend (name/phone). O endpoint aceita
-        //    só esses dois campos — os demais (endereço padrão) ficam locais.
-        const remotePayload: { name?: string; phone?: string } = {};
-        if (patch.name !== undefined) remotePayload.name = patch.name;
-        if (patch.phone !== undefined) remotePayload.phone = patch.phone;
-
-        if (remotePayload.name !== undefined || remotePayload.phone !== undefined) {
-          try {
-            const { user } = await authService.updateMe(remotePayload);
-            const remote = apiUserToInternal(user);
-            set({
-              customers: get().customers.map((c) =>
-                c.id === id ? { ...c, ...remote, defaultAddress: patch.defaultAddress ?? c.defaultAddress } : c,
-              ),
+        if (!id) return { ok: false, error: 'Faça login novamente.' };
+        try {
+          let next: Partial<Customer> = {};
+          if (patch.name !== undefined || patch.phone !== undefined) {
+            const { user } = await authService.updateMe({
+              ...(patch.name !== undefined ? { name: patch.name } : {}),
+              ...(patch.phone !== undefined ? { phone: patch.phone } : {}),
             });
-            return;
-          } catch {
-            // cai para atualização otimista local abaixo
+            next = apiUserToInternal(user);
           }
+          if (patch.defaultAddress) {
+            const { address } = await authService.saveAddress(addressToApi(patch.defaultAddress));
+            next.defaultAddress = apiAddressToInternal(address);
+          }
+          set({ customers: get().customers.map((c) => (c.id === id ? { ...c, ...next } : c)) });
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: err instanceof ApiError ? err.message : 'Não foi possível salvar seus dados.' };
         }
-
-        // 2) Campos que ficam locais (defaultAddress).
-        set({
-          customers: get().customers.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-        });
       },
     }),
     { name: '3dc-customer-auth', partialize: (s) => ({ customers: s.customers, currentCustomerId: s.currentCustomerId }) },

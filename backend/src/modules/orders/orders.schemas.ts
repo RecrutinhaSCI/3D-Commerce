@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
+import { OrderStatus, PaymentMethod, PaymentStatus, ShippingMethod } from '@prisma/client';
+import { isValidCpf, onlyDigits } from '../../utils/cpf';
 
 /** Endereço enviado no checkout — vira snapshot em `Order.addressSnapshot`. */
 export const orderAddressSchema = z.object({
@@ -20,8 +21,24 @@ export const createOrderSchema = z.object({
   customerName: z.string().trim().min(2, 'Nome do cliente é obrigatório.'),
   customerEmail: z.string().trim().toLowerCase().email('E-mail inválido.'),
   customerPhone: z.string().trim().min(8, 'Telefone inválido.'),
+  // CPF (opcional na API para compat; o checkout sempre envia). Guardado só
+  // com dígitos; validado pelos dígitos verificadores.
+  customerCpf: z
+    .string()
+    .trim()
+    .optional()
+    .nullable()
+    .refine((v) => !v || isValidCpf(v), 'CPF inválido.')
+    .transform((v) => (v ? onlyDigits(v) : null)),
   address: orderAddressSchema,
-  shippingValue: z.coerce.number().min(0, 'Frete não pode ser negativo.').default(0),
+  // Modalidade de entrega — o VALOR é calculado no backend (shipping.service).
+  shippingMethod: z
+    .nativeEnum(ShippingMethod, {
+      errorMap: () => ({ message: 'shippingMethod deve ser PAC, SEDEX ou PICKUP.' }),
+    })
+    .default(ShippingMethod.PAC),
+  // Mantido por compat, porém IGNORADO: o frete nunca vem do cliente.
+  shippingValue: z.coerce.number().min(0).optional(),
   // Cupom (opcional). O DESCONTO é sempre recalculado no backend a partir do
   // cupom — o cliente não define o valor do desconto.
   couponCode: z
@@ -49,6 +66,17 @@ export const updateOrderStatusSchema = z
     message: 'Envie ao menos um: status ou paymentStatus.',
   });
 export type UpdateOrderStatusInput = z.infer<typeof updateOrderStatusSchema>;
+
+/** Código de rastreio da transportadora. String vazia limpa o código. */
+export const updateOrderTrackingSchema = z.object({
+  trackingCode: z
+    .string()
+    .trim()
+    .max(60, 'Código de rastreio muito longo.')
+    .nullable()
+    .transform((v) => (v && v.length > 0 ? v : null)),
+});
+export type UpdateOrderTrackingInput = z.infer<typeof updateOrderTrackingSchema>;
 
 const parseBool = z
   .union([z.boolean(), z.string()])

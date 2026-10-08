@@ -1,7 +1,7 @@
 import { Prisma, type SiteSettings } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { decimalToNumber } from '../../utils/decimal';
-import { safeUnlinkSiteImage, siteImageUrl } from '../../lib/upload';
+import { safeUnlinkSiteImage } from '../../lib/upload';
 import type { InstagramItem, TrustItem, UpdateSettingsInput, YoutubeVideo } from './settings.schemas';
 
 /** Existe UM registro só. id fixo `main`. */
@@ -168,13 +168,13 @@ export const settingsService = {
     return toDTO(updated);
   },
 
-  async setLogo(filename: string): Promise<SettingsDTO> {
+  async setLogo(url: string): Promise<SettingsDTO> {
     const current = await ensureSettings();
     // Remove logo antigo se estiver em /uploads/site/
     if (current.logoUrl) safeUnlinkSiteImage(current.logoUrl);
     const updated = await prisma.siteSettings.update({
       where: { id: SETTINGS_ID },
-      data: { logoUrl: siteImageUrl(filename) },
+      data: { logoUrl: url },
     });
     return toDTO(updated);
   },

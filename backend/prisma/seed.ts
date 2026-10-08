@@ -5,14 +5,25 @@
  * Usa `upsert` em todos os registros base.
  *
  *   npm run prisma:seed
+ *
+ * Admin vem do .env (ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME). Em produção
+ * ADMIN_PASSWORD é obrigatória para CRIAR o admin — não existe senha padrão.
+ * ADMIN_PASSWORD só é usada na criação inicial: se o admin já existe, o seed
+ * nunca sobrescreve a senha atual (nem com a do .env), então rodar o seed de
+ * novo não desfaz a senha que o cliente trocou pelo painel.
  */
+import 'dotenv/config';
 import { PrismaClient, ProductPurchaseMode, UserRole, CouponDiscountType, ScriptCategory } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-const ADMIN_EMAIL = 'admin@3dcommerce.com';
-const ADMIN_PASSWORD = 'admin123';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@3dcommerce.com').trim().toLowerCase();
+const ADMIN_NAME = process.env.ADMIN_NAME || '3DCommerce Admin';
+const ADMIN_PASSWORD_ENV = process.env.ADMIN_PASSWORD || undefined;
+/** Senha só para desenvolvimento local. Nunca usada em produção. */
+const DEV_ADMIN_PASSWORD = 'admin123';
 
 async function main() {
   console.log('[seed] iniciando...');
@@ -20,25 +31,37 @@ async function main() {
   // -----------------------------------------------------------------------
   // 1. Admin
   // -----------------------------------------------------------------------
-  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
-  const admin = await prisma.user.upsert({
-    where: { email: ADMIN_EMAIL },
-    create: {
-      name: '3DCommerce Admin',
-      email: ADMIN_EMAIL,
-      passwordHash,
-      phone: '5554992752253',
-      role: UserRole.ADMIN,
-      active: true,
-    },
-    update: {
-      // Mantém o hash atualizado se a senha for alterada acima.
-      passwordHash,
-      role: UserRole.ADMIN,
-      active: true,
-    },
-  });
-  console.log(`[seed] admin: ${admin.email}`);
+  const existingAdmin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
+  if (existingAdmin) {
+    // Admin já existe: ADMIN_PASSWORD é ignorada — a senha atual NUNCA é
+    // sobrescrita (o seed também roda em `prisma migrate dev/reset`).
+    // Só garante papel e status.
+    await prisma.user.update({
+      where: { id: existingAdmin.id },
+      data: { role: UserRole.ADMIN, active: true },
+    });
+    console.log(`[seed] admin: ${existingAdmin.email} (já existe — senha mantida)`);
+  } else {
+    if (IS_PRODUCTION && (!ADMIN_PASSWORD_ENV || ADMIN_PASSWORD_ENV.length < 8)) {
+      throw new Error('[seed] Em produção defina ADMIN_PASSWORD (mínimo 8 caracteres) no .env para criar o admin.');
+    }
+    // Criação inicial: senha do .env (ou a de dev, só fora de produção).
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD_ENV ?? DEV_ADMIN_PASSWORD, 10);
+    const admin = await prisma.user.create({
+      data: {
+        name: ADMIN_NAME,
+        email: ADMIN_EMAIL,
+        passwordHash,
+        role: UserRole.ADMIN,
+        active: true,
+        emailVerified: true,
+      },
+    });
+    console.log(`[seed] admin: ${admin.email} (criado)`);
+    if (!ADMIN_PASSWORD_ENV) {
+      console.warn(`[seed] ATENÇÃO: admin criado com a senha de desenvolvimento "${DEV_ADMIN_PASSWORD}". Defina ADMIN_PASSWORD antes de ir para produção.`);
+    }
+  }
 
   // -----------------------------------------------------------------------
   // 2. Categorias
@@ -239,7 +262,11 @@ async function main() {
     },
   ];
 
-  for (const p of productsData) {
+  // Catálogo DEMO só sob demanda explícita (SEED_DEMO_CATALOG=1). Sem isso o
+  // seed nunca recria produtos — um catálogo limpo continua limpo.
+  const seedDemoCatalog = process.env.SEED_DEMO_CATALOG === '1';
+  if (!seedDemoCatalog) console.log('[seed] produtos demo ignorados (defina SEED_DEMO_CATALOG=1 para criá-los)');
+  for (const p of seedDemoCatalog ? productsData : []) {
     const categoryId = categoriesBySlug[p.categorySlug];
     if (!categoryId) throw new Error(`Categoria não encontrada para slug ${p.categorySlug}`);
     await prisma.product.upsert({
@@ -260,19 +287,22 @@ async function main() {
         purchaseMode: p.purchaseMode ?? ProductPurchaseMode.DIRECT,
         images: { create: [{ url: p.imageUrl, alt: p.name, position: 0 }] },
       },
-      update: {
-        name: p.name,
-        price: p.price,
-        promotionalPrice: p.promotionalPrice ?? null,
-        stock: p.stock,
-        shortDescription: p.shortDescription,
-        description: p.description,
-        featured: !!p.featured,
-        purchaseMode: p.purchaseMode ?? ProductPurchaseMode.DIRECT,
-      },
+      // Em produção não sobrescreve preço/estoque que o cliente já editou.
+      update: IS_PRODUCTION
+        ? {}
+        : {
+            name: p.name,
+            price: p.price,
+            promotionalPrice: p.promotionalPrice ?? null,
+            stock: p.stock,
+            shortDescription: p.shortDescription,
+            description: p.description,
+            featured: !!p.featured,
+            purchaseMode: p.purchaseMode ?? ProductPurchaseMode.DIRECT,
+          },
     });
   }
-  console.log(`[seed] produtos: ${productsData.length}`);
+  if (seedDemoCatalog) console.log(`[seed] produtos: ${productsData.length}`);
 
   // -----------------------------------------------------------------------
   // 4. SiteSettings (registro único — id "main")
@@ -303,11 +333,9 @@ async function main() {
       freeShippingThreshold: 299,
       shippingNote: 'Enviamos para todo o Brasil',
     },
-    update: {
-      storeName: '3DCommerce',
-      whatsapp: '5554992752253',
-      email: 'commerce3d@outlook.com',
-    },
+    // Já existe → não mexe: os dados da loja são editados pelo cliente em
+    // /admin/configuracoes e o seed não pode sobrescrevê-los.
+    update: {},
   });
   console.log('[seed] siteSettings: ok');
 

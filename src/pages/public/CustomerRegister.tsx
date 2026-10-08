@@ -1,4 +1,5 @@
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { safeRedirect } from '@/utils/redirect';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,6 +15,9 @@ const schema = z.object({
   phone: z.string().min(10, 'Telefone inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres'),
   passwordConfirm: z.string(),
+  privacyConsent: z.literal(true, {
+    errorMap: () => ({ message: 'Você precisa aceitar a Política de Privacidade para criar a conta.' }),
+  }),
   cep: z.string().optional(),
   street: z.string().optional(),
   number: z.string().optional(),
@@ -31,6 +35,9 @@ type Data = z.infer<typeof schema>;
 export default function CustomerRegister() {
   useSEO('Criar conta', 'Crie sua conta na 3DCommerce para acompanhar seus pedidos.');
   const navigate = useNavigate();
+  const location = useLocation();
+  // Volta para onde o cliente estava (ex.: checkout), se veio com ?redirect=.
+  const dest = safeRedirect(location.search);
   const isLogged = useCustomerAuthStore((s) => s.currentCustomerId !== null);
   const registerCustomer = useCustomerAuthStore((s) => s.registerCustomer);
 
@@ -38,7 +45,7 @@ export default function CustomerRegister() {
     resolver: zodResolver(schema),
   });
 
-  if (isLogged) return <Navigate to="/minha-conta" replace />;
+  if (isLogged) return <Navigate to={dest} replace />;
 
   async function onSubmit(d: Data) {
     const hasAddress = d.cep && d.street && d.number && d.district && d.city && d.state;
@@ -47,6 +54,7 @@ export default function CustomerRegister() {
       email: d.email,
       phone: d.phone,
       password: d.password,
+      privacyConsent: d.privacyConsent,
       defaultAddress: hasAddress
         ? {
             cep: d.cep!,
@@ -61,7 +69,7 @@ export default function CustomerRegister() {
     });
     if (r.ok) {
       toast.success('Conta criada! Bem-vindo.');
-      navigate('/minha-conta');
+      navigate(dest, { replace: true });
     } else {
       toast.error(r.error ?? 'Erro ao criar conta.');
     }
@@ -144,6 +152,26 @@ export default function CustomerRegister() {
             </div>
           </section>
 
+          <section className="border-t border-ink-line pt-5">
+            <label className="flex items-start gap-3 text-sm text-ink-soft">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-ink-line accent-accent"
+                {...register('privacyConsent')}
+              />
+              <span>
+                Li e aceito a{' '}
+                <Link to="/privacidade" target="_blank" rel="noopener" className="font-semibold text-ink underline">
+                  Política de Privacidade
+                </Link>{' '}
+                e autorizo o tratamento dos meus dados conforme a LGPD.
+              </span>
+            </label>
+            {errors.privacyConsent && (
+              <p className="mt-2 text-xs font-medium text-red-600">{errors.privacyConsent.message}</p>
+            )}
+          </section>
+
           <Button type="submit" fullWidth size="lg" loading={isSubmitting}>
             Criar conta
           </Button>
@@ -151,7 +179,7 @@ export default function CustomerRegister() {
 
         <p className="mt-5 text-center text-sm text-ink-mute">
           Já tem conta?{' '}
-          <Link to="/login" className="font-semibold text-ink hover:underline">
+          <Link to={"/login" + location.search} className="font-semibold text-ink hover:underline">
             Entrar
           </Link>
         </p>

@@ -2,9 +2,114 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import multer from 'multer';
+import { put, del } from '@vercel/blob';
 import type { Request } from 'express';
 import { env } from '../config/env';
 import { HttpError } from '../utils/httpError';
+
+/**
+ * Armazenamento de uploads (produtos, orçamentos, site).
+ *
+ * - **Produção (Vercel):** com `BLOB_READ_WRITE_TOKEN` os arquivos vão para o
+ *   **Vercel Blob** e o banco guarda a URL pública absoluta do Blob. As funções
+ *   da Vercel não têm disco gravável — por isso nada é escrito localmente.
+ * - **Desenvolvimento:** sem o token, grava em `UPLOAD_DIR/<pasta>` e serve por
+ *   `/uploads/<pasta>/<arquivo>` (express.static no app.ts), como antes.
+ *
+ * Os controllers usam `storedFileUrl(file)` para obter a URL a persistir e as
+ * funções `safeUnlink*` aceitam tanto URL do Blob quanto caminho local.
+ */
+
+type Folder = 'products' | 'quotes' | 'site';
+
+export const isBlobStorage = (): boolean => Boolean(env.BLOB_READ_WRITE_TOKEN);
+
+const localDir = (folder: Folder) => path.resolve(process.cwd(), env.UPLOAD_DIR, folder);
+
+/** Nome imprevisível: 32 hex + extensão já validada pelo fileFilter. */
+function randomName(ext: string): string {
+  return `${crypto.randomBytes(16).toString('hex')}${ext}`;
+}
+
+/**
+ * StorageEngine do multer que grava no Blob ou no disco. Após o upload,
+ * `file.filename` = nome gerado e `file.path` = URL do Blob ou caminho local.
+ */
+function createStorage(folder: Folder, extFor: (file: Express.Multer.File) => string): multer.StorageEngine {
+  return {
+    _handleFile(_req, file, cb) {
+      const filename = randomName(extFor(file));
+      if (isBlobStorage()) {
+        const chunks: Buffer[] = [];
+        file.stream.on('data', (c: Buffer) => chunks.push(c));
+        file.stream.on('error', cb);
+        file.stream.on('end', async () => {
+          try {
+            const body = Buffer.concat(chunks);
+            const blob = await put(`${folder}/${filename}`, body, {
+              access: 'public',
+              contentType: file.mimetype,
+              addRandomSuffix: false,
+              token: env.BLOB_READ_WRITE_TOKEN,
+            });
+            cb(null, { filename, path: blob.url, size: body.length });
+          } catch {
+            // eslint-disable-next-line no-console
+            console.error(`[upload] Falha ao enviar ${folder}/${filename} para o Vercel Blob.`);
+            cb(HttpError.internal('Falha ao salvar o arquivo. Tente novamente.'));
+          }
+        });
+        return;
+      }
+
+      // Disco (dev). Diretório criado sob demanda — nunca no import do módulo.
+      const dir = localDir(folder);
+      fs.mkdirSync(dir, { recursive: true });
+      const dest = path.join(dir, filename);
+      const out = fs.createWriteStream(dest);
+      file.stream.pipe(out);
+      out.on('error', cb);
+      out.on('finish', () => cb(null, { filename, path: dest, size: out.bytesWritten }));
+    },
+    _removeFile(_req, file, cb) {
+      removeStored(file.path, folder).finally(() => cb(null));
+    },
+  };
+}
+
+/** URL pública a persistir no banco para um arquivo recém-enviado. */
+export function storedFileUrl(file: Express.Multer.File, folder: Folder): string {
+  if (/^https?:\/\//i.test(file.path)) return file.path; // Blob
+  return `/uploads/${folder}/${file.filename}`;
+}
+
+/**
+ * Remove um arquivo armazenado (best-effort, nunca lança). Aceita URL do Blob,
+ * URL local (`/uploads/<pasta>/x.png`), caminho absoluto ou só o filename.
+ */
+async function removeStored(urlOrName: string | null | undefined, folder: Folder): Promise<void> {
+  if (!urlOrName) return;
+  try {
+    if (/^https?:\/\//i.test(urlOrName)) {
+      if (isBlobStorage() && urlOrName.includes('.blob.vercel-storage.com/')) {
+        await del(urlOrName, { token: env.BLOB_READ_WRITE_TOKEN });
+      }
+      return;
+    }
+    const prefix = `/uploads/${folder}/`;
+    let filename = urlOrName.startsWith(prefix) ? urlOrName.slice(prefix.length) : urlOrName;
+    if (path.isAbsolute(filename)) filename = path.basename(filename);
+    // Guard contra path traversal.
+    if (!filename || filename.includes('/') || filename.includes('\\')) return;
+    fs.unlinkSync(path.join(localDir(folder), filename));
+  } catch {
+    // ignora — o arquivo pode já ter sido removido.
+  }
+}
+
+// =========================================================================
+// Imagens de PRODUTO
+// =========================================================================
 
 const ALLOWED_IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const EXT_BY_MIME: Record<string, string> = {
@@ -15,11 +120,12 @@ const EXT_BY_MIME: Record<string, string> = {
 
 /**
  * R20 — Galeria do PRODUTO: além de imagens tradicionais, aceita GIF e MP4
- * para animar/demonstrar o produto. Limites diferentes por tipo mantêm o
- * bundle da página leve mesmo com vídeo.
+ * para animar/demonstrar o produto. Limites por tipo — na Vercel o corpo da
+ * requisição é limitado a 4,5 MB, então no Vercel Blob tudo fica em 4 MB
+ * (o front envia um arquivo por requisição); em dev (disco) o vídeo vai a 8 MB.
  */
-export const PRODUCT_MEDIA_MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
-export const PRODUCT_MEDIA_MAX_VIDEO_BYTES = 8 * 1024 * 1024; // 8 MB
+export const PRODUCT_MEDIA_MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+export const PRODUCT_MEDIA_MAX_VIDEO_BYTES = isBlobStorage() ? 4 * 1024 * 1024 : 8 * 1024 * 1024;
 const PRODUCT_MEDIA_EXT_BY_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
@@ -32,21 +138,7 @@ export function classifyProductMedia(mime: string): 'image' | 'video' {
   return mime.startsWith('video/') ? 'video' : 'image';
 }
 
-/** Diretório absoluto para imagens de produtos. Criado se não existir. */
-const productsDir = path.resolve(process.cwd(), env.UPLOAD_DIR, 'products');
-fs.mkdirSync(productsDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, productsDir),
-  filename: (_req, file, cb) => {
-    // Nome imprevisível: 32 hex + extensão sanitizada pelo mime.
-    const rand = crypto.randomBytes(16).toString('hex');
-    const ext = EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase();
-    cb(null, `${rand}${ext}`);
-  },
-});
-
-function fileFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+function imageFileFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
   if (!ALLOWED_IMAGE_MIME.has(file.mimetype)) {
     return cb(HttpError.badRequest('Formato de imagem não suportado. Use JPG, PNG ou WEBP.'));
   }
@@ -59,28 +151,31 @@ function fileFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFil
   cb(null, true);
 }
 
-const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+const imageExt = (file: Express.Multer.File) =>
+  EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase();
+
+/**
+ * 4 MB por imagem: a Vercel limita o corpo da requisição a 4,5 MB, então o
+ * front envia as imagens de produto uma por requisição.
+ */
+const IMAGE_MAX_SIZE = 4 * 1024 * 1024;
 const MAX_FILES = 10;
 
 export const productImagesUpload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: MAX_SIZE_BYTES, files: MAX_FILES },
+  storage: createStorage('products', imageExt),
+  fileFilter: imageFileFilter,
+  limits: { fileSize: IMAGE_MAX_SIZE, files: MAX_FILES },
 });
 
-// -------------------------------------------------------------------------
-// Produto — MÍDIA (imagem + GIF + MP4). Compartilha o diretório e as regras
-// de nome imprevisível; troca o filtro e aplica limite por tipo.
-// -------------------------------------------------------------------------
-const productMediaStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, productsDir),
-  filename: (_req, file, cb) => {
-    const rand = crypto.randomBytes(16).toString('hex');
-    const ext = PRODUCT_MEDIA_EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase();
-    cb(null, `${rand}${ext}`);
-  },
-});
+export function safeUnlinkProductImage(urlOrFilename: string | null | undefined) {
+  void removeStored(urlOrFilename, 'products');
+}
 
+// -------------------------------------------------------------------------
+// Produto — MÍDIA (imagem + GIF + MP4). Mesmo armazenamento (Blob/disco) e
+// nome imprevisível; troca o filtro e aplica limite por tipo (o service
+// revalida o tamanho por tipo antes de persistir).
+// -------------------------------------------------------------------------
 function productMediaFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
   if (!PRODUCT_MEDIA_ALLOWED_MIMES.has(file.mimetype)) {
     return cb(HttpError.badRequest('Formato não suportado. Envie JPG, PNG, WEBP, GIF ou MP4.'));
@@ -95,33 +190,17 @@ function productMediaFilter(_req: Request, file: Express.Multer.File, cb: multer
 }
 
 export const productMediaUpload = multer({
-  storage: productMediaStorage,
+  storage: createStorage(
+    'products',
+    (file) => PRODUCT_MEDIA_EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase(),
+  ),
   fileFilter: productMediaFilter,
-  // Limite mais folgado (vídeo): o service ainda valida o tamanho por tipo
-  // antes de persistir, para bloquear imagem >5MB mesmo que <8MB.
-  limits: { fileSize: PRODUCT_MEDIA_MAX_VIDEO_BYTES, files: MAX_FILES },
+  limits: { fileSize: Math.max(PRODUCT_MEDIA_MAX_IMAGE_BYTES, PRODUCT_MEDIA_MAX_VIDEO_BYTES), files: MAX_FILES },
 });
 
-/** Constrói a URL pública servida por `/uploads/products/<filename>`. */
-export function productImageUrl(filename: string): string {
-  return `/uploads/products/${filename}`;
-}
-
-/** Best-effort: remove o arquivo do disco (não falha se não existir). */
-export function safeUnlinkProductImage(filename: string) {
-  try {
-    fs.unlinkSync(path.join(productsDir, filename));
-  } catch {
-    // ignora erros — o arquivo pode já ter sido removido manualmente.
-  }
-}
-
 // =========================================================================
-// Uploads de arquivos de ORÇAMENTO (STL/OBJ/ZIP/PDF/imagens)
+// Arquivos de ORÇAMENTO (STL/OBJ/ZIP/PDF/imagens)
 // =========================================================================
-
-const quotesDir = path.resolve(process.cwd(), env.UPLOAD_DIR, 'quotes');
-fs.mkdirSync(quotesDir, { recursive: true });
 
 /**
  * Whitelist de extensão → mimes aceitáveis.
@@ -165,98 +244,39 @@ function quoteFileFilter(_req: Request, file: Express.Multer.File, cb: multer.Fi
   cb(null, true);
 }
 
-const quoteStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, quotesDir),
-  filename: (_req, file, cb) => {
-    const rand = crypto.randomBytes(16).toString('hex');
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${rand}${ext}`);
-  },
-});
-
-const QUOTE_MAX_SIZE = 25 * 1024 * 1024; // 25 MB
+/**
+ * 25 MB em dev; no Vercel Blob o limite real é o corpo de 4,5 MB da função
+ * (arquivos maiores precisam de upload direto do navegador para o Blob).
+ */
+const QUOTE_MAX_SIZE = isBlobStorage() ? 4 * 1024 * 1024 : 25 * 1024 * 1024;
 const QUOTE_MAX_FILES = 10;
 
 export const quoteFilesUpload = multer({
-  storage: quoteStorage,
+  storage: createStorage('quotes', (file) => path.extname(file.originalname).toLowerCase()),
   fileFilter: quoteFileFilter,
   limits: { fileSize: QUOTE_MAX_SIZE, files: QUOTE_MAX_FILES },
 });
 
-export function quoteFileUrl(filename: string): string {
-  return `/uploads/quotes/${filename}`;
-}
-
-export function safeUnlinkQuoteFile(filename: string) {
-  try {
-    fs.unlinkSync(path.join(quotesDir, filename));
-  } catch {
-    // ignora
-  }
+export function safeUnlinkQuoteFile(urlOrFilename: string | null | undefined) {
+  void removeStored(urlOrFilename, 'quotes');
 }
 
 // =========================================================================
-// Uploads de conteúdo institucional do SITE (logo, banners, avatares) — R8
+// Conteúdo institucional do SITE (logo, banners, avatares) — R8
 // =========================================================================
-
-const siteDir = path.resolve(process.cwd(), env.UPLOAD_DIR, 'site');
-fs.mkdirSync(siteDir, { recursive: true });
 
 /**
  * Aceita apenas raster puro. **SVG é bloqueado** de propósito — pode conter
- * JavaScript e virar XSS reflected quando renderizado em `<img>` ou inline.
+ * JavaScript e virar XSS quando renderizado em `<img>` ou inline.
  */
-const SITE_ALLOWED_IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
-
-function siteFileFilter(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
-  if (!SITE_ALLOWED_IMAGE_MIME.has(file.mimetype)) {
-    return cb(HttpError.badRequest('Formato não suportado. Envie JPG, PNG ou WEBP.'));
-  }
-  const ext = path.extname(file.originalname).toLowerCase();
-  const expected = EXT_BY_MIME[file.mimetype];
-  if (ext && ext !== expected && !(ext === '.jpeg' && expected === '.jpg')) {
-    return cb(HttpError.badRequest('Extensão do arquivo não confere com o formato.'));
-  }
-  cb(null, true);
-}
-
-const siteStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, siteDir),
-  filename: (_req, file, cb) => {
-    const rand = crypto.randomBytes(16).toString('hex');
-    const ext = EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase();
-    cb(null, `${rand}${ext}`);
-  },
-});
-
-const SITE_MAX_SIZE = 5 * 1024 * 1024; // 5 MB
-
 /** Upload single-file para logo/banner/avatar. Só um arquivo por request. */
 export const siteImageUpload = multer({
-  storage: siteStorage,
-  fileFilter: siteFileFilter,
-  limits: { fileSize: SITE_MAX_SIZE, files: 1 },
+  storage: createStorage('site', imageExt),
+  fileFilter: imageFileFilter,
+  limits: { fileSize: IMAGE_MAX_SIZE, files: 1 },
 });
 
-/** URL pública servida por `/uploads/site/<filename>`. */
-export function siteImageUrl(filename: string): string {
-  return `/uploads/site/${filename}`;
-}
-
-/**
- * Remove um asset do site do disco. Aceita URL relativa (`/uploads/site/x.png`)
- * ou só o filename. Silencioso se o arquivo não existir.
- */
+/** Remove um asset do site (URL do Blob, `/uploads/site/x.png` ou filename). */
 export function safeUnlinkSiteImage(urlOrFilename: string | null | undefined) {
-  if (!urlOrFilename) return;
-  const prefix = '/uploads/site/';
-  const filename = urlOrFilename.startsWith(prefix)
-    ? urlOrFilename.slice(prefix.length)
-    : urlOrFilename;
-  if (!filename || filename.includes('/') || filename.includes('\\')) return;
-  try {
-    fs.unlinkSync(path.join(siteDir, filename));
-  } catch {
-    // ignora
-  }
+  void removeStored(urlOrFilename, 'site');
 }

@@ -5,6 +5,7 @@ import type { Product } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { formatBRL, getDiscountPercent, getEffectivePrice, getPixPrice } from '@/utils/price';
 import { useCartStore } from '@/store/useCartStore';
+import { useAdminDataStore } from '@/store/useAdminDataStore';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/store/useUIStore';
@@ -14,8 +15,9 @@ export function ProductCard({ product }: { product: Product }) {
   const addItem = useCartStore((s) => s.addItem);
   const setCartOpen = useUIStore((s) => s.setCartOpen);
   const navigate = useNavigate();
+  const pixDiscountPercent = useAdminDataStore((s) => s.settings.pixDiscountPercent);
   const effective = getEffectivePrice(product);
-  const pix = getPixPrice(product);
+  const pix = getPixPrice(product, pixDiscountPercent);
   const discount = getDiscountPercent(product);
   const isOutOfStock = product.stock <= 0;
   const isQuoteOnly = product.purchaseMode === 'quote';

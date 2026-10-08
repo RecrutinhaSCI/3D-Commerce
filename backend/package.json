@@ -7,6 +7,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "postinstall": "prisma generate",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
@@ -17,6 +18,9 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
     "db:setup": "prisma migrate dev --name init && tsx prisma/seed.ts",
+    "db:deploy": "prisma migrate deploy",
+    "check:config": "tsx scripts/check-config.ts",
+    "uploads:migrate": "tsx scripts/migrate-uploads.ts",
     "test": "vitest run"
   },
   "prisma": {
@@ -24,6 +28,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "@vercel/blob": "^2.8.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -31,7 +36,9 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
+    "mercadopago": "^3.6.1",
     "multer": "^2.2.0",
+    "nodemailer": "^10.0.10",
     "prisma": "^6.19.3",
     "zod": "^3.23.8"
   },
@@ -42,6 +49,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@types/node": "^20.16.10",
+    "@types/nodemailer": "^8.0.1",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2",
     "vitest": "^4.1.10"

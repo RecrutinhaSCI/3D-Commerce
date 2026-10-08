@@ -2,7 +2,13 @@ import type { Request, Response } from 'express';
 import { created, ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
 import { authService } from './auth.service';
-import { loginSchema, registerSchema } from './auth.schemas';
+import {
+  loginSchema,
+  registerSchema,
+  verifyEmailSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from './auth.schemas';
 
 export const authController = {
   async register(req: Request, res: Response) {
@@ -21,5 +27,33 @@ export const authController = {
     if (!req.user) throw HttpError.unauthorized();
     const user = await authService.getMe(req.user.id);
     return ok(res, { user });
+  },
+
+  async verifyEmail(req: Request, res: Response) {
+    const input = verifyEmailSchema.parse(req.body);
+    const result = await authService.verifyEmailToken(input);
+    return ok(res, result);
+  },
+
+  async resendVerification(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { alreadyVerified } = await authService.resendVerification(req.user.id);
+    return ok(res, {
+      alreadyVerified,
+      message: alreadyVerified ? 'Seu e-mail já está confirmado.' : 'Enviamos um novo link de confirmação.',
+    });
+  },
+
+  async forgotPassword(req: Request, res: Response) {
+    const input = forgotPasswordSchema.parse(req.body);
+    await authService.forgotPassword(input);
+    // Resposta SEMPRE genérica — não revela se o e-mail existe.
+    return ok(res, { message: 'Se o e-mail existir, enviamos o link de redefinição.' });
+  },
+
+  async resetPassword(req: Request, res: Response) {
+    const input = resetPasswordSchema.parse(req.body);
+    await authService.resetPassword(input);
+    return ok(res, { message: 'Senha redefinida com sucesso.' });
   },
 };

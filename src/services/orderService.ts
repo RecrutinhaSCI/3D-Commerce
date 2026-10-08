@@ -1,12 +1,23 @@
 import { api } from './api';
-import type { ApiOrder, ApiOrderAddress, ApiPagination, ApiPaymentMethod, ApiOrderStatus, ApiPaymentStatus } from './types';
+import type {
+  ApiOrder,
+  ApiOrderAddress,
+  ApiPagination,
+  ApiPaymentMethod,
+  ApiOrderStatus,
+  ApiPaymentStatus,
+  ApiShippingMethod,
+} from './types';
 
 export interface CreateOrderPayload {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  /** CPF do comprador (validado no backend). */
+  customerCpf?: string | null;
   address: ApiOrderAddress;
-  shippingValue?: number;
+  /** Modalidade escolhida; o valor do frete é calculado no backend. */
+  shippingMethod: ApiShippingMethod;
   /** Código do cupom. O desconto é recalculado no backend. */
   couponCode?: string | null;
   paymentMethod: ApiPaymentMethod;
@@ -43,5 +54,12 @@ export const orderService = {
   },
   updateStatus(id: string, input: { status?: ApiOrderStatus; paymentStatus?: ApiPaymentStatus }) {
     return api.put<{ order: ApiOrder }>(`/api/admin/orders/${id}/status`, input);
+  },
+  /** Cancela o pedido; se já foi pago via Mercado Pago, estorna lá. */
+  adminCancel(id: string) {
+    return api.post<{ orderId: string; result: 'refunded' | 'canceled' }>(`/api/admin/orders/${id}/cancel`);
+  },
+  updateTracking(id: string, trackingCode: string | null) {
+    return api.put<{ order: ApiOrder }>(`/api/admin/orders/${id}/tracking`, { trackingCode });
   },
 };

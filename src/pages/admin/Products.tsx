@@ -10,6 +10,8 @@ import { Modal } from '@/components/ui/Modal';
 import { useSEO } from '@/utils/seo';
 import { exportProductsXlsx, downloadProductTemplate } from '@/utils/productExcel';
 import { ProductImportModal } from '@/components/admin/ProductImportModal';
+import { ApiError } from '@/services/api';
+import { productService } from '@/services/productService';
 
 /** R19-E — dd/MM/aaaa HH:mm em pt-BR; `null` → traço. */
 function formatDateTime(iso: string | null | undefined): string {
@@ -32,6 +34,10 @@ export default function Products() {
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('all');
+  // Inativo = fora da loja, mas ainda cadastrado (pode ser reativado).
+  // Excluído = apagado do banco — nunca volta para esta lista.
+  const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const [exporting, setExporting] = useState(false);
   const [lowStockOnly, setLowStockOnly] = useState(params.get('filter') === 'low-stock');
   const [confirm, setConfirm] = useState<string | null>(null);
   const [confirmBulk, setConfirmBulk] = useState(false);
@@ -47,11 +53,13 @@ export default function Products() {
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (cat !== 'all' && !p.categoryIds.includes(cat)) return false;
+      if (status === 'active' && !p.active) return false;
+      if (status === 'inactive' && p.active) return false;
       if (lowStockOnly && p.stock > 5) return false;
       if (q && !`${p.name} ${p.brand}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
     });
-  }, [products, cat, q, lowStockOnly]);
+  }, [products, cat, q, lowStockOnly, status]);
 
   // R19-E — Ao trocar filtros, remove da seleção quaisquer IDs que saíram
   // da lista visível — evita deletar produto que o admin não vê mais.
@@ -67,15 +75,41 @@ export default function Products() {
   const allVisibleSelected = filtered.length > 0 && filtered.every((p) => selected.has(p.id));
   const someSelected = selected.size > 0;
 
-  function toggleActive(id: string, active: boolean) {
-    updateProduct(id, { active });
-    toast.success(active ? 'Produto ativado' : 'Produto desativado');
+  async function toggleActive(id: string, active: boolean) {
+    try {
+      await updateProduct(id, { active });
+      toast.success(active ? 'Produto ativado (visível na loja)' : 'Produto desativado (oculto da loja)');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Não foi possível alterar o status do produto.');
+    }
   }
 
-  function doRemove(id: string) {
-    removeProduct(id);
-    toast.success('Produto removido');
+  async function doRemove(id: string) {
     setConfirm(null);
+    try {
+      await removeProduct(id);
+      toast.success('Produto excluído');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Não foi possível excluir o produto.');
+    }
+  }
+
+  /** Exporta direto do banco (não do cache da tela) — SKU e imagem reais. */
+  async function doExport() {
+    setExporting(true);
+    try {
+      const all = await productService.listAllAdmin();
+      if (all.length === 0) {
+        toast.error('Nenhum produto para exportar.');
+        return;
+      }
+      exportProductsXlsx(all);
+      toast.success(`${all.length} produto(s) exportado(s).`);
+    } catch {
+      toast.error('Falha ao exportar os produtos.');
+    } finally {
+      setExporting(false);
+    }
   }
 
   function toggleOne(id: string) {
@@ -112,11 +146,9 @@ export default function Products() {
       toast.error('Falha ao excluir os produtos selecionados.');
       return;
     }
-    // R19-E — Sucesso parcial: mostra números para o admin, sem esconder
-    // nada. Ex.: "3 removidos, 1 não encontrado".
-    const parts = [`${report.deactivated} removido(s)`];
-    if (report.alreadyInactive.length) parts.push(`${report.alreadyInactive.length} já estavam inativos`);
-    if (report.notFound.length) parts.push(`${report.notFound.length} não encontrado(s)`);
+    // Sucesso parcial: mostra números para o admin, sem esconder nada.
+    const parts = [`${report.deleted} excluído(s)`];
+    if (report.notFound.length) parts.push(`${report.notFound.length} já não existiam`);
     toast.success(parts.join(', '));
     setSelected(new Set());
   }
@@ -126,10 +158,15 @@ export default function Products() {
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Produtos</h1>
-          <p className="text-sm text-ink-mute">{filtered.length} produto(s)</p>
+          <p className="text-sm text-ink-mute">
+            {filtered.length} produto(s)
+            {products.some((p) => !p.active) && (
+              <> · {products.filter((p) => !p.active).length} inativo(s)</>
+            )}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => exportProductsXlsx(products, categories)} disabled={products.length === 0}>
+          <Button variant="secondary" size="sm" onClick={doExport} loading={exporting} disabled={products.length === 0}>
             <Download className="h-4 w-4" /> Exportar Excel
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
@@ -173,6 +210,16 @@ export default function Products() {
               {c.name}
             </option>
           ))}
+        </Select>
+        <Select
+          value={status}
+          onChange={(e) => setStatus(e.target.value as typeof status)}
+          className="max-w-[180px]"
+          aria-label="Filtrar por status"
+        >
+          <option value="all">Todos os status</option>
+          <option value="active">Somente ativos</option>
+          <option value="inactive">Somente inativos</option>
         </Select>
         <label className="ml-auto flex items-center gap-2 text-xs text-ink-soft">
           <input
@@ -232,7 +279,10 @@ export default function Products() {
           </thead>
           <tbody className="divide-y divide-ink-line">
             {filtered.map((p) => (
-              <tr key={p.id} className={`hover:bg-bg-soft/50 ${selected.has(p.id) ? 'bg-bg-soft/40' : ''}`}>
+              <tr
+                key={p.id}
+                className={`hover:bg-bg-soft/50 ${selected.has(p.id) ? 'bg-bg-soft/40' : ''} ${p.active ? '' : 'text-ink-mute'}`}
+              >
                 <td className="px-4 py-3">
                   <input
                     type="checkbox"
@@ -243,8 +293,22 @@ export default function Products() {
                   />
                 </td>
                 <td className="flex items-center gap-3 px-4 py-3">
-                  <img src={p.images[0]} alt="" className="h-10 w-10 rounded-lg object-cover" />
-                  <span className="font-semibold">{p.name}</span>
+                  <img
+                    src={p.images[0]}
+                    alt=""
+                    className={`h-10 w-10 rounded-lg object-cover ${p.active ? '' : 'opacity-50 grayscale'}`}
+                  />
+                  <div>
+                    <span className="block font-semibold">{p.name}</span>
+                    {!p.active && (
+                      <span
+                        title="Fora da loja — reative marcando Ativo"
+                        className="mt-0.5 inline-block whitespace-nowrap rounded-full bg-ink/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-mute"
+                      >
+                        Inativo
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-ink-mute">{p.brand?.trim() || '—'}</td>
                 <td className="hidden px-4 py-3 text-ink-mute md:table-cell">
@@ -260,6 +324,7 @@ export default function Products() {
                       checked={p.active}
                       onChange={(e) => toggleActive(p.id, e.target.checked)}
                       className="accent-ink"
+                      aria-label={p.active ? `Desativar ${p.name}` : `Ativar ${p.name}`}
                     />
                   </label>
                 </td>
@@ -306,18 +371,21 @@ export default function Products() {
         onDone={() => refresh()}
       />
 
-      <Modal open={!!confirm} onClose={() => setConfirm(null)} title="Remover produto?">
-        <p className="text-sm text-ink-mute">Essa ação desativa o produto — o histórico em pedidos é preservado.</p>
+      <Modal open={!!confirm} onClose={() => setConfirm(null)} title="Excluir produto?">
+        <p className="text-sm text-ink-mute">
+          O produto e as fotos dele são <b>apagados definitivamente</b>. Pedidos antigos continuam com nome,
+          SKU e preço registrados. Para apenas tirar da loja sem apagar, desmarque <b>Ativo</b>.
+        </p>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setConfirm(null)}>Cancelar</Button>
-          <Button variant="danger" onClick={() => confirm && doRemove(confirm)}>Remover</Button>
+          <Button variant="danger" onClick={() => confirm && doRemove(confirm)}>Excluir</Button>
         </div>
       </Modal>
 
       <Modal open={confirmBulk} onClose={() => setConfirmBulk(false)} title={`Excluir ${selected.size} produto(s)?`}>
         <p className="text-sm text-ink-mute">
-          Essa ação desativa {selected.size} produto(s) selecionado(s). Nenhum pedido ou histórico é apagado.
-          A operação pode ser revertida entrando em cada produto e reativando manualmente.
+          {selected.size} produto(s) e suas fotos serão <b>apagados definitivamente</b> — não dá para desfazer.
+          Pedidos antigos continuam com nome, SKU e preço registrados.
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setConfirmBulk(false)} disabled={bulkBusy}>Cancelar</Button>

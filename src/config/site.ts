@@ -28,6 +28,13 @@ export const site = {
   shippingNote: 'Enviamos para todo o Brasil',
   freeShippingThreshold: 299,
   pixDiscountPercent: 5,
+  /**
+   * Parcelamento no cartão — FONTE ÚNICA (página do produto, "Como comprar" e
+   * limite do formulário de cartão). `interestFree: true` só é verdade se a
+   * conta do Mercado Pago do cliente estiver configurada para absorver os juros
+   * ("parcelamento sem juros"); senão o MP cobra juros do comprador.
+   */
+  installments: { max: 6, interestFree: true },
 } as const;
 
 // Nota (R17): YouTube e demais conteúdos de "Instagram e YouTube"/newsletter

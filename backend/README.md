@@ -115,3 +115,29 @@ curl http://localhost:3333/api/health
 ```
 
 Lance erros via `HttpError` para serem tratados pelo middleware global. `ZodError`, JSON inválido e payload grande já são reconhecidos automaticamente.
+
+## Backup, limpeza do catálogo e testes de integração
+
+```bash
+# Backup completo dos DADOS (todas as tabelas) → ../backups/*.json + *.sql
+# (sem pg_dump; o .sql restaura com `psql "$DATABASE_URL" -f arquivo.sql`
+#  num banco migrado e vazio). A pasta backups/ está no .gitignore.
+node scripts/db-backup.cjs
+
+# Limpeza do catálogo (produtos + mídias). Preserva admin, settings, categorias,
+# banners, cupons e migrations. Aborta se houver produto ativo, carrinho ou
+# pedido vinculado. SÓ rode depois de um backup validado.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/cleanup-catalog.sql
+
+# Testes de integração com Postgres real (export → .xlsx → import, exclusão,
+# active). Exige banco LOCAL com nome terminando em "_test" — ele é zerado.
+TEST_DATABASE_URL=postgresql://postgres:senha@localhost:55432/app_test npx vitest run
+```
+
+Regras do catálogo:
+
+- **Excluir** apaga o produto e as fotos de vez (pedidos antigos guardam nome/SKU/preço).
+  Para só tirar da loja, desmarque **Ativo** — inativos somem da loja mas continuam no admin e no export.
+- **Importar Excel**: célula vazia ou coluna ausente = não altera; `0` e `não` são valores.
+  Linhas sem diferença real caem em "Sem alteração" e não reescrevem nada.
+- O seed **não** cria produtos demo (use `SEED_DEMO_CATALOG=1`) e **não** troca a senha de um admin existente.

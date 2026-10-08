@@ -1,0 +1,47 @@
+# Checklist para produção — 3DCommerce
+
+Plano para deixar a loja pronta para vender de verdade (Vercel front + Render back + Neon + Mercado Pago).
+Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md).
+
+## Etapa 1 — Antes de qualquer venda
+
+- [x] Uploads no **Vercel Blob** (produto, banner, logo, depoimento, orçamento) — código pronto; falta criar o Blob Store na Vercel e copiar o `BLOB_READ_WRITE_TOKEN` para o Render
+- [x] **Meus pedidos** buscando `/api/me/orders` (hoje fica vazio ao recarregar)
+- [x] **Desconto Pix** aplicado no backend (% do admin sobre os produtos, frete fora)
+- [x] **Preço** recalculado na criação do pedido e total exibido vindo da API
+- [x] **Frete** calculado no backend + modalidade (PAC/Sedex/retirada) salva no pedido
+- [x] Remover o texto "Ambiente de teste (sandbox)" da tela de sucesso
+- [x] Migration de backfill: `stock_applied = true` nos pedidos antigos (`20261006120000_checkout_hardening`)
+- [x] Imagens antigas (`/uploads/...`, perdidas no disco efêmero do servidor): script `npm run uploads:migrate` (migra para o Blob ou remove do banco; aviso no `check:config`) + placeholder na loja para imagem que não carrega
+- [ ] ⏳ **Você:** rodar `npm run uploads:migrate` em produção e reenviar pelo admin as imagens sem arquivo (Etapa 5 do [prompt de deploy](docs/PROMPT-DEPLOY-MAIN.md))
+- [ ] ⏳ **Você:** aplicar as migrations no **Neon** (branch de backup antes) — até 8 pendentes (confira com `prisma migrate status`), comandos na seção 4 do CONFIGURAR-CLIENTE.md
+- [ ] ⏳ **Você:** criar o Blob Store na Vercel e cadastrar no **Render** `BLOB_READ_WRITE_TOKEN`, `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `CRON_SECRET` e `SMTP_*` (antes do merge)
+- [ ] ⏳ **Você:** GitHub → Actions secrets `CRON_SECRET` e `BACKEND_URL` (cron diário)
+
+## Etapa 2 — Operação da loja
+
+- [x] Estorno / cancelamento pelo admin via API do Mercado Pago (com reposição de estoque)
+- [x] Cancelar a cobrança anterior ao trocar de forma de pagamento (evitar cobrança dupla)
+- [x] Expirar pedidos não pagos (48h; boleto 96h) via **GitHub Actions** (`.github/workflows/expire-orders.yml`) e devolver o cupom — falta `CRON_SECRET` no Render e os secrets no GitHub
+- [x] Botão "Pagar agora" em Meus pedidos (página /pagar/:orderId: cartão, novo Pix ou boleto)
+- [x] Timeout no envio de e-mail (SMTP)
+- [x] Admin marcar pedido como pago → baixa estoque; validar transições de status
+- [x] Corrigir criação de produto no admin (id real, campos de peso/dimensões)
+- [x] Admin de pedidos: mostrar "[REVISAR ESTOQUE]", erros reais, atualizar lista
+
+## Etapa 3 — Conversão e qualidade
+
+- [x] Carrinho de visitante + login voltando para a página de origem (`?redirect=`)
+- [x] Endereço do cliente salvo no backend (GET/PUT /api/me/address)
+- [x] CEP automático (ViaCEP) e CPF validado e salvo no pedido (migration `20261006150000_order_customer_cpf`)
+- [x] Consentimento LGPD gravado (data + versão) + reenvio do e-mail de verificação
+- [x] Dashboard com faturamento real (só pedidos pagos, mês corrente e últimos 7 dias)
+- [x] Parcelamento consistente (produto, "Como comprar" e Brick) — `site.installments`
+- [x] Newsletter e formulário de contato salvando no backend (+ página Mensagens no admin)
+- [x] SEO: sitemap dinâmico com produtos, imagem de compartilhamento PNG, analytics (GA4) só com consentimento
+
+## Go-live
+
+- [ ] `npm run check:config` sem erros
+- [ ] Compra real via Pix testada e estornada
+- [ ] Merge da branch `api-mercado-pago` na `main`

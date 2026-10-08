@@ -53,7 +53,7 @@ export const seedOrders: Order[] = [
       { productId: 'prod-4', name: 'Filamento PETG Transparente 1kg', image: '', qty: 2, unitPrice: 139.9 },
       { productId: 'prod-13', name: 'Mesa Magnética PEI 235x235mm', image: '', qty: 1, unitPrice: 169.9 },
     ],
-    shipping: { method: 'PAC', price: 22.5, deadline: '4 dias úteis' },
+    shipping: { method: 'PAC', price: 22.5, deadline: '4 dias úteis', trackingCode: 'AA123456789BR' },
     payment: { method: 'pix' },
     subtotal: 449.7,
     total: 472.2,

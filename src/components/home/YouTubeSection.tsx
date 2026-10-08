@@ -60,6 +60,7 @@ export function YouTubeSection() {
                 src={primary}
                 alt={v.title}
                 loading="lazy"
+                data-no-fallback
                 onError={(e) => {
                   const el = e.currentTarget as HTMLImageElement;
                   // 1º erro tenta thumb do YouTube; 2º cai no placeholder.

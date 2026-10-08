@@ -37,6 +37,14 @@ export interface Product {
   categoryIds: string[];
   brand: string;
   material?: 'PLA' | 'PETG' | 'ABS' | 'Resina' | '-';
+  /** Ficha técnica/envio (persistidos no backend). Peso em kg, medidas em cm.
+   *  SKU real do backend (`null` = sem SKU). Opcional para mocks/criação otimista. */
+  sku?: string | null;
+  color?: string;
+  weight?: number;
+  width?: number;
+  height?: number;
+  depth?: number;
   /** URLs simples (compat com código antigo — sempre em ordem). */
   images: string[];
   /** R20 — mídias com tipo (fonte da verdade para galeria/uploads).
@@ -113,6 +121,8 @@ export type OrderStatus =
   | 'concluido'
   | 'cancelado';
 
+export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELED';
+
 export interface OrderItem {
   productId: string;
   name: string;
@@ -146,11 +156,20 @@ export interface Order {
     method: string;
     price: number;
     deadline: string;
+    trackingCode?: string;
   };
   payment: {
     method: 'pix' | 'credito' | 'boleto';
     installments?: number;
   };
+  /** Observações do pedido (inclui alertas como [REVISAR ESTOQUE]). */
+  notes?: string;
+  /** Id da Order no Mercado Pago. */
+  mpOrderId?: string;
+  /** Desconto da forma de pagamento (Pix) já abatido do total. */
+  paymentDiscount?: number;
+  /** Status do pagamento vindo do backend (Mercado Pago). */
+  paymentStatus?: PaymentStatus;
   coupon?: {
     code: string;
     discount: number;
@@ -172,6 +191,24 @@ export interface TrustItemContent {
   title: string;
   description?: string;
   enabled?: boolean;
+}
+
+// Rastreamento (API SeuRastreio)
+export interface TrackingEvent {
+  codigo?: string;
+  descricao: string;
+  data: string; // ISO
+  local?: string;
+}
+
+export interface TrackingResult {
+  carrierName?: string;
+  status: string;
+  success: boolean;
+  eventoMaisRecente?: TrackingEvent;
+  historico: TrackingEvent[];
+  previsaoEntrega?: string;
+  linkDetalhesCompletos?: string;
 }
 
 export interface InstagramItemContent {
@@ -265,6 +302,8 @@ export interface Customer {
   phone: string;
   /** Apenas mock: NÃO usar em produção. Substituir por Supabase Auth na Fase 2. */
   password: string;
+  /** Cliente confirmou o e-mail? Alimenta o aviso não-bloqueante na conta. */
+  emailVerified?: boolean;
   createdAt: string;
   defaultAddress?: CustomerAddress;
 }

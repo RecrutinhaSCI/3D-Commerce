@@ -103,6 +103,14 @@ Uso interno da **G-Rec Company** para garantir entrega profissional ao cliente.
 
 ## 8. Pré-apresentação ao cliente
 
+> Contas e dados do cliente (Mercado Pago, SMTP, domínio, admin): seguir [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md) e fechar com `npm run check:config` sem erros.
+
+- [ ] Credenciais de produção do Mercado Pago + webhook cadastrados
+- [ ] SMTP do cliente configurado (e-mails de pedido/pagamento/senha)
+- [ ] Admin de produção criado com `ADMIN_PASSWORD` própria (sem `admin123`)
+- [ ] `VITE_SITE_URL`, `APP_URL` e `CORS_ORIGIN` com o domínio real
+- [ ] Compra real via Pix testada e estornada
+
 - [ ] Verificar versão final pelo `git log` ou release
 - [ ] Logo real do cliente substituída (se entregue)
 - [ ] WhatsApp do cliente real configurado em `/admin/configuracoes` e/ou em `src/config/site.ts`

@@ -392,7 +392,8 @@ describe('bulkImport — auditoria R19-D (cenários mandatórios)', () => {
 
     const snap = db.products.map((p) => ({ ...p }));
     const r2 = await productsService.bulkImport({ rows: planilha });
-    expect(r2.summary).toMatchObject({ created: 0, updated: 2, conflicts: 0 });
+    // Valores idênticos → nada é reescrito (nem updatedAt): bucket "unchanged".
+    expect(r2.summary).toMatchObject({ created: 0, updated: 0, unchanged: 2, conflicts: 0 });
     expect(db.products).toHaveLength(2);
     // Estado final idêntico (nada zerado nem duplicado)
     for (const before of snap) {
