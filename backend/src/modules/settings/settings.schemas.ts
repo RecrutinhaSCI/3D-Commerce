@@ -58,6 +58,8 @@ export const updateSettingsSchema = z
     pixDiscountPercent: z.coerce.number().min(0, 'não pode ser negativo.').max(100),
     freeShippingThreshold: z.coerce.number().min(0, 'não pode ser negativo.'),
     shippingNote: z.string().trim().max(300).nullable(),
+    // Carrossel do hero: segundos entre um banner e outro.
+    heroIntervalSeconds: z.coerce.number().int('use um número inteiro.').min(2, 'mínimo de 2 segundos.').max(60, 'máximo de 60 segundos.'),
 
     // --- R17: conteúdos editáveis ---
     instagramHandle: z.string().trim().max(60).nullable(),
