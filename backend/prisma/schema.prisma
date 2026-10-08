@@ -130,11 +130,11 @@ model User {
   passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
 
   // LGPD: quando o cliente aceitou a Política de Privacidade e qual versão.
-  privacyConsentAt       DateTime? @map("privacy_consent_at")
-  privacyPolicyVersion   String?   @map("privacy_policy_version")
+  privacyConsentAt     DateTime? @map("privacy_consent_at")
+  privacyPolicyVersion String?   @map("privacy_policy_version")
 
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   addresses Address[]
   cart      Cart?
@@ -499,6 +499,8 @@ model SiteSettings {
   pixDiscountPercent    Decimal @default(5) @map("pix_discount_percent") @db.Decimal(5, 2)
   freeShippingThreshold Decimal @default(299) @map("free_shipping_threshold") @db.Decimal(12, 2)
   shippingNote          String? @map("shipping_note")
+  // Carrossel do hero: segundos entre um banner e outro.
+  heroIntervalSeconds   Int     @default(6) @map("hero_interval_seconds")
 
   // --- Conteúdos editáveis (R17) ---
   // Redes sociais
@@ -551,17 +553,20 @@ enum BannerSlot {
 }
 
 model Banner {
-  id         String     @id @default(cuid())
-  title      String
-  subtitle   String?
-  imageUrl   String?    @map("image_url")
-  buttonText String?    @map("button_text")
-  buttonLink String?    @map("button_link")
-  active     Boolean    @default(true)
-  position   Int        @default(0)
-  slot       BannerSlot @default(HERO)
-  createdAt  DateTime   @default(now()) @map("created_at")
-  updatedAt  DateTime   @updatedAt @map("updated_at")
+  id             String     @id @default(cuid())
+  title          String
+  subtitle       String?
+  imageUrl       String?    @map("image_url")
+  buttonText     String?    @map("button_text")
+  buttonLink     String?    @map("button_link")
+  active         Boolean    @default(true)
+  position       Int        @default(0)
+  slot           BannerSlot @default(HERO)
+  // Selos flutuantes do HERO: { enabled, tag, title, info }. Null = sem selo.
+  badgeLeftJson  Json?      @map("badge_left_json")
+  badgeRightJson Json?      @map("badge_right_json")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
 
   @@index([active])
   @@index([position])

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Edit, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -72,6 +72,8 @@ export default function Banners() {
           <Plus className="h-4 w-4" /> Novo banner
         </Button>
       </header>
+
+      <HeroIntervalCard />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {banners.map((b) => (
@@ -251,6 +253,48 @@ export default function Banners() {
           <Button variant="danger" onClick={() => { if (confirm) { removeBanner(confirm); toast.success('Banner removido'); setConfirm(null); } }}>Remover</Button>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/** Tempo de troca do carrossel do hero (fica nas configurações da loja). */
+function HeroIntervalCard() {
+  const current = useAdminDataStore((s) => s.settings.heroIntervalSeconds);
+  const updateSettings = useAdminDataStore((s) => s.updateSettings);
+  const heroCount = useAdminDataStore((s) => s.banners.filter((b) => b.position === 'hero' && b.active).length);
+  const [value, setValue] = useState(String(current));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setValue(String(current)), [current]);
+
+  async function save() {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 2 || n > 60) {
+      toast.error('Use um número inteiro entre 2 e 60 segundos.');
+      return;
+    }
+    setSaving(true);
+    const r = await updateSettings({ heroIntervalSeconds: n });
+    setSaving(false);
+    if (r.ok) toast.success('Tempo do carrossel salvo.');
+    else toast.error(r.error ?? 'Erro ao salvar.');
+  }
+
+  return (
+    <div className="card mb-6 flex flex-wrap items-end gap-3 p-4">
+      <div className="min-w-[220px] flex-1">
+        <p className="text-sm font-bold">Carrossel do topo (hero)</p>
+        <p className="text-xs text-ink-mute">
+          {heroCount > 1
+            ? `${heroCount} banners ativos na posição Hero alternando automaticamente.`
+            : 'Cadastre 2 ou mais banners ativos na posição Hero para eles alternarem.'}
+        </p>
+      </div>
+      <div className="w-40">
+        <Label>Trocar a cada (segundos)</Label>
+        <Input type="number" min={2} max={60} step={1} value={value} onChange={(e) => setValue(e.target.value)} />
+      </div>
+      <Button onClick={save} loading={saving}>Salvar tempo</Button>
     </div>
   );
 }

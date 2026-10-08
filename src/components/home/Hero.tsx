@@ -1,22 +1,48 @@
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ArrowRight, MessageCircle, ShieldCheck, Sparkles, Truck, Wrench } from 'lucide-react';
 import { whatsappContact } from '@/utils/whatsapp';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
+import type { HeroBadge } from '@/types';
+
+// Sem nenhum banner hero cadastrado, a home mostra a arte padrão com estes selos.
+const DEFAULT_LEFT: HeroBadge = { enabled: true, tag: '+ Vendido', title: 'PLA Preto 1kg', info: 'R$ 109,90' };
+const DEFAULT_RIGHT: HeroBadge = { enabled: true, tag: 'Lançamento', title: 'Bambu Lab A1', info: 'Suporte incluso' };
+const NO_BADGE: HeroBadge = { enabled: false, tag: '', title: '', info: '' };
 
 export function Hero() {
-  // Banner cadastrado no admin para a posição "hero" (ativo, primeiro pela ordem).
-  const heroBanner = useAdminDataStore((s) =>
-    s.banners
-      .filter((b) => b.position === 'hero' && b.active)
-      .sort((a, b) => a.order - b.order)[0],
-  );
+  // Banners ativos da posição "hero", pela ordem. Com 2 ou mais, alternam
+  // sozinhos no tempo definido no admin (Banners → Carrossel do topo).
+  const allBanners = useAdminDataStore((s) => s.banners);
+  const heroBanners = allBanners
+    .filter((b) => b.position === 'hero' && b.active)
+    .sort((a, b) => a.order - b.order);
+  const intervalMs = Math.max(2, useAdminDataStore((s) => s.settings.heroIntervalSeconds) || 6) * 1000;
+
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const count = heroBanners.length;
+  const hasMany = count > 1;
+
+  useEffect(() => {
+    if (index >= count) setIndex(0);
+  }, [count, index]);
+
+  useEffect(() => {
+    if (!hasMany || paused) return;
+    const t = window.setTimeout(() => setIndex((i) => (i + 1) % count), intervalMs);
+    return () => window.clearTimeout(t);
+  }, [index, hasMany, paused, count, intervalMs]);
+
+  const heroBanner = heroBanners[index] ?? heroBanners[0];
   const heroImage = heroBanner?.image;
 
-  // Selos flutuantes: usam o que foi cadastrado no banner; se não houver banner,
-  // caem nos valores padrão. Cada selo pode ser desativado (enabled = false).
-  const badgeLeft = heroBanner?.badgeLeft ?? { enabled: true, tag: '+ Vendido', title: 'PLA Preto 1kg', info: 'R$ 109,90' };
-  const badgeRight = heroBanner?.badgeRight ?? { enabled: true, tag: 'Lançamento', title: 'Bambu Lab A1', info: 'Suporte incluso' };
+  // Selos: os do banner atual (sem selo cadastrado = sem selo). Sem banner
+  // nenhum, os selos de exemplo da arte padrão.
+  const badgeLeft = heroBanner ? heroBanner.badgeLeft ?? NO_BADGE : DEFAULT_LEFT;
+  const badgeRight = heroBanner ? heroBanner.badgeRight ?? NO_BADGE : DEFAULT_RIGHT;
+  const slideKey = heroBanner?.id ?? 'default';
 
   return (
     <section className="relative overflow-hidden bg-ink text-bg">
@@ -94,14 +120,23 @@ export function Hero() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.65, delay: 0.1 }}
           className="relative mx-auto w-full max-w-md"
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
         >
           <div className="relative aspect-square overflow-hidden rounded-[28px] border border-bg/15 bg-gradient-to-br from-bg/[0.04] to-bg/0 p-7 shadow-[0_30px_120px_-30px_rgba(34,211,238,0.35)]">
             {heroImage ? (
-              <img
-                src={heroImage}
-                alt={heroBanner?.title ?? 'Destaque 3DCommerce'}
-                className="absolute inset-0 h-full w-full rounded-[28px] object-cover"
-              />
+              <AnimatePresence initial={false}>
+                <motion.img
+                  key={slideKey}
+                  src={heroImage}
+                  alt={heroBanner?.title ?? 'Destaque 3DCommerce'}
+                  initial={{ opacity: 0, scale: 1.03 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="absolute inset-0 h-full w-full rounded-[28px] object-cover"
+                />
+              </AnimatePresence>
             ) : (
               <>
                 <div className="absolute inset-7 rounded-[20px] border border-bg/10" />
@@ -133,8 +168,28 @@ export function Hero() {
             )}
           </div>
 
+          {heroBanner?.ctaLink && (
+            <HeroLink to={heroBanner.ctaLink} label={heroBanner.ctaLabel || heroBanner.title} />
+          )}
+
+          {hasMany && (
+            <div className="absolute -bottom-9 left-1/2 flex -translate-x-1/2 items-center gap-2">
+              {heroBanners.map((b, i) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setIndex(i)}
+                  aria-label={`Ir para o destaque ${i + 1}`}
+                  aria-current={i === index}
+                  className={`h-1.5 rounded-full transition-all ${i === index ? 'w-8 bg-bg' : 'w-2.5 bg-bg/40 hover:bg-bg/70'}`}
+                />
+              ))}
+            </div>
+          )}
+
           {badgeLeft.enabled && (badgeLeft.tag || badgeLeft.title || badgeLeft.info) && (
             <motion.div
+              key={`${slideKey}-left`}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.5, duration: 0.5 }}
@@ -147,6 +202,7 @@ export function Hero() {
           )}
           {badgeRight.enabled && (badgeRight.tag || badgeRight.title || badgeRight.info) && (
             <motion.div
+              key={`${slideKey}-right`}
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.6, duration: 0.5 }}
@@ -169,4 +225,13 @@ export function Hero() {
       </div>
     </section>
   );
+}
+
+/** Camada clicável sobre a imagem do hero quando o banner tem link. */
+function HeroLink({ to, label }: { to: string; label: string }) {
+  const cls = 'absolute inset-0 z-[1] rounded-[28px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent';
+  if (/^https?:\/\//i.test(to)) {
+    return <a href={to} target="_blank" rel="noreferrer" aria-label={label} className={cls} />;
+  }
+  return <Link to={to} aria-label={label} className={cls} />;
 }

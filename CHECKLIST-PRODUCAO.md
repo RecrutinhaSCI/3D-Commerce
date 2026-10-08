@@ -45,3 +45,10 @@ Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFI
 - [ ] `npm run check:config` sem erros
 - [ ] Compra real via Pix testada e estornada
 - [ ] Merge da branch `api-mercado-pago` na `main`
+
+## Depois do merge da `api-mercado-pago`
+
+- [ ] Merge da branch `feat/compressao-upload-admin` (fotos reduzidas automaticamente; imagem removida não volta; F5 na edição de produto; excluir todos em lotes)
+- [ ] **Neon:** aplicar a migration `20261008120000_hero_carousel` (`npx prisma migrate deploy`, backup antes) — só adiciona colunas
+- [ ] Merge da branch `feat/hero-carrossel` (hero alternando entre banners, tempo no admin em Banners, selos do hero gravados por banner)
+- [ ] No admin → Banners: revisar os selos dos banners Hero (os textos de exemplo "PLA Preto 1kg / Bambu Lab A1" não aparecem mais quando há banner cadastrado)

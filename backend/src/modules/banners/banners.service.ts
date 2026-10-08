@@ -1,8 +1,8 @@
-import type { Banner, BannerSlot } from '@prisma/client';
+import { Prisma, type Banner, type BannerSlot } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { safeUnlinkSiteImage } from '../../lib/upload';
-import type { CreateBannerInput, UpdateBannerInput } from './banners.schemas';
+import type { CreateBannerInput, HeroBadgeInput, UpdateBannerInput } from './banners.schemas';
 
 export interface BannerDTO {
   id: string;
@@ -14,8 +14,24 @@ export interface BannerDTO {
   active: boolean;
   position: number;
   slot: BannerSlot;
+  badgeLeft: HeroBadgeInput | null;
+  badgeRight: HeroBadgeInput | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Lê o JSON do selo com tolerância (registro antigo/malformado = sem selo). */
+function badgeFrom(v: Prisma.JsonValue | null): HeroBadgeInput | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const str = (x: unknown) => (typeof x === 'string' ? x : '');
+  return { enabled: o.enabled === true, tag: str(o.tag), title: str(o.title), info: str(o.info) };
+}
+
+/** undefined = não altera; null = remove o selo. */
+function badgeTo(v: HeroBadgeInput | null | undefined) {
+  if (v === undefined) return undefined;
+  return v === null ? Prisma.DbNull : v;
 }
 
 function toDTO(b: Banner): BannerDTO {
@@ -29,6 +45,8 @@ function toDTO(b: Banner): BannerDTO {
     active: b.active,
     position: b.position,
     slot: b.slot,
+    badgeLeft: badgeFrom(b.badgeLeftJson),
+    badgeRight: badgeFrom(b.badgeRightJson),
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   };
@@ -61,6 +79,8 @@ export const bannersService = {
         active: input.active ?? true,
         position: input.position ?? 0,
         slot: input.slot ?? 'HERO',
+        badgeLeftJson: badgeTo(input.badgeLeft),
+        badgeRightJson: badgeTo(input.badgeRight),
       },
     });
     return toDTO(b);
@@ -69,7 +89,11 @@ export const bannersService = {
   async update(id: string, input: UpdateBannerInput): Promise<BannerDTO> {
     const exists = await prisma.banner.findUnique({ where: { id }, select: { id: true } });
     if (!exists) throw HttpError.notFound('Banner não encontrado.');
-    const updated = await prisma.banner.update({ where: { id }, data: input });
+    const { badgeLeft, badgeRight, ...rest } = input;
+    const updated = await prisma.banner.update({
+      where: { id },
+      data: { ...rest, badgeLeftJson: badgeTo(badgeLeft), badgeRightJson: badgeTo(badgeRight) },
+    });
     return toDTO(updated);
   },
 

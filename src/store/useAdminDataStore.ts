@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS: StoreSettings = {
   cnpj: '',
   about: '',
   shippingNote: 'Enviamos para todo o Brasil',
+  heroIntervalSeconds: 6,
   freeShippingThreshold: 299,
   pixDiscountPercent: 5,
   // R17 — conteúdos editáveis (fallbacks até a API carregar)
@@ -350,6 +351,8 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
         active: b.active,
         position: b.order,
         slot: b.position === 'promo' ? 'PROMO' : 'HERO',
+        badgeLeft: b.badgeLeft ?? null,
+        badgeRight: b.badgeRight ?? null,
       });
       const created = apiBannerToInternal(banner);
       set({ banners: [...get().banners, created] });
@@ -369,6 +372,8 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.active !== undefined) payload.active = patch.active;
     if (patch.order !== undefined) payload.position = patch.order;
     if (patch.position !== undefined) payload.slot = patch.position === 'promo' ? 'PROMO' : 'HERO';
+    if (patch.badgeLeft !== undefined) payload.badgeLeft = patch.badgeLeft ?? null;
+    if (patch.badgeRight !== undefined) payload.badgeRight = patch.badgeRight ?? null;
     // Erro sobe para a tela: engolir aqui fazia o admin ver "Banner atualizado"
     // com a gravação falhando (e a mudança sumia ao recarregar).
     const { banner } = await bannerService.update(id, payload);
@@ -434,6 +439,7 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.cnpj !== undefined) payload.cnpj = patch.cnpj || null;
     if (patch.about !== undefined) payload.aboutText = patch.about || null;
     if (patch.shippingNote !== undefined) payload.shippingNote = patch.shippingNote || null;
+    if (patch.heroIntervalSeconds !== undefined) payload.heroIntervalSeconds = patch.heroIntervalSeconds;
     if (patch.freeShippingThreshold !== undefined) payload.freeShippingThreshold = patch.freeShippingThreshold;
     if (patch.pixDiscountPercent !== undefined) payload.pixDiscountPercent = patch.pixDiscountPercent;
     if (patch.logo !== undefined) payload.logoUrl = patch.logo || null;
