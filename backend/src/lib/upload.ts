@@ -53,9 +53,13 @@ function createStorage(folder: Folder, extFor: (file: Express.Multer.File) => st
               token: env.BLOB_READ_WRITE_TOKEN,
             });
             cb(null, { filename, path: blob.url, size: body.length });
-          } catch {
+          } catch (err) {
+            // Loga a causa real (classe + mensagem do SDK; nunca contém o token).
+            const reason = err instanceof Error ? `${err.constructor.name}: ${err.message}` : String(err);
             // eslint-disable-next-line no-console
-            console.error(`[upload] Falha ao enviar ${folder}/${filename} para o Vercel Blob.`);
+            console.error(
+              `[upload] Falha ao enviar ${folder}/${filename} (${file.mimetype}) para o Vercel Blob — ${reason}`,
+            );
             cb(HttpError.internal('Falha ao salvar o arquivo. Tente novamente.'));
           }
         });

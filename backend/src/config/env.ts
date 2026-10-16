@@ -52,7 +52,11 @@ const envSchema = z.object({
   // Segredo do Vercel Cron (expiração de pedidos). Sem ele a rota fica desligada.
   CRON_SECRET: z.preprocess(emptyToUndefined, z.string().min(16, 'CRON_SECRET precisa ter 16+ caracteres.').optional()),
   // Vercel Blob (uploads em produção). Sem ele, grava em disco (só serve em dev).
-  BLOB_READ_WRITE_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Tolera espaços/aspas colados junto no painel do Render (token ficaria inválido).
+  BLOB_READ_WRITE_TOKEN: z.preprocess(
+    (v) => emptyToUndefined(typeof v === 'string' ? v.trim().replace(/^["']|["']$/g, '') : v),
+    z.string().optional(),
+  ),
 
   // Mercado Pago (pagamentos). Access token nunca vai ao frontend.
   // Os placeholders do .env.example ("TEST-xxxx"/"xxxx") são recusados para
