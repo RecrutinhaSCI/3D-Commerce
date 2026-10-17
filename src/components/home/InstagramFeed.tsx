@@ -31,12 +31,13 @@ export function InstagramFeed() {
       img: it.image.startsWith('http') ? it.image : apiAssetUrl(it.image),
       href: it.url,
       alt: it.caption || 'Post no Instagram',
+      caption: it.caption?.trim() ?? '',
     }));
 
   const hasCurated = items.length > 0;
   const tiles = hasCurated
     ? items
-    : placeholderTiles.map((t) => ({ id: t.id, img: t.img, href: url, alt: '' }));
+    : placeholderTiles.map((t) => ({ id: t.id, img: t.img, href: url, alt: '', caption: '' }));
 
   return (
     <section className="container-x pb-8 pt-16">
@@ -80,6 +81,12 @@ export function InstagramFeed() {
             <div className="absolute inset-0 flex items-center justify-center bg-ink/0 transition group-hover:bg-ink/40">
               <Instagram className="h-5 w-5 text-bg opacity-0 transition group-hover:opacity-100" />
             </div>
+            {/* Legenda sempre visível (no celular não existe hover). */}
+            {t.caption && (
+              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-2 bg-gradient-to-t from-ink/80 via-ink/40 to-transparent px-2 pb-2 pt-6 text-[11px] font-medium leading-snug text-bg">
+                {t.caption}
+              </p>
+            )}
           </a>
         ))}
       </Carousel>
