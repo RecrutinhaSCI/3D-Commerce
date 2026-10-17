@@ -76,6 +76,9 @@ const envSchema = z.object({
   SMTP_PASS: z.preprocess(emptyToUndefined, z.string().optional()),
   SMTP_FROM: z.preprocess(emptyToUndefined, z.string().optional()),
   SMTP_SECURE: z.preprocess(toOptionalBoolean, z.boolean().optional()),
+  // Brevo (API HTTP). Se definido, tem prioridade sobre o SMTP e usa
+  // SMTP_FROM como remetente. Ideal no Render Free (portas SMTP bloqueadas).
+  BREVO_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // Base do frontend, usada para montar links (reset de senha, verificação).
   APP_URL: z.string().default('http://localhost:5173'),
@@ -189,8 +192,8 @@ export function productionConfigWarnings(): string[] {
   if (!env.BLOB_READ_WRITE_TOKEN) {
     warnings.push('BLOB_READ_WRITE_TOKEN ausente — upload de imagens/arquivos falha na Vercel (disco somente leitura).');
   }
-  if (!env.SMTP_HOST || !env.SMTP_FROM) {
-    warnings.push('SMTP não configurado — nenhum e-mail será enviado (pedido, pagamento, senha).');
+  if ((!env.BREVO_API_KEY && !env.SMTP_HOST) || !env.SMTP_FROM) {
+    warnings.push('E-mail não configurado (BREVO_API_KEY ou SMTP_HOST, + SMTP_FROM) — nenhum e-mail será enviado (cadastro, pedido, pagamento, senha).');
   }
   return warnings;
 }

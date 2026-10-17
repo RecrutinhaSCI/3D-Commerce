@@ -8,7 +8,7 @@
  *   - admin: existe e não usa a senha de desenvolvimento;
  *   - dados da loja (SiteSettings) preenchidos;
  *   - Mercado Pago: token válido e se a conta é de TESTE ou PRODUÇÃO;
- *   - SMTP: conexão/autenticação (sem enviar nada).
+ *   - E-mail: chave do Brevo ou conexão/autenticação SMTP (sem enviar nada).
  *
  * Nunca imprime tokens, senhas ou segredos. Sai com código 1 se houver erro.
  */
@@ -133,8 +133,25 @@ async function checkMercadoPago() {
 }
 
 async function checkSmtp() {
-  if (!env.SMTP_HOST || !env.SMTP_FROM) {
-    add(env.NODE_ENV === 'production' ? 'error' : 'warn', 'E-mail', 'SMTP não configurado — e-mails de pedido, pagamento e senha não serão enviados.');
+  if ((!env.BREVO_API_KEY && !env.SMTP_HOST) || !env.SMTP_FROM) {
+    add(env.NODE_ENV === 'production' ? 'error' : 'warn', 'E-mail', 'E-mail não configurado (BREVO_API_KEY ou SMTP_HOST, + SMTP_FROM) — e-mails de cadastro, pedido, pagamento e senha não serão enviados.');
+    return;
+  }
+  if (env.BREVO_API_KEY) {
+    // GET /account valida a chave sem enviar nada.
+    try {
+      const res = await fetch('https://api.brevo.com/v3/account', {
+        headers: { 'api-key': env.BREVO_API_KEY, accept: 'application/json' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        add('ok', 'E-mail', `Brevo: chave válida, remetente ${env.SMTP_FROM} (o remetente precisa estar verificado no Brevo).`);
+      } else {
+        add('error', 'E-mail', `Brevo recusou a BREVO_API_KEY (HTTP ${res.status}) — gere uma nova em SMTP & API → API Keys.`);
+      }
+    } catch {
+      add('warn', 'E-mail', 'Sem resposta da API do Brevo (rede/timeout).');
+    }
     return;
   }
   const tx = nodemailer.createTransport({

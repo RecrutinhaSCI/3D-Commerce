@@ -19,8 +19,9 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 
 1. Mercado Pago (conta da loja): acesso para criarmos a aplicação OU, se preferir,
    a Public Key e o Access Token de PRODUÇÃO (Suas integrações > Credenciais de produção).
-2. E-mail que vai enviar as mensagens da loja (pedido, pagamento, senha):
-   um Gmail com "senha de app" ou o e-mail do domínio (host, usuário e senha SMTP).
+2. E-mail que vai enviar as mensagens da loja (cadastro, pedido, pagamento, senha):
+   de preferência um e-mail do domínio da loja (ex.: contato@sualoja.com.br) e acesso
+   ao DNS do domínio, para autenticarmos o envio no Brevo.
 3. Domínio do site (ex.: www.sualoja.com.br) e acesso ao painel onde ele foi registrado.
 4. E-mail que será o login do painel administrativo.
 5. Conferir: nome da loja, WhatsApp, e-mail de contato, endereço, CNPJ, Instagram e logo.
@@ -40,7 +41,7 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 | Public Key do Mercado Pago | Cliente (conta MP) | Vercel (front) → `VITE_MP_PUBLIC_KEY` | Sim |
 | Access Token do Mercado Pago | Cliente (conta MP) | Render (back) → `MP_ACCESS_TOKEN` | Sim |
 | Segredo do webhook MP | Gerado no painel MP | Render (back) → `MP_WEBHOOK_SECRET` | Sim |
-| SMTP (host, porta, usuário, senha, remetente) | Cliente | Render (back) → `SMTP_*` | Sim em produção* |
+| E-mail: chave do Brevo + remetente (ou SMTP) | G-Rec (conta Brevo) / Cliente (remetente) | Render (back) → `BREVO_API_KEY` e `SMTP_FROM` (ou `SMTP_*`) | Sim em produção* |
 | Domínio da loja | Cliente | Vercel (front) → `VITE_SITE_URL` · Render (back) → `APP_URL` e `CORS_ORIGINS` | Sim |
 | E-mail e senha do admin | Cliente / G-Rec | `.env` local na hora de rodar o seed (`ADMIN_EMAIL`, `ADMIN_PASSWORD`) | Sim |
 | Banco de produção | G-Rec (Neon) | Render (back) → `DATABASE_URL` | Sim |
@@ -51,7 +52,7 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 | Chave SeuRastreio | G-Rec / cliente | Vercel (front) → `VITE_SEURASTREIO_API_KEY` | Opcional |
 | Google Analytics 4 (ID `G-...`) | Cliente | Vercel (front) → `VITE_GA_MEASUREMENT_ID` | Opcional (o banner de cookies passa a pedir consentimento) |
 
-\* Sem SMTP o site funciona, mas nenhum e-mail sai (confirmação de pedido, pagamento aprovado, reset de senha).
+\* Sem e-mail configurado o site funciona, mas nenhum e-mail sai (confirmação de cadastro, pedido, pagamento aprovado, reset de senha).
 
 Onde cadastrar: Vercel (front) em **Settings → Environment Variables**; Render (back) em **Environment** do serviço; GitHub em **Settings → Secrets and variables → Actions**.
 
@@ -94,8 +95,19 @@ Observações:
 - Rede de segurança para webhooks perdidos: `POST /api/admin/payments/reconcile` com o token de admin.
 - Detalhes técnicos da integração: [docs/integracoes/mercadopago-orders-api.md](docs/integracoes/mercadopago-orders-api.md).
 
-### 3.3 E-mail (SMTP)
-Opção simples, **Gmail da loja**:
+### 3.3 E-mail (Brevo ou SMTP)
+**Recomendado: Brevo pela API.** O Render Free bloqueia as portas SMTP (25/465/587), então SMTP só funciona em plano pago. A API do Brevo usa HTTPS, tem 300 e-mails/dia grátis e mostra no painel se cada e-mail foi entregue.
+1. Criar a conta em https://www.brevo.com.
+2. **Senders, Domains & Dedicated IPs → Domains**: autenticar o domínio da loja (registros DKIM/DMARC no DNS). Sem domínio próprio, cadastrar ao menos o remetente em **Senders** e confirmar pelo e-mail recebido (Gmail como remetente tende a cair em spam).
+3. **SMTP & API → API Keys**: gerar uma chave (`xkeysib-...`).
+4. Render (back), aba Environment:
+   ```env
+   BREVO_API_KEY=xkeysib-...
+   SMTP_FROM="3DCommerce <contato@sualoja.com.br>"
+   ```
+   O remetente do `SMTP_FROM` precisa ser um sender verificado (ou do domínio autenticado) no Brevo. Com `BREVO_API_KEY` definida, as demais `SMTP_*` são ignoradas.
+
+Alternativa, **SMTP** (só em plano pago do Render). Exemplo com o **Gmail da loja**:
 1. Ativar verificação em 2 etapas na conta.
 2. Gerar uma senha de app em https://myaccount.google.com/apppasswords.
 3. Render (back), aba Environment:
@@ -108,7 +120,7 @@ Opção simples, **Gmail da loja**:
    SMTP_FROM="3DCommerce <loja@gmail.com>"
    ```
 Se for o e-mail do domínio (Hostinger, Zoho, Locaweb...), usar host e porta do provedor: 587 → `SMTP_SECURE=false`.
-`npm run check:config` testa o login no SMTP sem enviar nada.
+`npm run check:config` valida a chave do Brevo (ou o login no SMTP) sem enviar nada.
 
 ### 3.4 Admin
 - O seed roda **na sua máquina**, apontando para o Neon de produção (seção 4). Definir `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mínimo 8) nesse `.env` antes de rodar. Com `NODE_ENV=production`, o seed recusa **criar** o admin sem `ADMIN_PASSWORD`.
