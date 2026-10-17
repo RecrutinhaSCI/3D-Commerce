@@ -298,6 +298,13 @@ export interface ApiQuote {
 
 export type ApiBannerSlot = 'HERO' | 'PROMO';
 
+export interface ApiHeroBadge {
+  enabled: boolean;
+  tag: string;
+  title: string;
+  info: string;
+}
+
 export interface ApiBanner {
   id: string;
   title: string;
@@ -308,6 +315,9 @@ export interface ApiBanner {
   active: boolean;
   position: number;
   slot: ApiBannerSlot;
+  /** Selos do hero; null = sem selo. */
+  badgeLeft?: ApiHeroBadge | null;
+  badgeRight?: ApiHeroBadge | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -441,6 +451,8 @@ export interface ApiSettings {
   pixDiscountPercent: number;
   freeShippingThreshold: number;
   shippingNote: string | null;
+  /** Carrossel do hero: segundos entre banners (2–60). */
+  heroIntervalSeconds?: number;
   // R17
   instagramHandle: string | null;
   youtubeUrl: string | null;

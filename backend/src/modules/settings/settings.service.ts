@@ -25,6 +25,7 @@ const DEFAULTS = {
   pixDiscountPercent: 5,
   freeShippingThreshold: 299,
   shippingNote: null,
+  heroIntervalSeconds: 6,
 } as const;
 
 export interface SettingsDTO {
@@ -45,6 +46,7 @@ export interface SettingsDTO {
   pixDiscountPercent: number;
   freeShippingThreshold: number;
   shippingNote: string | null;
+  heroIntervalSeconds: number;
   // R17
   instagramHandle: string | null;
   youtubeUrl: string | null;
@@ -99,6 +101,7 @@ function toDTO(s: SiteSettings): SettingsDTO {
     pixDiscountPercent: decimalToNumber(s.pixDiscountPercent) ?? 0,
     freeShippingThreshold: decimalToNumber(s.freeShippingThreshold) ?? 0,
     shippingNote: s.shippingNote,
+    heroIntervalSeconds: s.heroIntervalSeconds,
     instagramHandle: s.instagramHandle,
     youtubeUrl: s.youtubeUrl,
     youtubeHandle: s.youtubeHandle,

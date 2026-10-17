@@ -227,6 +227,8 @@ export interface StoreSettings {
   cnpj: string;
   about: string;
   shippingNote: string;
+  /** Carrossel do hero: segundos entre banners. */
+  heroIntervalSeconds: number;
   freeShippingThreshold: number;
   pixDiscountPercent: number;
   logo?: string;

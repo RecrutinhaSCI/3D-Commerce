@@ -161,6 +161,8 @@ export function apiBannerToInternal(b: ApiBanner): Banner {
     position: b.slot === 'PROMO' ? 'promo' : 'hero',
     active: b.active,
     order: b.position,
+    badgeLeft: b.badgeLeft ?? undefined,
+    badgeRight: b.badgeRight ?? undefined,
   };
 }
 
@@ -194,6 +196,7 @@ export function apiSettingsToInternal(s: ApiSettings): StoreSettings {
     cnpj: s.cnpj ?? '',
     about: s.aboutText ?? '',
     shippingNote: s.shippingNote ?? '',
+    heroIntervalSeconds: s.heroIntervalSeconds ?? 6,
     freeShippingThreshold: s.freeShippingThreshold,
     pixDiscountPercent: s.pixDiscountPercent,
     logo: s.logoUrl ? apiAssetUrl(s.logoUrl) : undefined,
