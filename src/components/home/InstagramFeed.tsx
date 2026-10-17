@@ -23,8 +23,6 @@ export function InstagramFeed() {
 
   const url = settings.instagram || site.instagram;
   const handle = settings.instagramHandle || site.instagramHandle;
-  // Como o Instagram mostra o autor na legenda: sem @ e minúsculo.
-  const username = (handle || '').replace(/^@/, '').toLowerCase();
 
   const items = settings.instagramItems
     .filter((it) => it.enabled !== false && it.image && it.url)
@@ -85,12 +83,9 @@ export function InstagramFeed() {
                 <Instagram className="h-5 w-5 text-bg opacity-0 transition group-hover:opacity-100" />
               </div>
             </div>
-            {/* Legenda no formato do Instagram: autor em negrito + texto. */}
+            {/* Legenda abaixo da foto, como no Instagram. */}
             {t.caption && (
-              <p className="mt-2 line-clamp-2 px-0.5 text-xs leading-snug text-ink-soft">
-                {username && <span className="mr-1 font-semibold text-ink">{username}</span>}
-                {t.caption}
-              </p>
+              <p className="mt-2 line-clamp-2 px-0.5 text-xs leading-snug text-ink-soft">{t.caption}</p>
             )}
           </a>
         ))}
