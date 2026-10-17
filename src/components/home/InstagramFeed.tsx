@@ -23,6 +23,8 @@ export function InstagramFeed() {
 
   const url = settings.instagram || site.instagram;
   const handle = settings.instagramHandle || site.instagramHandle;
+  // Como o Instagram mostra o autor na legenda: sem @ e minúsculo.
+  const username = (handle || '').replace(/^@/, '').toLowerCase();
 
   const items = settings.instagramItems
     .filter((it) => it.enabled !== false && it.image && it.url)
@@ -69,21 +71,24 @@ export function InstagramFeed() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={t.alt || `Abrir Instagram ${handle || ''}`.trim()}
-            className="group relative block aspect-square overflow-hidden rounded-xl"
+            className="group block"
           >
-            <img
-              src={t.img}
-              alt={t.alt}
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover transition group-hover:scale-105"
-            />
-            <div className="absolute inset-0 flex items-center justify-center bg-ink/0 transition group-hover:bg-ink/40">
-              <Instagram className="h-5 w-5 text-bg opacity-0 transition group-hover:opacity-100" />
+            <div className="relative aspect-square overflow-hidden rounded-xl">
+              <img
+                src={t.img}
+                alt={t.alt}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover transition group-hover:scale-105"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-ink/0 transition group-hover:bg-ink/40">
+                <Instagram className="h-5 w-5 text-bg opacity-0 transition group-hover:opacity-100" />
+              </div>
             </div>
-            {/* Legenda sempre visível (no celular não existe hover). */}
+            {/* Legenda no formato do Instagram: autor em negrito + texto. */}
             {t.caption && (
-              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-2 bg-gradient-to-t from-ink/80 via-ink/40 to-transparent px-2 pb-2 pt-6 text-[11px] font-medium leading-snug text-bg">
+              <p className="mt-2 line-clamp-2 px-0.5 text-xs leading-snug text-ink-soft">
+                {username && <span className="mr-1 font-semibold text-ink">{username}</span>}
                 {t.caption}
               </p>
             )}
