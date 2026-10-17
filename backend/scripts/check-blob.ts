@@ -41,6 +41,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Leitura anônima (sem token), como o navegador do cliente faz na loja.
+  let publicOk = false;
+  try {
+    const res = await fetch(url);
+    publicOk = res.ok && (await res.text()) === 'ok';
+    console.log(publicOk ? '✓ leitura pública OK (HTTP 200)' : `✗ leitura pública FALHOU (HTTP ${res.status})`);
+  } catch (err) {
+    console.error(`✗ leitura pública FALHOU — ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   try {
     await del(url, { token });
     console.log('✓ del OK (arquivo de teste removido).');
@@ -48,6 +58,8 @@ async function main() {
     const reason = err instanceof Error ? `${err.constructor.name}: ${err.message}` : String(err);
     console.error(`! del falhou (arquivo de teste ficou em ${pathname}) — ${reason}`);
   }
+
+  if (!publicOk) process.exit(1);
 }
 
 void main();
