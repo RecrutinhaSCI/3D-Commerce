@@ -31,12 +31,13 @@ export function InstagramFeed() {
       img: it.image.startsWith('http') ? it.image : apiAssetUrl(it.image),
       href: it.url,
       alt: it.caption || 'Post no Instagram',
+      caption: it.caption?.trim() ?? '',
     }));
 
   const hasCurated = items.length > 0;
   const tiles = hasCurated
     ? items
-    : placeholderTiles.map((t) => ({ id: t.id, img: t.img, href: url, alt: '' }));
+    : placeholderTiles.map((t) => ({ id: t.id, img: t.img, href: url, alt: '', caption: '' }));
 
   return (
     <section className="container-x pb-8 pt-16">
@@ -68,18 +69,24 @@ export function InstagramFeed() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={t.alt || `Abrir Instagram ${handle || ''}`.trim()}
-            className="group relative block aspect-square overflow-hidden rounded-xl"
+            className="group block"
           >
-            <img
-              src={t.img}
-              alt={t.alt}
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover transition group-hover:scale-105"
-            />
-            <div className="absolute inset-0 flex items-center justify-center bg-ink/0 transition group-hover:bg-ink/40">
-              <Instagram className="h-5 w-5 text-bg opacity-0 transition group-hover:opacity-100" />
+            <div className="relative aspect-square overflow-hidden rounded-xl">
+              <img
+                src={t.img}
+                alt={t.alt}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover transition group-hover:scale-105"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-ink/0 transition group-hover:bg-ink/40">
+                <Instagram className="h-5 w-5 text-bg opacity-0 transition group-hover:opacity-100" />
+              </div>
             </div>
+            {/* Legenda abaixo da foto, como no Instagram. */}
+            {t.caption && (
+              <p className="mt-2 line-clamp-2 px-0.5 text-xs leading-snug text-ink-soft">{t.caption}</p>
+            )}
           </a>
         ))}
       </Carousel>
