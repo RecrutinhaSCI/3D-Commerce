@@ -1,4 +1,5 @@
-import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react';
+import { forwardRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 const base =
@@ -14,6 +15,37 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
     );
   },
 );
+
+/** Campo de senha com o botão de olho para mostrar/ocultar o que foi digitado. */
+export const PasswordInput = forwardRef<
+  HTMLInputElement,
+  Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { error?: string }
+>(function PasswordInput({ className, error, ...rest }, ref) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <>
+      {/* Wrapper próprio: o botão centraliza no input mesmo com a mensagem de erro abaixo. */}
+      <div className="relative">
+        <input
+          ref={ref}
+          type={visible ? 'text' : 'password'}
+          className={cn(base, 'pr-11', error && 'border-rose-400', className)}
+          {...rest}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? 'Ocultar senha' : 'Mostrar senha'}
+          aria-pressed={visible}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-ink-mute transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20"
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+      {error && <p className="mt-1 text-xs text-rose-500">{error}</p>}
+    </>
+  );
+});
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement> & { error?: string }>(
   function Textarea({ className, error, ...rest }, ref) {

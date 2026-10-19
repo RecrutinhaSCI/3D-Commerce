@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { Lock, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/Button';
-import { Input, Label } from '@/components/ui/Input';
+import { Input, Label, PasswordInput } from '@/components/ui/Input';
 import { useAdminAuthStore } from '@/store/useAdminAuthStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { Logo } from '@/components/ui/Logo';
@@ -61,9 +61,8 @@ export default function Login() {
           <div>
             <Label>Senha</Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
-              <Input
-                type="password"
+              <Lock className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-mute" />
+              <PasswordInput
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

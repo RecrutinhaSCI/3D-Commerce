@@ -6,7 +6,7 @@ import { z } from 'zod';
 import toast from 'react-hot-toast';
 import { Lock } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Input, Label } from '@/components/ui/Input';
+import { Label, PasswordInput } from '@/components/ui/Input';
 import { authService } from '@/services/authService';
 import { ApiError } from '@/services/api';
 import { useSEO } from '@/utils/seo';
@@ -71,15 +71,15 @@ export default function ResetPassword() {
               <div>
                 <Label>Nova senha</Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
-                  <Input type="password" autoComplete="new-password" {...register('password')} error={errors.password?.message} className="!pl-9" />
+                  <Lock className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-mute" />
+                  <PasswordInput autoComplete="new-password" {...register('password')} error={errors.password?.message} className="!pl-9" />
                 </div>
               </div>
               <div>
                 <Label>Confirmar nova senha</Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
-                  <Input type="password" autoComplete="new-password" {...register('passwordConfirm')} error={errors.passwordConfirm?.message} className="!pl-9" />
+                  <Lock className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-mute" />
+                  <PasswordInput autoComplete="new-password" {...register('passwordConfirm')} error={errors.passwordConfirm?.message} className="!pl-9" />
                 </div>
               </div>
               <Button type="submit" fullWidth size="lg" loading={isSubmitting}>

@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/Button';
-import { Input, Label } from '@/components/ui/Input';
+import { Input, Label, PasswordInput } from '@/components/ui/Input';
 import { useCustomerAuthStore } from '@/store/useCustomerAuthStore';
 import { useSEO } from '@/utils/seo';
 
@@ -104,11 +104,11 @@ export default function CustomerRegister() {
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <Label>Senha</Label>
-                <Input type="password" autoComplete="new-password" {...register('password')} error={errors.password?.message} />
+                <PasswordInput autoComplete="new-password" {...register('password')} error={errors.password?.message} />
               </div>
               <div>
                 <Label>Confirmar senha</Label>
-                <Input type="password" autoComplete="new-password" {...register('passwordConfirm')} error={errors.passwordConfirm?.message} />
+                <PasswordInput autoComplete="new-password" {...register('passwordConfirm')} error={errors.passwordConfirm?.message} />
               </div>
             </div>
           </section>
