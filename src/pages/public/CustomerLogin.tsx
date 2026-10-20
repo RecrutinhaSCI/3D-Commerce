@@ -6,7 +6,7 @@ import { z } from 'zod';
 import toast from 'react-hot-toast';
 import { Lock, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Input, Label } from '@/components/ui/Input';
+import { Input, Label, PasswordInput } from '@/components/ui/Input';
 import { useCustomerAuthStore } from '@/store/useCustomerAuthStore';
 import { useSEO } from '@/utils/seo';
 
@@ -58,8 +58,8 @@ export default function CustomerLogin() {
           <div>
             <Label>Senha</Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
-              <Input type="password" autoComplete="current-password" {...register('password')} error={errors.password?.message} className="!pl-9" />
+              <Lock className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-mute" />
+              <PasswordInput autoComplete="current-password" {...register('password')} error={errors.password?.message} className="!pl-9" />
             </div>
           </div>
           <div className="flex justify-end">
