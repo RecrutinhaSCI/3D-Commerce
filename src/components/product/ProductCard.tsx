@@ -11,7 +11,11 @@ import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/store/useUIStore';
 import { whatsappProduct } from '@/utils/whatsapp';
 
-export function ProductCard({ product }: { product: Product }) {
+/**
+ * `reveal`: fade + subida ao entrar na tela (grades). Em carrossel horizontal
+ * fica desligado — cada card que entra pela lateral "subia" 12px no swipe.
+ */
+export function ProductCard({ product, reveal = true }: { product: Product; reveal?: boolean }) {
   const addItem = useCartStore((s) => s.addItem);
   const setCartOpen = useUIStore((s) => s.setCartOpen);
   const navigate = useNavigate();
@@ -40,8 +44,8 @@ export function ProductCard({ product }: { product: Product }) {
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 12 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={reveal ? { opacity: 0, y: 12 } : false}
+      whileInView={reveal ? { opacity: 1, y: 0 } : undefined}
       viewport={{ once: true, margin: '-50px' }}
       transition={{ duration: 0.35 }}
       whileHover={{ y: -4 }}

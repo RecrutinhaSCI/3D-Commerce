@@ -33,7 +33,7 @@ export function ShowcaseSection({ eyebrow, title, ctaTo, ctaLabel, products }: P
       </div>
       <Carousel ariaLabel={title}>
         {products.slice(0, 12).map((p) => (
-          <ProductCard key={p.id} product={p} />
+          <ProductCard key={p.id} product={p} reveal={false} />
         ))}
       </Carousel>
     </section>

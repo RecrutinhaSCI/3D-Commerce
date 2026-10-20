@@ -1,14 +1,19 @@
 /**
  * Localiza no banco as URLs de arquivo no formato antigo (`/uploads/<pasta>/x`),
- * gravadas quando os uploads iam para o disco do servidor. Na Vercel o disco
- * não é persistente, então essas URLs apontam para arquivos que não existem.
+ * gravadas quando os uploads iam para o disco do servidor. Na Vercel/Render o
+ * disco não é persistente, então essas URLs apontam para arquivos que não existem.
  *
- * `/uploads/seed/...` fica de fora: são as imagens do seed, versionadas em
- * `public/` e servidas pelo CDN da Vercel.
+ * Também pega a forma ABSOLUTA (`https://<backend>/uploads/<pasta>/x`): o admin
+ * de banners regravava a URL já prefixada com o host da API.
+ *
+ * `/uploads/seed/...` fica de fora (ver src/lib/legacyUpload.ts).
  *
  * Usado pelo `migrate-uploads.ts` (migração para o Blob) e pelo `check-config.ts`.
  */
 import { prisma } from '../src/lib/prisma';
+import { isLegacyUploadUrl, legacyUploadPath } from '../src/lib/legacyUpload';
+
+export { isLegacyUploadUrl, legacyUploadPath };
 
 export type LegacyRef = {
   /** Onde está a URL — usado no relatório. */
@@ -19,9 +24,6 @@ export type LegacyRef = {
   /** Só imagens de produto podem ser apagadas com `--remove-missing`. */
   remove?: () => Promise<unknown>;
 };
-
-const LEGACY_RE = /^\/uploads\/(?!seed\/)[^/]+\/[^/]+$/;
-export const isLegacyUploadUrl = (v: unknown): v is string => typeof v === 'string' && LEGACY_RE.test(v);
 
 /** Troca, em profundidade, as strings `from` por `to` dentro de um valor JSON. */
 function replaceDeep(value: unknown, from: string, to: string): unknown {
@@ -43,7 +45,7 @@ export async function findLegacyUploads(): Promise<LegacyRef[]> {
   const refs: LegacyRef[] = [];
 
   const images = await prisma.productImage.findMany({
-    where: { url: { startsWith: '/uploads/' } },
+    where: { url: { contains: '/uploads/' } },
     select: { id: true, url: true, product: { select: { name: true } } },
   });
   for (const img of images) {
@@ -57,7 +59,7 @@ export async function findLegacyUploads(): Promise<LegacyRef[]> {
   }
 
   const categories = await prisma.category.findMany({
-    where: { seasonalBannerImage: { startsWith: '/uploads/' } },
+    where: { seasonalBannerImage: { contains: '/uploads/' } },
     select: { id: true, name: true, seasonalBannerImage: true },
   });
   for (const c of categories) {
@@ -70,7 +72,7 @@ export async function findLegacyUploads(): Promise<LegacyRef[]> {
   }
 
   const banners = await prisma.banner.findMany({
-    where: { imageUrl: { startsWith: '/uploads/' } },
+    where: { imageUrl: { contains: '/uploads/' } },
     select: { id: true, title: true, imageUrl: true },
   });
   for (const b of banners) {
@@ -83,7 +85,7 @@ export async function findLegacyUploads(): Promise<LegacyRef[]> {
   }
 
   const testimonials = await prisma.testimonial.findMany({
-    where: { avatarUrl: { startsWith: '/uploads/' } },
+    where: { avatarUrl: { contains: '/uploads/' } },
     select: { id: true, name: true, avatarUrl: true },
   });
   for (const t of testimonials) {
@@ -96,7 +98,7 @@ export async function findLegacyUploads(): Promise<LegacyRef[]> {
   }
 
   const quoteFiles = await prisma.quoteFile.findMany({
-    where: { url: { startsWith: '/uploads/' } },
+    where: { url: { contains: '/uploads/' } },
     select: { id: true, url: true, originalName: true },
   });
   for (const f of quoteFiles) {

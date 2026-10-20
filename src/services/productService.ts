@@ -148,5 +148,7 @@ export interface BulkImportReport {
   unchanged: BulkImportItem[];
   skipped: BulkImportItem[];
   conflicts: BulkImportItem[];
-  summary: { total: number; created: number; updated: number; unchanged: number; skipped: number; conflicts: number };
+  /** Imagens `/uploads/...` antigas da planilha ignoradas (arquivo já não existe). Backend antigo não manda. */
+  legacyImagesIgnored?: BulkImportItem[];
+  summary: { total: number; created: number; updated: number; unchanged: number; skipped: number; conflicts: number; legacyImagesIgnored?: number };
 }

@@ -177,6 +177,12 @@ const mockPrisma: any = {
 };
 
 vi.mock('../../lib/prisma', () => ({ prisma: mockPrisma }));
+// Vercel Blob ligado/desligado por teste (padrão: desligado, como em dev).
+let blobOn = false;
+vi.mock('../../lib/upload', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/upload')>()),
+  isBlobStorage: () => blobOn,
+}));
 
 const { productsService, isSafeImageUrl } = await import('./products.service');
 
@@ -184,6 +190,7 @@ describe('R19-C — imagem principal via bulk import', () => {
   beforeEach(() => {
     db.products = []; db.images = []; db.deletionCalls = 0;
     db.imageCreateShouldThrow = false;
+    blobOn = false;
     db.categories = [{ id: 'cat_fila', name: 'Filamentos' }];
   });
 
@@ -406,6 +413,43 @@ describe('R19-C — imagem principal via bulk import', () => {
     });
     expect(r.summary.created).toBe(1);
     expect(db.images[0].url).toBe('/uploads/products/abc.jpg');
+  });
+
+  it('EXTRA G — com Blob ativo, /uploads/... legado é ignorado e o resto da linha aplica', async () => {
+    blobOn = true;
+    db.products.push(makeFake({ id: 'p-blob', name: 'Com Blob', slug: 'com-blob', sku: 'SKU-B', stock: 1 }));
+    db.images.push({
+      id: 'img-blob', productId: 'p-blob', url: 'https://abc.public.blob.vercel-storage.com/products/novo.webp',
+      alt: null, position: 0, mediaType: 'image', mimeType: null,
+    });
+
+    const r = await productsService.bulkImport({
+      rows: [
+        // Planilha antiga: URL absoluta do backend por cima de um reupload no Blob.
+        { line: 2, sku: 'SKU-B', stock: 9, imageUrl: 'https://threed-commerce-backend.onrender.com/uploads/products/velha.jpg' },
+        // Produto novo com caminho relativo antigo: cria sem imagem.
+        { line: 3, name: 'Novo', categoryName: 'Filamentos', price: 10, imageUrl: '/uploads/products/velha2.jpg' },
+      ],
+    });
+
+    expect(r.summary).toMatchObject({ updated: 1, created: 1, conflicts: 0, legacyImagesIgnored: 2 });
+    expect(r.legacyImagesIgnored.map((i) => i.line)).toEqual([2, 3]);
+    expect(db.products.find((p) => p.id === 'p-blob')!.stock).toBe(9);
+    // Galeria do produto existente intacta; produto novo sem imagem.
+    expect(db.images.map((i) => i.url)).toEqual(['https://abc.public.blob.vercel-storage.com/products/novo.webp']);
+  });
+
+  it('EXTRA H — com Blob ativo, URL do Blob, externa e seed continuam aceitas', async () => {
+    blobOn = true;
+    const r = await productsService.bulkImport({
+      rows: [
+        { line: 2, name: 'A', categoryName: 'Filamentos', price: 10, imageUrl: 'https://abc.public.blob.vercel-storage.com/products/a.webp' },
+        { line: 3, name: 'B', categoryName: 'Filamentos', price: 10, imageUrl: 'https://cdn.example.com/b.jpg' },
+        { line: 4, name: 'C', categoryName: 'Filamentos', price: 10, imageUrl: '/uploads/seed/pla-preto.svg' },
+      ],
+    });
+    expect(r.summary).toMatchObject({ created: 3, legacyImagesIgnored: 0 });
+    expect(db.images).toHaveLength(3);
   });
 
   // -------------------------------------------------------------------------

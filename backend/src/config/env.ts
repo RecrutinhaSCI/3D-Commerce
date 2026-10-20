@@ -52,7 +52,11 @@ const envSchema = z.object({
   // Segredo do Vercel Cron (expiração de pedidos). Sem ele a rota fica desligada.
   CRON_SECRET: z.preprocess(emptyToUndefined, z.string().min(16, 'CRON_SECRET precisa ter 16+ caracteres.').optional()),
   // Vercel Blob (uploads em produção). Sem ele, grava em disco (só serve em dev).
-  BLOB_READ_WRITE_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Tolera espaços/aspas colados junto no painel do Render (token ficaria inválido).
+  BLOB_READ_WRITE_TOKEN: z.preprocess(
+    (v) => emptyToUndefined(typeof v === 'string' ? v.trim().replace(/^["']|["']$/g, '') : v),
+    z.string().optional(),
+  ),
 
   // Mercado Pago (pagamentos). Access token nunca vai ao frontend.
   // Os placeholders do .env.example ("TEST-xxxx"/"xxxx") são recusados para
@@ -190,7 +194,7 @@ export function productionConfigWarnings(): string[] {
     warnings.push('CRON_SECRET ausente — pedidos não pagos não expiram e webhooks perdidos não são reconciliados.');
   }
   if (!env.BLOB_READ_WRITE_TOKEN) {
-    warnings.push('BLOB_READ_WRITE_TOKEN ausente — upload de imagens/arquivos falha na Vercel (disco somente leitura).');
+    warnings.push('BLOB_READ_WRITE_TOKEN ausente — uploads serão recusados (o disco do Render/Vercel é efêmero).');
   }
   if ((!env.BREVO_API_KEY && !env.SMTP_HOST) || !env.SMTP_FROM) {
     warnings.push('E-mail não configurado (BREVO_API_KEY ou SMTP_HOST, + SMTP_FROM) — nenhum e-mail será enviado (cadastro, pedido, pagamento, senha).');

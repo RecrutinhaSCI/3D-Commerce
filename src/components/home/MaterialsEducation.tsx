@@ -40,8 +40,8 @@ export function MaterialsEducation() {
           {items.map((it, i) => (
             <motion.div
               key={it.name}
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
               viewport={{ once: true }}
               transition={{ delay: i * 0.05 }}
               className="group h-full rounded-2xl border border-ink-line/70 bg-bg-card p-6 transition-all hover:-translate-y-1 hover:border-ink/20 hover:shadow-card"

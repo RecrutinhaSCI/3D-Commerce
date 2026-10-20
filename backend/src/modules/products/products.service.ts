@@ -3,10 +3,12 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { generateUniqueSlug, slugify } from '../../utils/slug';
 import { decimalToNumber } from '../../utils/decimal';
+import { isLegacyUploadUrl } from '../../lib/legacyUpload';
 import {
   PRODUCT_MEDIA_MAX_IMAGE_BYTES,
   PRODUCT_MEDIA_MAX_VIDEO_BYTES,
   classifyProductMedia,
+  isBlobStorage,
   safeUnlinkProductImage,
   storedFileUrl,
 } from '../../lib/upload';
@@ -610,6 +612,9 @@ export const productsService = {
       imageUpdated?: boolean;
     }
     const created: ReportItem[] = [];
+    // Imagens `/uploads/...` antigas que a planilha trouxe e foram ignoradas
+    // (o resto da linha é aplicado normalmente).
+    const legacyImagesIgnored: ReportItem[] = [];
     const updated: ReportItem[] = [];
     // Linhas que casaram com um produto mas não trazem NENHUMA diferença real
     // (reimportar a mesma planilha). Nada é escrito — nem updatedAt muda.
@@ -743,7 +748,18 @@ export const productsService = {
         // R19-C — Valida a URL da imagem ANTES de qualquer persistência.
         // Uma URL malformada não bloqueia as demais linhas do lote.
         let validatedImageUrl: string | undefined;
-        if (row.imageUrl !== undefined) {
+        // Com o Vercel Blob ativo, `/uploads/...` (relativa ou com o host da
+        // API) é arquivo do disco antigo que já não existe: aceitar faria uma
+        // planilha exportada antes da migração reintroduzir a imagem quebrada
+        // como principal, por cima do reupload. Ignora só a imagem.
+        if (row.imageUrl !== undefined && isBlobStorage() && isLegacyUploadUrl(row.imageUrl.trim())) {
+          legacyImagesIgnored.push({
+            line: row.line,
+            name: row.name,
+            identifier: row.imageUrl.slice(0, 120),
+            reason: 'Imagem antiga (/uploads/...) ignorada — o arquivo não existe mais. Reenvie a foto pelo admin.',
+          });
+        } else if (row.imageUrl !== undefined) {
           if (!isSafeImageUrl(row.imageUrl)) {
             conflicts.push({
               line: row.line,
@@ -1059,6 +1075,7 @@ export const productsService = {
       unchanged,
       skipped,
       conflicts,
+      legacyImagesIgnored,
       summary: {
         total: input.rows.length,
         created: created.length,
@@ -1066,6 +1083,7 @@ export const productsService = {
         unchanged: unchanged.length,
         skipped: skipped.length,
         conflicts: conflicts.length,
+        legacyImagesIgnored: legacyImagesIgnored.length,
       },
     };
   },
