@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Flame, Sparkles, Tag } from 'lucide-react';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { isFilamentCategory, isMaterialCategory, materialLabel, sortMaterials } from '@/utils/categoryGroups';
 
 interface Props {
   open: boolean;
@@ -14,18 +15,27 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
   const categories = useAdminDataStore((s) => s.categories);
   const products = useAdminDataStore((s) => s.products);
 
+  // Só categorias com produto ativo aparecem (ex.: "Acessórios" vazia some).
+  const activeProducts = products.filter((p) => p.active);
+  const hasProducts = (id: string) => activeProducts.some((p) => p.categoryIds.includes(id));
+
   const main = categories
-    .filter((c) => c.showInMenu && !c.isSeasonal && c.slug !== 'ofertas')
+    .filter((c) => c.showInMenu && !c.isSeasonal && c.slug !== 'ofertas' && hasProducts(c.id))
     .sort((a, b) => a.order - b.order);
   const seasonal = categories.find((c) => c.isSeasonal && c.seasonalActive && c.showInMenu);
   const offers = categories.find((c) => c.slug === 'ofertas');
-  const highlights = products.filter((p) => p.isHighlight && p.active).slice(0, 4);
+  const highlights = activeProducts.filter((p) => p.isHighlight).slice(0, 4);
 
-  // Coluna "Materiais": categorias de filamento/resina conhecidas.
-  // Coluna "Loja": todas as demais (inclui categorias novas criadas no admin).
-  const materialSlugs = ['pla', 'petg', 'abs', 'resinas'];
-  const materialCats = main.filter((c) => materialSlugs.includes(c.slug));
-  const otherCats = main.filter((c) => !materialSlugs.includes(c.slug));
+  // "Materiais": cada filamento/resina pelo nome curto (PLA, PETG…).
+  // "Loja": tipos de produto — Impressoras, Filamentos (agrupado) e demais
+  // categorias criadas no admin. Assim nenhum material aparece duas vezes.
+  const materialCats = sortMaterials(main.filter(isMaterialCategory));
+  const hasFilaments = materialCats.some(isFilamentCategory);
+  const otherCats = main.filter((c) => !isMaterialCategory(c));
+  const shopLinks = [
+    ...otherCats.map((c) => ({ key: c.id, to: `/categoria/${c.slug}`, label: c.name })),
+    ...(hasFilaments ? [{ key: 'filamentos', to: '/loja?grupo=filamentos', label: 'Filamentos' }] : []),
+  ];
 
   return (
     <AnimatePresence>
@@ -53,7 +63,7 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
                       onClick={onClose}
                       className="group inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink"
                     >
-                      {c.name}
+                      {materialLabel(c.name)}
                       <ArrowRight className="h-3 w-3 opacity-0 transition group-hover:opacity-100" />
                     </Link>
                   </li>
@@ -63,14 +73,14 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
             <div className="col-span-3">
               <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-ink-mute">Loja</p>
               <ul className="space-y-2">
-                {otherCats.map((c) => (
-                  <li key={c.id}>
+                {shopLinks.map((l) => (
+                  <li key={l.key}>
                     <Link
-                      to={`/categoria/${c.slug}`}
+                      to={l.to}
                       onClick={onClose}
                       className="group inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink"
                     >
-                      {c.name}
+                      {l.label}
                       <ArrowRight className="h-3 w-3 opacity-0 transition group-hover:opacity-100" />
                     </Link>
                   </li>
@@ -114,9 +124,21 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
               </div>
             </div>
             <div className="col-span-6">
-              <p className="mb-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-ink-mute">
-                <Flame className="h-3 w-3" /> Destaques
-              </p>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-ink-mute">
+                  <Flame className="h-3 w-3" /> Destaques
+                </p>
+                {highlights.length > 0 && (
+                  <Link
+                    to="/loja?filtro=destaques"
+                    onClick={onClose}
+                    className="group inline-flex items-center gap-1 text-xs font-semibold text-ink-soft hover:text-ink"
+                  >
+                    Ver destaques
+                    <ArrowRight className="h-3 w-3 transition group-hover:translate-x-0.5" />
+                  </Link>
+                )}
+              </div>
               <div className="grid grid-cols-4 gap-3">
                 {highlights.map((p) => (
                   <Link

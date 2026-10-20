@@ -191,7 +191,7 @@ export function productionConfigWarnings(): string[] {
     warnings.push('CRON_SECRET ausente — pedidos não pagos não expiram e webhooks perdidos não são reconciliados.');
   }
   if (!env.BLOB_READ_WRITE_TOKEN) {
-    warnings.push('BLOB_READ_WRITE_TOKEN ausente — upload de imagens/arquivos falha na Vercel (disco somente leitura).');
+    warnings.push('BLOB_READ_WRITE_TOKEN ausente — uploads serão recusados (o disco do Render/Vercel é efêmero).');
   }
   if (!env.SMTP_HOST || !env.SMTP_FROM) {
     warnings.push('SMTP não configurado — nenhum e-mail será enviado (pedido, pagamento, senha).');

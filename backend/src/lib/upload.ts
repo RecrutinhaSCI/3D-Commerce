@@ -15,6 +15,9 @@ import { HttpError } from '../utils/httpError';
  *   da Vercel não têm disco gravável — por isso nada é escrito localmente.
  * - **Desenvolvimento:** sem o token, grava em `UPLOAD_DIR/<pasta>` e serve por
  *   `/uploads/<pasta>/<arquivo>` (express.static no app.ts), como antes.
+ * - **Produção sem token:** o upload é RECUSADO. Nunca cai para o disco — no
+ *   Render/Vercel ele é efêmero e o arquivo sumiria no próximo deploy/restart
+ *   (foi assim que as imagens antigas em `/uploads/...` se perderam).
  *
  * Os controllers usam `storedFileUrl(file)` para obter a URL a persistir e as
  * funções `safeUnlink*` aceitam tanto URL do Blob quanto caminho local.
@@ -39,6 +42,13 @@ function createStorage(folder: Folder, extFor: (file: Express.Multer.File) => st
   return {
     _handleFile(_req, file, cb) {
       const filename = randomName(extFor(file));
+      if (!isBlobStorage() && env.NODE_ENV === 'production') {
+        // eslint-disable-next-line no-console
+        console.error(`[upload] BLOB_READ_WRITE_TOKEN ausente em produção — upload de ${folder} recusado (disco é efêmero).`);
+        file.stream.resume(); // descarta o corpo para a resposta sair
+        cb(HttpError.internal('Armazenamento de arquivos não configurado. Contate o suporte.'));
+        return;
+      }
       if (isBlobStorage()) {
         const chunks: Buffer[] = [];
         file.stream.on('data', (c: Buffer) => chunks.push(c));

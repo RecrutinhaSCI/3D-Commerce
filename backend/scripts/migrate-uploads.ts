@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { put } from '@vercel/blob';
 import { prisma } from '../src/lib/prisma';
-import { findLegacyUploads } from './legacy-uploads';
+import { findLegacyUploads, legacyUploadPath } from './legacy-uploads';
 
 const args = process.argv.slice(2);
 const apply = args.includes('--apply');
@@ -48,9 +48,9 @@ const CONTENT_TYPES: Record<string, string> = {
   '.3mf': 'model/3mf',
 };
 
-/** `/uploads/products/x.png` → pasta, nome e caminho local esperado. */
+/** `/uploads/products/x.png` (ou `https://<api>/uploads/...`) → pasta, nome e caminho local. */
 function localFileOf(url: string) {
-  const [, , folder, filename] = url.split('/');
+  const [, , folder, filename] = (legacyUploadPath(url) ?? url).split('/');
   return { folder, filename, localPath: path.join(baseDir, folder, filename) };
 }
 

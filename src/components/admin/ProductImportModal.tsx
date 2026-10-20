@@ -252,7 +252,7 @@ export function ProductImportModal({ open, onClose, onDone }: Props) {
               </p>
             )}
 
-            {(report.conflicts.length > 0 || report.skipped.length > 0 || (imageReport?.failed.length ?? 0) > 0) && (
+            {(report.conflicts.length > 0 || report.skipped.length > 0 || (imageReport?.failed.length ?? 0) > 0 || (report.legacyImagesIgnored?.length ?? 0) > 0) && (
               <div className="max-h-52 overflow-y-auto rounded-lg border border-ink-line text-xs">
                 {report.conflicts.map((c, i) => (
                   <div key={`c${i}`} className="flex items-start gap-2 border-b border-ink-line/50 bg-amber-50/40 px-3 py-2 last:border-0">
@@ -268,6 +268,14 @@ export function ProductImportModal({ open, onClose, onDone }: Props) {
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-mute" />
                     <span>
                       <b>Linha {s.line}</b>{s.name ? ` (${s.name})` : ''} — Ignorada: {s.reason}
+                    </span>
+                  </div>
+                ))}
+                {report.legacyImagesIgnored?.map((l, i) => (
+                  <div key={`l${i}`} className="flex items-start gap-2 border-b border-ink-line/50 px-3 py-2 last:border-0">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-mute" />
+                    <span>
+                      <b>Linha {l.line}</b>{l.name ? ` (${l.name})` : ''} — {l.reason}
                     </span>
                   </div>
                 ))}

@@ -15,6 +15,10 @@ export function MobileDrawer() {
   const setOpen = useUIStore((s) => s.setMobileMenuOpen);
   const setCartOpen = useUIStore((s) => s.setCartOpen);
   const categories = useAdminDataStore((s) => s.categories);
+  const products = useAdminDataStore((s) => s.products);
+  // Mesmo critério do mega menu: categoria sem produto ativo não aparece
+  // (Ofertas e a sazonal têm recorte próprio e ficam sempre).
+  const hasProducts = (id: string) => products.some((p) => p.active && p.categoryIds.includes(id));
   const customer = useCurrentCustomer();
   const logoutCustomer = useCustomerAuthStore((s) => s.logoutCustomer);
   const navigate = useNavigate();
@@ -105,7 +109,7 @@ export function MobileDrawer() {
 
         <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-ink-mute">Categorias</p>
         <div className="mb-6 grid grid-cols-2 gap-2">
-          {categories.filter((c) => c.showInMenu).sort((a, b) => a.order - b.order).map((c) => (
+          {categories.filter((c) => c.showInMenu && (c.slug === 'ofertas' || c.isSeasonal || hasProducts(c.id))).sort((a, b) => a.order - b.order).map((c) => (
             <Link
               key={c.id}
               to={`/categoria/${c.slug}`}

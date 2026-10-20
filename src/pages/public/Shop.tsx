@@ -7,21 +7,30 @@ import { ProductSort, applySort, type SortKey } from '@/components/product/Produ
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SlidersHorizontal, X } from 'lucide-react';
 import { useSEO } from '@/utils/seo';
+import { isFilamentCategory } from '@/utils/categoryGroups';
 
-export default function Shop({ categorySlug, title }: { categorySlug?: string; title?: string }) {
-  useSEO(title ?? 'Loja', 'Todos os produtos de impressão 3D da 3DCommerce.');
+export default function Shop({ categorySlug, title: titleProp }: { categorySlug?: string; title?: string }) {
   const products = useAdminDataStore((s) => s.products);
   const categories = useAdminDataStore((s) => s.categories);
   const [params] = useSearchParams();
   const q = params.get('q') ?? '';
+  // Atalhos do mega menu: /loja?grupo=filamentos (todas as categorias de
+  // filamento) e /loja?filtro=destaques (produtos marcados como destaque).
+  const isFilamentGroup = !categorySlug && params.get('grupo') === 'filamentos';
+  const isHighlightsPage = !categorySlug && params.get('filtro') === 'destaques';
+  const title = titleProp ?? (isFilamentGroup ? 'Filamentos' : isHighlightsPage ? 'Destaques' : undefined);
+  useSEO(title ?? 'Loja', 'Todos os produtos de impressão 3D da 3DCommerce.');
 
   const category = categorySlug ? categories.find((c) => c.slug === categorySlug) : undefined;
 
   const isOffersPage = category?.slug === 'ofertas';
+  const filamentIds = categories.filter(isFilamentCategory).map((c) => c.id);
+  const routeCategories = () =>
+    category && !isOffersPage ? [category.id] : isFilamentGroup ? filamentIds : [];
 
   const [filters, setFilters] = useState<FiltersState>({
     q,
-    categories: category && !isOffersPage ? [category.id] : [],
+    categories: routeCategories(),
     materials: [],
     brands: [],
     minPrice: 0,
@@ -38,12 +47,12 @@ export default function Shop({ categorySlug, title }: { categorySlug?: string; t
   useEffect(() => {
     setFilters((prev) => ({
       ...prev,
-      categories: category && !isOffersPage ? [category.id] : [],
+      categories: routeCategories(),
       // Marcas selecionadas que não existem na nova categoria são descartadas,
       // evitando filtro "preso" sem resultados ao trocar de catálogo.
       brands: [],
     }));
-  }, [category?.id]);
+  }, [category?.id, isFilamentGroup, filamentIds.join(',')]);
 
   // Produtos do escopo do catálogo atual (apenas o recorte de categoria/ofertas/sazonal),
   // sem aplicar os filtros secundários. Serve de base para a lista e para alimentar
@@ -54,13 +63,15 @@ export default function Shop({ categorySlug, title }: { categorySlug?: string; t
       // "Ofertas" não é uma categoria atribuída ao produto: é a flag "Oferta"
       // OU qualquer produto com preço promocional menor que o preço normal.
       arr = arr.filter((p) => p.isOffer || (p.promoPrice != null && p.promoPrice < p.price));
+    } else if (isHighlightsPage) {
+      arr = arr.filter((p) => p.isHighlight);
     } else if (category?.isSeasonal && category.productIds?.length) {
       arr = arr.filter((p) => category.productIds!.includes(p.id));
     } else if (filters.categories.length) {
       arr = arr.filter((p) => p.categoryIds.some((id) => filters.categories.includes(id)));
     }
     return arr;
-  }, [products, category, filters.categories]);
+  }, [products, category, filters.categories, isHighlightsPage]);
 
   const filtered = useMemo(() => {
     let arr = scopedProducts;

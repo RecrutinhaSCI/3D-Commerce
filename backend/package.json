@@ -22,6 +22,7 @@
     "check:config": "tsx scripts/check-config.ts",
     "check:blob": "tsx scripts/check-blob.ts",
     "uploads:migrate": "tsx scripts/migrate-uploads.ts",
+    "uploads:audit": "tsx scripts/audit-images.ts",
     "test": "vitest run"
   },
   "prisma": {

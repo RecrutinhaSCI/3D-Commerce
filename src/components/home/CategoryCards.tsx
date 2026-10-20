@@ -24,8 +24,8 @@ export function CategoryCards() {
         {categories.map((c, i) => (
           <motion.div
             key={c.id}
-            initial={{ opacity: 0, y: 14 }}
-            whileInView={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
             viewport={{ once: true, margin: '-50px' }}
             transition={{ delay: i * 0.04 }}
           >
