@@ -12,6 +12,7 @@ import { YouTubeSection } from '@/components/home/YouTubeSection';
 import { Newsletter } from '@/components/home/Newsletter';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { useSEO } from '@/utils/seo';
+import { categoryPath } from '@/utils/categoryGroups';
 
 export default function Home() {
   useSEO('Tudo para impressão 3D', 'Filamentos, resinas, impressoras 3D e suporte especializado. Loja física em Bento Gonçalves/RS.');
@@ -27,7 +28,7 @@ export default function Home() {
       <PromoCarousel />
       <CategoryCards />
       <ShowcaseSection eyebrow="Em destaque" title="Os produtos do momento" ctaTo="/loja" products={highlights} />
-      <ShowcaseSection eyebrow="Ofertas" title="Selecionados em promoção" ctaTo="/categoria/ofertas" products={offers} />
+      <ShowcaseSection eyebrow="Ofertas" title="Selecionados em promoção" ctaTo={categoryPath('ofertas')} products={offers} />
       <SeasonalBanner />
       <ShowcaseSection eyebrow="Mais vendidos" title="Quem chega leva" ctaTo="/loja" products={bestSellers} />
       <MaterialsEducation />

@@ -130,6 +130,10 @@ export interface ApiCategory {
   seasonalTitle: string | null;
   seasonalDescription: string | null;
   seasonalBannerImage: string | null;
+  /** Imagem do card na Home (Vercel Blob). Ausente em backend antigo. */
+  imageUrl?: string | null;
+  showInMenu?: boolean;
+  showInHome?: boolean;
   productsCount?: number;
 }
 

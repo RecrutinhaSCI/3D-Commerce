@@ -2,6 +2,7 @@ import { Prisma, type Category } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { generateUniqueSlug, slugify } from '../../utils/slug';
+import { safeUnlinkSiteImage } from '../../lib/upload';
 import type { CreateCategoryInput, UpdateCategoryInput } from './categories.schemas';
 
 type CategoryDTO = Category & { productsCount?: number };
@@ -47,6 +48,9 @@ export const categoriesService = {
       seasonalTitle: c.seasonalTitle,
       seasonalDescription: c.seasonalDescription,
       seasonalBannerImage: c.seasonalBannerImage,
+      imageUrl: c.imageUrl,
+      showInMenu: c.showInMenu,
+      showInHome: c.showInHome,
       productsCount: c._count.products,
     }));
   },
@@ -75,6 +79,8 @@ export const categoriesService = {
         seasonalTitle: input.seasonalTitle ?? null,
         seasonalDescription: input.seasonalDescription ?? null,
         seasonalBannerImage: input.seasonalBannerImage ?? null,
+        showInMenu: input.showInMenu ?? true,
+        showInHome: input.showInHome ?? true,
       },
     });
     return toDTO(created);
@@ -106,8 +112,25 @@ export const categoriesService = {
           input.seasonalDescription === undefined ? current.seasonalDescription : input.seasonalDescription,
         seasonalBannerImage:
           input.seasonalBannerImage === undefined ? current.seasonalBannerImage : input.seasonalBannerImage,
+        showInMenu: input.showInMenu === undefined ? current.showInMenu : input.showInMenu,
+        showInHome: input.showInHome === undefined ? current.showInHome : input.showInHome,
       },
     });
+    return toDTO(updated);
+  },
+
+  /**
+   * Grava (ou limpa, com `null`) a imagem do card (`imageUrl`) ou do banner
+   * sazonal (`seasonalBannerImage`). A URL vem SEMPRE do upload do backend
+   * (Vercel Blob em produção). O arquivo anterior só é apagado depois que o
+   * banco foi atualizado — nunca fica categoria apontando para arquivo removido.
+   */
+  async setImage(id: string, field: 'imageUrl' | 'seasonalBannerImage', url: string | null) {
+    const current = await prisma.category.findUnique({ where: { id } });
+    if (!current) throw HttpError.notFound('Categoria não encontrada.');
+    const previous = current[field];
+    const updated = await prisma.category.update({ where: { id }, data: { [field]: url } });
+    if (previous && previous !== url) safeUnlinkSiteImage(previous);
     return toDTO(updated);
   },
 

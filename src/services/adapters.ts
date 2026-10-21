@@ -136,8 +136,11 @@ export function apiCategoryToInternal(c: ApiCategory, order = 0): Category {
     slug: c.slug,
     name: c.name,
     description: c.description ?? undefined,
-    showInMenu: c.active,
-    showInHome: c.active && !c.isSeasonal,
+    image: c.imageUrl ? apiAssetUrl(c.imageUrl) : undefined,
+    active: c.active,
+    // Flags gravadas no banco; backend antigo (sem as colunas) cai no `active`.
+    showInMenu: c.showInMenu ?? c.active,
+    showInHome: c.showInHome ?? c.active,
     order,
     isSeasonal: c.isSeasonal,
     seasonalActive: c.isSeasonal && c.active,

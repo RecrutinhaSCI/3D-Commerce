@@ -95,7 +95,11 @@ interface AdminDataState {
 
   // Categorias
   addCategory: (c: Category) => Promise<Category | null>;
-  updateCategory: (id: string, patch: Partial<Category>) => Promise<void>;
+  /** `true` se o backend gravou; erros não ficam mais em silêncio. */
+  updateCategory: (id: string, patch: Partial<Category>) => Promise<boolean>;
+  /** Sobe a imagem (Vercel Blob) e devolve a categoria atualizada. Lança ApiError. */
+  uploadCategoryImage: (id: string, file: File, kind?: 'card' | 'seasonal') => Promise<Category>;
+  removeCategoryImage: (id: string, kind?: 'card' | 'seasonal') => Promise<Category>;
   removeCategory: (id: string) => Promise<void>;
 
   // Banners
@@ -298,10 +302,12 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
         name: c.name,
         slug: c.slug || undefined,
         description: c.description ?? null,
-        active: c.showInMenu,
+        active: c.isSeasonal ? c.seasonalActive !== false : c.active !== false,
+        showInMenu: c.showInMenu,
+        showInHome: c.showInHome,
         isSeasonal: !!c.isSeasonal,
         seasonalTitle: c.seasonalBanner ?? null,
-        seasonalBannerImage: c.seasonalBannerImage ?? null,
+        // Imagens só pelo upload (Vercel Blob) — nunca Base64 no cadastro.
       });
       const created = apiCategoryToInternal(category, get().categories.length);
       set({ categories: [...get().categories, created] });
@@ -316,18 +322,53 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.name !== undefined) payload.name = patch.name;
     if (patch.slug !== undefined) payload.slug = patch.slug;
     if (patch.description !== undefined) payload.description = patch.description ?? null;
-    if (patch.showInMenu !== undefined) payload.active = patch.showInMenu;
+    // "Ativa" tira a categoria do ar; menu/home são só flags de exibição.
+    if (patch.active !== undefined) payload.active = patch.active;
+    if (patch.seasonalActive !== undefined) payload.active = patch.seasonalActive;
+    if (patch.showInMenu !== undefined) payload.showInMenu = patch.showInMenu;
+    if (patch.showInHome !== undefined) payload.showInHome = patch.showInHome;
     if (patch.isSeasonal !== undefined) payload.isSeasonal = patch.isSeasonal;
     if (patch.seasonalBanner !== undefined) payload.seasonalTitle = patch.seasonalBanner ?? null;
-    if (patch.seasonalBannerImage !== undefined) payload.seasonalBannerImage = patch.seasonalBannerImage ?? null;
+    // `image`/`seasonalBannerImage` NÃO vão pelo PUT: só pelo upload dedicado.
 
     try {
       const { category } = await categoryService.update(id, payload);
       const updated = apiCategoryToInternal(category, 0);
-      set({ categories: get().categories.map((c) => (c.id === id ? { ...c, ...updated } : c)) });
+      set({ categories: get().categories.map((c) => (c.id === id ? { ...c, ...updated, order: c.order } : c)) });
+      return true;
     } catch {
-      // ignora
+      return false;
     }
+  },
+
+  async uploadCategoryImage(id, file, kind = 'card') {
+    const { category } = await categoryService.uploadImage(id, file, kind);
+    const updated = apiCategoryToInternal(category, 0);
+    let merged = updated;
+    set({
+      categories: get().categories.map((c) => (c.id === id ? (merged = { ...c, ...updated, order: c.order }) : c)),
+    });
+    return merged;
+  },
+
+  async removeCategoryImage(id, kind = 'card') {
+    const { category } = await categoryService.removeImage(id, kind);
+    const updated = apiCategoryToInternal(category, 0);
+    let merged = updated;
+    set({
+      categories: get().categories.map((c) =>
+        c.id === id
+          ? (merged = {
+              ...c,
+              ...updated,
+              order: c.order,
+              // O spread não apaga campo ausente: limpa explicitamente.
+              ...(kind === 'card' ? { image: undefined } : { seasonalBannerImage: undefined }),
+            })
+          : c,
+      ),
+    });
+    return merged;
   },
 
   async removeCategory(id) {

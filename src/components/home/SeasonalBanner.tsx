@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { categoryPath } from '@/utils/categoryGroups';
 
 export function SeasonalBanner() {
   const seasonal = useAdminDataStore((s) =>
@@ -34,7 +35,7 @@ export function SeasonalBanner() {
           <h2 className="mt-3 font-display text-3xl font-bold md:text-4xl">{seasonal.seasonalBanner ?? seasonal.name}</h2>
           {seasonal.description && <p className="mt-3 text-bg/80">{seasonal.description}</p>}
           <Link
-            to={`/categoria/${seasonal.slug}`}
+            to={categoryPath(seasonal.slug)}
             className="mt-5 inline-flex items-center gap-2 rounded-xl bg-bg px-5 py-2.5 text-sm font-bold text-ink hover:bg-bg-soft"
           >
             Ver coleção <ArrowRight className="h-4 w-4" />

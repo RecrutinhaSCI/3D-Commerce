@@ -74,6 +74,9 @@ async function main() {
   for (const c of await prisma.category.findMany({ where: { seasonalBannerImage: { not: null } } })) {
     refs.push({ entity: 'Categoria', where: `"${c.name}" (banner sazonal)`, active: c.active, url: c.seasonalBannerImage! });
   }
+  for (const c of await prisma.category.findMany({ where: { imageUrl: { not: null } } })) {
+    refs.push({ entity: 'Categoria', where: `"${c.name}" (card)`, active: c.active, url: c.imageUrl! });
+  }
   for (const b of await prisma.banner.findMany({ where: { imageUrl: { not: null } } })) {
     refs.push({ entity: 'Banner', where: `"${b.title}"`, active: b.active, url: b.imageUrl! });
   }
