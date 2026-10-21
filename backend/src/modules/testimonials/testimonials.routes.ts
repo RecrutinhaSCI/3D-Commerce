@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
-import { uploadRateLimiter } from '../../middlewares/rateLimiters';
+import { adminUploadRateLimiter } from '../../middlewares/rateLimiters';
 import { siteImageUpload } from '../../lib/upload';
 import { testimonialsController } from './testimonials.controller';
 
@@ -28,7 +28,7 @@ testimonialsRouter.get('/admin/testimonials', asyncHandler(testimonialsControlle
 testimonialsRouter.post('/admin/testimonials', asyncHandler(testimonialsController.create));
 testimonialsRouter.post(
   '/admin/testimonials/:id/avatar',
-  uploadRateLimiter,
+  adminUploadRateLimiter,
   siteImageUpload.single('avatar'),
   asyncHandler(testimonialsController.uploadAvatar),
 );

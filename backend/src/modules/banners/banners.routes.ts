@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
-import { uploadRateLimiter } from '../../middlewares/rateLimiters';
+import { adminUploadRateLimiter } from '../../middlewares/rateLimiters';
 import { siteImageUpload } from '../../lib/upload';
 import { bannersController } from './banners.controller';
 
@@ -28,7 +28,7 @@ bannersRouter.get('/admin/banners', asyncHandler(bannersController.listAdmin));
 bannersRouter.post('/admin/banners', asyncHandler(bannersController.create));
 bannersRouter.post(
   '/admin/banners/:id/image',
-  uploadRateLimiter,
+  adminUploadRateLimiter,
   siteImageUpload.single('image'),
   asyncHandler(bannersController.uploadImage),
 );

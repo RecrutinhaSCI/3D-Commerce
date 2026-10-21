@@ -3,7 +3,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
 import { optionalAuthMiddleware } from '../../middlewares/optionalAuthMiddleware';
-import { quoteRateLimiter, uploadRateLimiter } from '../../middlewares/rateLimiters';
+import { quoteFilesRateLimiter, quoteRateLimiter } from '../../middlewares/rateLimiters';
 import { quoteFilesUpload } from '../../lib/upload';
 import { quotesController } from './quotes.controller';
 
@@ -26,7 +26,7 @@ export const quotesRouter = Router();
 quotesRouter.post('/quotes', quoteRateLimiter, optionalAuthMiddleware, asyncHandler(quotesController.create));
 quotesRouter.post(
   '/quotes/:id/files',
-  uploadRateLimiter,
+  quoteFilesRateLimiter,
   quoteFilesUpload.array('files', 10),
   asyncHandler(quotesController.addFiles),
 );
