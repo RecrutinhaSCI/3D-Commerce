@@ -22,6 +22,7 @@ vi.mock('../../lib/upload', async (orig) => ({
 }));
 
 const { settingsService } = await import('./settings.service');
+const { blogPostContentSchema } = await import('./settings.schemas');
 
 const A = 'https://abc.public.blob.vercel-storage.com/site/a.webp';
 const B = 'https://abc.public.blob.vercel-storage.com/site/b.webp';
@@ -31,7 +32,7 @@ beforeEach(() => {
   state.row = {
     id: 'main', storeName: '3DCommerce', whatsapp: '', email: '', address: '',
     pixDiscountPercent: 0, freeShippingThreshold: 0, heroIntervalSeconds: 6,
-    blogCoversJson: null, createdAt: new Date(), updatedAt: new Date(),
+    blogCoversJson: null, blogContentJson: null, createdAt: new Date(), updatedAt: new Date(),
   };
   unlink.mockClear();
 });
@@ -63,6 +64,43 @@ describe('capas do blog', () => {
   });
 });
 
+describe('textos do blog (blog_content_json)', () => {
+  it('grava os campos enviados por slug e devolve no DTO público', async () => {
+    const md = '## Olá\n\n**negrito**';
+    const input = blogPostContentSchema.parse({ title: '  Novo título ', content: md });
+    const s = await settingsService.setBlogContent('post-1', input);
+    expect(s.blogContentJson).toEqual({ 'post-1': { title: 'Novo título', content: md } });
+    expect((await settingsService.getPublic()).blogContentJson['post-1'].title).toBe('Novo título');
+  });
+
+  it('salvar de novo SUBSTITUI a versão do slug; outros posts ficam intactos', async () => {
+    await settingsService.setBlogContent('post-1', { title: 'A', excerpt: 'x' });
+    await settingsService.setBlogContent('post-2', { title: 'B' });
+    const s = await settingsService.setBlogContent('post-1', { content: 'só conteúdo' });
+    expect(s.blogContentJson['post-1']).toEqual({ content: 'só conteúdo' });
+    expect(s.blogContentJson['post-2']).toEqual({ title: 'B' });
+  });
+
+  it('null / campos vazios removem a versão salva (volta ao padrão do código)', async () => {
+    await settingsService.setBlogContent('post-1', { title: 'A' });
+    expect((await settingsService.setBlogContent('post-1', null)).blogContentJson).toEqual({});
+    await settingsService.setBlogContent('post-1', { title: 'A' });
+    const empty = blogPostContentSchema.parse({ title: '   ', content: '' });
+    expect((await settingsService.setBlogContent('post-1', empty)).blogContentJson).toEqual({});
+  });
+
+  it('validação: campo desconhecido e texto grande demais são recusados', () => {
+    expect(blogPostContentSchema.safeParse({ slug: 'outro' }).success).toBe(false);
+    expect(blogPostContentSchema.safeParse({ title: 'x'.repeat(161) }).success).toBe(false);
+    expect(blogPostContentSchema.safeParse({ content: 'x'.repeat(60_001) }).success).toBe(false);
+  });
+
+  it('JSON inválido no banco é ignorado sem quebrar o settings', async () => {
+    state.row.blogContentJson = { ok: { title: 'T', lixo: 1 }, ruim: 'texto', vazio: { title: '' } };
+    expect((await settingsService.getPublic()).blogContentJson).toEqual({ ok: { title: 'T' } });
+  });
+});
+
 function routeHandlers(router: Router, method: string, path: string) {
   const layer = (router.stack as Array<{ route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: unknown }> } }>)
     .find((l) => l.route?.path === path && l.route.methods[method]);
@@ -75,6 +113,12 @@ describe('rotas das capas', () => {
     const { adminUploadRateLimiter } = await import('../../middlewares/rateLimiters');
     expect(routeHandlers(settingsRouter, 'post', '/admin/settings/blog-covers/:slug')).toContain(adminUploadRateLimiter);
     expect(routeHandlers(settingsRouter, 'delete', '/admin/settings/blog-covers/:slug').length).toBeGreaterThan(0);
+    expect(routeHandlers(settingsRouter, 'put', '/admin/settings/blog-posts/:slug').length).toBeGreaterThan(0);
+    expect(routeHandlers(settingsRouter, 'delete', '/admin/settings/blog-posts/:slug').length).toBeGreaterThan(0);
+    const guardedText = (settingsRouter.stack as Array<{ route?: unknown; regexp?: RegExp }>).find(
+      (l) => !l.route && l.regexp?.test('/admin/settings/blog-posts/x'),
+    );
+    expect(guardedText).toBeTruthy();
     const guarded = (settingsRouter.stack as Array<{ route?: unknown; regexp?: RegExp }>).find(
       (l) => !l.route && l.regexp?.test('/admin/settings/blog-covers/x'),
     );

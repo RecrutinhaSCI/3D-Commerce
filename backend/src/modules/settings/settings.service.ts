@@ -2,12 +2,30 @@ import { Prisma, type SiteSettings } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { decimalToNumber } from '../../utils/decimal';
 import { safeUnlinkSiteImage } from '../../lib/upload';
-import type { InstagramItem, TrustItem, UpdateSettingsInput, YoutubeVideo } from './settings.schemas';
+import type { BlogPostContent, InstagramItem, TrustItem, UpdateSettingsInput, YoutubeVideo } from './settings.schemas';
 
 /** JSON `{ chave: url }` → objeto só com valores string (ignora lixo). */
 function asStringRecord(v: unknown): Record<string, string> {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
   return Object.fromEntries(Object.entries(v).filter(([, url]) => typeof url === 'string')) as Record<string, string>;
+}
+
+const CONTENT_KEYS = ['title', 'category', 'excerpt', 'readTime', 'content'] as const;
+
+/** JSON `{ slug: { campos } }` → só campos conhecidos e string (ignora lixo). */
+function asContentRecord(v: unknown): Record<string, BlogPostContent> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out: Record<string, BlogPostContent> = {};
+  for (const [slug, raw] of Object.entries(v)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const entry: BlogPostContent = {};
+    for (const k of CONTENT_KEYS) {
+      const val = (raw as Record<string, unknown>)[k];
+      if (typeof val === 'string' && val.trim()) entry[k] = val;
+    }
+    if (Object.keys(entry).length) out[slug] = entry;
+  }
+  return out;
 }
 
 /** Existe UM registro só. id fixo `main`. */
@@ -82,6 +100,8 @@ export interface SettingsDTO {
   footerShowSocials: boolean;
   /** Capas do Blog por slug do post (URL do Vercel Blob). */
   blogCoversJson: Record<string, string>;
+  /** Textos dos posts editados no admin, por slug. Ausente = padrão do código. */
+  blogContentJson: Record<string, BlogPostContent>;
   createdAt: string;
   updatedAt: string;
 }
@@ -137,6 +157,7 @@ function toDTO(s: SiteSettings): SettingsDTO {
     footerDescription: s.footerDescription,
     footerShowSocials: s.footerShowSocials,
     blogCoversJson: asStringRecord(s.blogCoversJson),
+    blogContentJson: asContentRecord(s.blogContentJson),
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };
@@ -195,6 +216,25 @@ export const settingsService = {
       data: { blogCoversJson: covers },
     });
     if (previous && previous !== url) safeUnlinkSiteImage(previous);
+    return toDTO(updated);
+  },
+
+  /**
+   * Grava o texto de um post (substitui a versão salva daquele slug).
+   * `null` remove a versão salva → o post volta ao texto padrão do código.
+   */
+  async setBlogContent(slug: string, content: BlogPostContent | null): Promise<SettingsDTO> {
+    const current = await ensureSettings();
+    const all = asContentRecord(current.blogContentJson);
+    const clean = content
+      ? (Object.fromEntries(Object.entries(content).filter(([, v]) => typeof v === 'string' && v)) as BlogPostContent)
+      : null;
+    if (clean && Object.keys(clean).length) all[slug] = clean;
+    else delete all[slug];
+    const updated = await prisma.siteSettings.update({
+      where: { id: SETTINGS_ID },
+      data: { blogContentJson: all },
+    });
     return toDTO(updated);
   },
 

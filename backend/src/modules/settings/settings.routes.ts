@@ -39,6 +39,9 @@ settingsRouter.post(
   asyncHandler(settingsController.uploadBlogCover),
 );
 settingsRouter.delete('/admin/settings/blog-covers/:slug', asyncHandler(settingsController.removeBlogCover));
+// Textos dos posts do Blog (Markdown + metadados), por slug.
+settingsRouter.put('/admin/settings/blog-posts/:slug', asyncHandler(settingsController.updateBlogContent));
+settingsRouter.delete('/admin/settings/blog-posts/:slug', asyncHandler(settingsController.resetBlogContent));
 settingsRouter.post(
   '/admin/settings/upload-image',
   adminUploadRateLimiter,

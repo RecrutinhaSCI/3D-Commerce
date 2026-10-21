@@ -489,6 +489,8 @@ export interface ApiSettings {
   footerShowSocials: boolean;
   /** Capas do Blog por slug do post (Vercel Blob). Ausente em backend antigo. */
   blogCoversJson?: Record<string, string>;
+  /** Textos dos posts editados no admin, por slug. Ausente em backend antigo. */
+  blogContentJson?: Record<string, { title?: string; category?: string; excerpt?: string; readTime?: string; content?: string }>;
   createdAt: string;
   updatedAt: string;
 }

@@ -4,10 +4,14 @@ import { Clock } from 'lucide-react';
 import { useSEO } from '@/utils/seo';
 import { bannerSvg } from '@/utils/productImage';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { resolveBlogPosts } from '@/utils/blog';
 
 export default function Blog() {
   useSEO('Blog e Guias');
   const covers = useAdminDataStore((s) => s.settings.blogCovers);
+  const overrides = useAdminDataStore((s) => s.settings.blogContent);
+  // Texto padrão do código + versão salva no admin + capa.
+  const posts = resolveBlogPosts(seedBlogPosts, overrides, covers);
   return (
     <div className="container-x py-12">
       <header className="max-w-3xl">
@@ -19,7 +23,7 @@ export default function Blog() {
       </header>
 
       <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {seedBlogPosts.map((p, i) => (
+        {posts.map((p, i) => (
           <Link
             key={p.id}
             to={`/blog/${p.slug}`}
@@ -27,7 +31,7 @@ export default function Blog() {
           >
             {/* Capa do admin (Vercel Blob); sem capa = ilustração gerada de sempre. */}
             <img
-              src={covers?.[p.slug] || p.cover || bannerSvg(p.title, i, ['#0F1115', i % 2 === 0 ? '#22D3EE' : '#A78BFA'])}
+              src={p.cover || bannerSvg(p.title, i, ['#0F1115', i % 2 === 0 ? '#22D3EE' : '#A78BFA'])}
               alt=""
               loading="lazy"
               className="aspect-[16/9] w-full object-cover"
