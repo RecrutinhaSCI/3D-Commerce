@@ -16,6 +16,7 @@ import { seedFaqs } from '@/data/faqs'; // continua local (sem endpoint)
 import type { Banner, Category, Order, OrderStatus, PaymentStatus, Product, StoreSettings } from '@/types';
 import { productService } from '@/services/productService';
 import { categoryService } from '@/services/categoryService';
+import { buildCategoryUpdatePayload } from '@/services/categoryPayload';
 import { bannerService } from '@/services/bannerService';
 import { orderService } from '@/services/orderService';
 import { settingsService } from '@/services/settingsService';
@@ -318,18 +319,9 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
   },
 
   async updateCategory(id, patch) {
-    const payload: Record<string, unknown> = {};
-    if (patch.name !== undefined) payload.name = patch.name;
-    if (patch.slug !== undefined) payload.slug = patch.slug;
-    if (patch.description !== undefined) payload.description = patch.description ?? null;
     // "Ativa" tira a categoria do ar; menu/home são só flags de exibição.
-    if (patch.active !== undefined) payload.active = patch.active;
-    if (patch.seasonalActive !== undefined) payload.active = patch.seasonalActive;
-    if (patch.showInMenu !== undefined) payload.showInMenu = patch.showInMenu;
-    if (patch.showInHome !== undefined) payload.showInHome = patch.showInHome;
-    if (patch.isSeasonal !== undefined) payload.isSeasonal = patch.isSeasonal;
-    if (patch.seasonalBanner !== undefined) payload.seasonalTitle = patch.seasonalBanner ?? null;
-    // `image`/`seasonalBannerImage` NÃO vão pelo PUT: só pelo upload dedicado.
+    const current = get().categories.find((c) => c.id === id);
+    const payload = buildCategoryUpdatePayload(patch, !!current?.isSeasonal);
 
     try {
       const { category } = await categoryService.update(id, payload);
