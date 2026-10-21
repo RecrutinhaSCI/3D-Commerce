@@ -134,6 +134,9 @@ export interface ApiCategory {
   imageUrl?: string | null;
   showInMenu?: boolean;
   showInHome?: boolean;
+  seasonalColorFrom?: string | null;
+  seasonalColorTo?: string | null;
+  seasonalTextColor?: string | null;
   productsCount?: number;
 }
 
@@ -484,6 +487,8 @@ export interface ApiSettings {
   trustItemsJson: ApiTrustItem[];
   footerDescription: string | null;
   footerShowSocials: boolean;
+  /** Capas do Blog por slug do post (Vercel Blob). Ausente em backend antigo. */
+  blogCoversJson?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }

@@ -13,6 +13,7 @@ import { AlertTriangle, RefreshCw, Truck } from 'lucide-react';
 import { ApiError } from '@/services/api';
 import type { Order, OrderStatus, PaymentStatus } from '@/types';
 import { useSEO } from '@/utils/seo';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 
 /** Marcadores de alerta gravados nas notas pelo backend (revisão do admin). */
 const ALERT_MARKERS = ['[REVISAR ESTOQUE]', '[PAGAMENTO DUPLICADO]', '[CONFERIR VALOR]', '[ESTORNO MANUAL]'];
@@ -155,7 +156,7 @@ export default function Orders() {
           </thead>
           <tbody className="divide-y divide-ink-line">
             {filtered.map((o) => (
-              <tr key={o.id} className="hover:bg-bg-soft/50">
+              <tr key={o.id} {...editOnDoubleClick(() => setActive(o))} className="hover:bg-bg-soft/50">
                 <td className="px-4 py-3 font-semibold">
                   <span className="inline-flex items-center gap-1.5">
                     {hasAlert(o) && (

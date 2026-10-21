@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,6 +17,7 @@ import { productService } from '@/services/productService';
 import { ApiError } from '@/services/api';
 import { apiProductToInternal } from '@/services/adapters';
 import type { ApiProduct } from '@/services/types';
+import { PRODUCT_MATERIALS, materialFromCategoryName } from '@/utils/materials';
 
 // Inputs numéricos vazios chegam como "" e z.coerce.number() os transforma em 0.
 // Isso fazia o "Preço promo" virar 0 e a vitrine exibir "R$ 0,00".
@@ -38,7 +39,8 @@ const schema = z.object({
   promoPrice: optionalPositive('Preço promo deve ser maior que zero'),
   stock: z.coerce.number({ invalid_type_error: 'Informe o estoque' }).int().min(0),
   categoryId: z.string().min(1, 'Escolha a categoria'),
-  material: z.enum(['PLA', 'PETG', 'ABS', 'Resina', '-']).optional(),
+  // Texto: além da lista conhecida, preserva material legado já gravado.
+  material: z.string().trim().max(80).optional(),
   purchaseMode: z.enum(['direct', 'quote', 'both']),
   sku: z
     .string()
@@ -94,7 +96,7 @@ function ProductForm() {
   const existing = id ? products.find((p) => p.id === id) : undefined;
   const [saving, setSaving] = useState(false);
 
-  const { register, handleSubmit, formState: { errors }, watch } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: existing
       ? {
@@ -128,6 +130,22 @@ function ProductForm() {
   });
 
   const descriptionValue = watch('description') ?? '';
+  const materialValue = watch('material');
+  const categoryValue = watch('categoryId');
+  // Produto NOVO: ao escolher "Filamentos TPU", sugere o material TPU. Só
+  // troca se o material estiver em "—" ou ainda for a sugestão anterior —
+  // nunca sobrescreve um material escolhido pelo admin.
+  const lastSuggested = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (isEdit) return;
+    const current = materialValue && materialValue !== '-' ? materialValue : undefined;
+    if (current && current !== lastSuggested.current) return;
+    const cat = categories.find((c) => c.id === categoryValue);
+    const suggested = cat ? materialFromCategoryName(cat.name) : undefined;
+    lastSuggested.current = suggested;
+    setValue('material', suggested ?? '-');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryValue]);
   const [showPreview, setShowPreview] = useState(false);
   // Cada imagem carrega o id do backend para permitir remoção real.
   // O placeholder SVG que o adapter desenha para produto sem foto (data:) não
@@ -326,10 +344,13 @@ function ProductForm() {
                 <Label>Material</Label>
                 <Select {...register('material')}>
                   <option value="-">—</option>
-                  <option value="PLA">PLA</option>
-                  <option value="PETG">PETG</option>
-                  <option value="ABS">ABS</option>
-                  <option value="Resina">Resina</option>
+                  {PRODUCT_MATERIALS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                  {/* Material gravado fora da lista (ex.: importado do Excel): não some ao editar. */}
+                  {materialValue && materialValue !== '-' && !(PRODUCT_MATERIALS as readonly string[]).includes(materialValue) && (
+                    <option value={materialValue}>{materialValue}</option>
+                  )}
                 </Select>
               </div>
               <div>

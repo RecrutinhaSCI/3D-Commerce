@@ -51,6 +51,9 @@ export const categoriesService = {
       imageUrl: c.imageUrl,
       showInMenu: c.showInMenu,
       showInHome: c.showInHome,
+      seasonalColorFrom: c.seasonalColorFrom,
+      seasonalColorTo: c.seasonalColorTo,
+      seasonalTextColor: c.seasonalTextColor,
       productsCount: c._count.products,
     }));
   },
@@ -81,6 +84,9 @@ export const categoriesService = {
         seasonalBannerImage: input.seasonalBannerImage ?? null,
         showInMenu: input.showInMenu ?? true,
         showInHome: input.showInHome ?? true,
+        seasonalColorFrom: input.seasonalColorFrom ?? null,
+        seasonalColorTo: input.seasonalColorTo ?? null,
+        seasonalTextColor: input.seasonalTextColor ?? null,
       },
     });
     return toDTO(created);
@@ -114,6 +120,9 @@ export const categoriesService = {
           input.seasonalBannerImage === undefined ? current.seasonalBannerImage : input.seasonalBannerImage,
         showInMenu: input.showInMenu === undefined ? current.showInMenu : input.showInMenu,
         showInHome: input.showInHome === undefined ? current.showInHome : input.showInHome,
+        seasonalColorFrom: input.seasonalColorFrom === undefined ? current.seasonalColorFrom : input.seasonalColorFrom,
+        seasonalColorTo: input.seasonalColorTo === undefined ? current.seasonalColorTo : input.seasonalColorTo,
+        seasonalTextColor: input.seasonalTextColor === undefined ? current.seasonalTextColor : input.seasonalTextColor,
       },
     });
     return toDTO(updated);

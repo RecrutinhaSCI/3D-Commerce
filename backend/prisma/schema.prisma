@@ -188,6 +188,11 @@ model Category {
   /// Flags de exibição independentes de `active` (que tira a categoria do ar).
   showInMenu          Boolean  @default(true) @map("show_in_menu")
   showInHome          Boolean  @default(true) @map("show_in_home")
+  /// Cores do banner sazonal (HEX #RRGGBB). null = visual padrão
+  /// (#059669 → #0F1115, texto #FAFAF7).
+  seasonalColorFrom   String?  @map("seasonal_color_from")
+  seasonalColorTo     String?  @map("seasonal_color_to")
+  seasonalTextColor   String?  @map("seasonal_text_color")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -520,6 +525,9 @@ model SiteSettings {
   communityInstagramTitle    String? @map("community_instagram_title")
   communityInstagramSubtitle String? @map("community_instagram_subtitle")
   instagramItemsJson         Json?   @map("instagram_items_json")
+  /// Capas do Blog: { "<slug-do-post>": "<url no Vercel Blob>" }. Os posts
+  /// continuam no código; só a imagem é gerenciada pelo admin.
+  blogCoversJson             Json?   @map("blog_covers_json")
 
   // Seção YouTube
   youtubeSectionEnabled  Boolean @default(true) @map("youtube_section_enabled")

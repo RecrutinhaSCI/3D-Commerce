@@ -11,6 +11,7 @@ import { ApiError } from '@/services/api';
 import { categoryPath } from '@/utils/categoryGroups';
 import type { Category } from '@/types';
 import { useSEO } from '@/utils/seo';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 
 export default function Categories() {
   useSEO('Admin Categorias');
@@ -103,7 +104,7 @@ export default function Categories() {
           </thead>
           <tbody className="divide-y divide-ink-line">
             {categories.map((c) => (
-              <tr key={c.id} className="hover:bg-bg-soft/50">
+              <tr key={c.id} {...editOnDoubleClick(() => setEditing(c))} className="hover:bg-bg-soft/50">
                 <td className="px-4 py-3 font-semibold">
                   {c.name}
                   {c.isSeasonal && <span className="ml-2 rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">SAZONAL</span>}
@@ -200,7 +201,7 @@ export default function Categories() {
                 hint={
                   isNew
                     ? 'Salve a categoria primeiro; depois envie a imagem.'
-                    : 'Salva na hora (não precisa clicar em Salvar). Aparece no card da Home.'
+                    : 'Salva na hora (não precisa clicar em Salvar). Aparece no card da Home e, nas categorias de material, em Materiais.'
                 }
               />
             </div>

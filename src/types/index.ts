@@ -36,7 +36,8 @@ export interface Product {
   shortDescription: string;
   categoryIds: string[];
   brand: string;
-  material?: 'PLA' | 'PETG' | 'ABS' | 'Resina' | '-';
+  /** Um de PRODUCT_MATERIALS (utils/materials), '-' (sem) ou texto livre legado. */
+  material?: string;
   /** Ficha técnica/envio (persistidos no backend). Peso em kg, medidas em cm.
    *  SKU real do backend (`null` = sem SKU). Opcional para mocks/criação otimista. */
   sku?: string | null;
@@ -84,6 +85,8 @@ export interface Category {
   isSeasonal?: boolean;
   seasonalBanner?: string;
   seasonalBannerImage?: string;
+  /** Cores do banner sazonal (#RRGGBB). Ausente = visual padrão. */
+  seasonalColors?: { from?: string; to?: string; text?: string };
   seasonalActive?: boolean;
   productIds?: string[];
   color?: string;
@@ -261,6 +264,8 @@ export interface StoreSettings {
   trustItems: TrustItemContent[];
   footerDescription: string;
   footerShowSocials: boolean;
+  /** Capas do Blog por slug do post. Sem capa = ilustração padrão. */
+  blogCovers: Record<string, string>;
 }
 
 export interface CartItem {

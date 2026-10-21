@@ -148,6 +148,11 @@ export function apiCategoryToInternal(c: ApiCategory, order = 0): Category {
     seasonalBannerImage: c.seasonalBannerImage
       ? apiAssetUrl(c.seasonalBannerImage)
       : undefined,
+    seasonalColors: {
+      from: c.seasonalColorFrom ?? undefined,
+      to: c.seasonalColorTo ?? undefined,
+      text: c.seasonalTextColor ?? undefined,
+    },
   };
 }
 
@@ -245,6 +250,9 @@ export function apiSettingsToInternal(s: ApiSettings): StoreSettings {
     })),
     footerDescription: s.footerDescription ?? '',
     footerShowSocials: s.footerShowSocials,
+    blogCovers: Object.fromEntries(
+      Object.entries(s.blogCoversJson ?? {}).map(([slug, url]) => [slug, apiAssetUrl(url)]),
+    ),
   };
 }
 

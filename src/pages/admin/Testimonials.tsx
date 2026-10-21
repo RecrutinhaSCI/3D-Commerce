@@ -9,6 +9,7 @@ import { useSEO } from '@/utils/seo';
 import { testimonialService } from '@/services/testimonialService';
 import { ApiError, apiAssetUrl } from '@/services/api';
 import type { ApiTestimonial } from '@/services/types';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 
 interface Draft {
   id?: string;
@@ -146,7 +147,7 @@ export default function Testimonials() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {list.map((t) => (
-            <div key={t.id} className="card p-5">
+            <div key={t.id} {...editOnDoubleClick(() => openEdit(t))} className="card p-5">
               <div className="flex items-center gap-3">
                 {t.avatarUrl ? (
                   <img src={apiAssetUrl(t.avatarUrl)} alt={t.name} className="h-10 w-10 rounded-full object-cover" />

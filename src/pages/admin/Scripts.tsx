@@ -11,6 +11,7 @@ import { couponService } from '@/services/couponService';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { ApiError } from '@/services/api';
 import type { ApiCoupon, ApiCouponScript, ApiLinkedCoupon, ApiScriptCategory } from '@/services/types';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 import {
   SCRIPT_CATEGORY_LABELS,
   SCRIPT_CATEGORY_OPTIONS,
@@ -295,7 +296,7 @@ export default function Scripts() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {visible.map((s) => (
-            <div key={s.id} className="card flex flex-col p-5">
+            <div key={s.id} {...editOnDoubleClick(() => openEdit(s))} className="card flex flex-col p-5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{s.title}</p>

@@ -4,6 +4,12 @@ import { decimalToNumber } from '../../utils/decimal';
 import { safeUnlinkSiteImage } from '../../lib/upload';
 import type { InstagramItem, TrustItem, UpdateSettingsInput, YoutubeVideo } from './settings.schemas';
 
+/** JSON `{ chave: url }` → objeto só com valores string (ignora lixo). */
+function asStringRecord(v: unknown): Record<string, string> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  return Object.fromEntries(Object.entries(v).filter(([, url]) => typeof url === 'string')) as Record<string, string>;
+}
+
 /** Existe UM registro só. id fixo `main`. */
 const SETTINGS_ID = 'main';
 
@@ -74,6 +80,8 @@ export interface SettingsDTO {
   trustItemsJson: TrustItem[];
   footerDescription: string | null;
   footerShowSocials: boolean;
+  /** Capas do Blog por slug do post (URL do Vercel Blob). */
+  blogCoversJson: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
@@ -128,6 +136,7 @@ function toDTO(s: SiteSettings): SettingsDTO {
     trustItemsJson: asArray<TrustItem>(s.trustItemsJson),
     footerDescription: s.footerDescription,
     footerShowSocials: s.footerShowSocials,
+    blogCoversJson: asStringRecord(s.blogCoversJson),
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };
@@ -168,6 +177,24 @@ export const settingsService = {
       data.instagramItemsJson = instagramItemsJson === null ? Prisma.JsonNull : instagramItemsJson;
     }
     const updated = await prisma.siteSettings.update({ where: { id: SETTINGS_ID }, data });
+    return toDTO(updated);
+  },
+
+  /**
+   * Grava (ou remove, com `null`) a capa de um post do Blog. O arquivo
+   * anterior só é apagado depois que o banco foi atualizado.
+   */
+  async setBlogCover(slug: string, url: string | null): Promise<SettingsDTO> {
+    const current = await ensureSettings();
+    const covers = asStringRecord(current.blogCoversJson);
+    const previous = covers[slug];
+    if (url) covers[slug] = url;
+    else delete covers[slug];
+    const updated = await prisma.siteSettings.update({
+      where: { id: SETTINGS_ID },
+      data: { blogCoversJson: covers },
+    });
+    if (previous && previous !== url) safeUnlinkSiteImage(previous);
     return toDTO(updated);
   },
 

@@ -3,9 +3,11 @@ import { seedBlogPosts } from '@/data/blogPosts';
 import { Clock } from 'lucide-react';
 import { useSEO } from '@/utils/seo';
 import { bannerSvg } from '@/utils/productImage';
+import { useAdminDataStore } from '@/store/useAdminDataStore';
 
 export default function Blog() {
   useSEO('Blog e Guias');
+  const covers = useAdminDataStore((s) => s.settings.blogCovers);
   return (
     <div className="container-x py-12">
       <header className="max-w-3xl">
@@ -23,7 +25,13 @@ export default function Blog() {
             to={`/blog/${p.slug}`}
             className="card overflow-hidden transition hover:-translate-y-0.5 hover:shadow-card"
           >
-            <img src={bannerSvg(p.title, i, ['#0F1115', i % 2 === 0 ? '#22D3EE' : '#A78BFA'])} alt="" className="aspect-[16/9] w-full object-cover" />
+            {/* Capa do admin (Vercel Blob); sem capa = ilustração gerada de sempre. */}
+            <img
+              src={covers?.[p.slug] || p.cover || bannerSvg(p.title, i, ['#0F1115', i % 2 === 0 ? '#22D3EE' : '#A78BFA'])}
+              alt=""
+              loading="lazy"
+              className="aspect-[16/9] w-full object-cover"
+            />
             <div className="p-5">
               <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">{p.category}</p>
               <h2 className="mt-1 line-clamp-2 text-lg font-bold leading-snug">{p.title}</h2>

@@ -3,10 +3,12 @@ import { ChevronLeft, Clock } from 'lucide-react';
 import { seedBlogPosts } from '@/data/blogPosts';
 import { useSEO } from '@/utils/seo';
 import { bannerSvg } from '@/utils/productImage';
+import { useAdminDataStore } from '@/store/useAdminDataStore';
 
 export default function BlogPost() {
   const { slug } = useParams();
   const post = seedBlogPosts.find((p) => p.slug === slug);
+  const covers = useAdminDataStore((s) => s.settings.blogCovers);
   useSEO(post?.title ?? 'Post');
   if (!post) {
     return (
@@ -28,7 +30,11 @@ export default function BlogPost() {
         <p className="mt-3 inline-flex items-center gap-2 text-xs text-ink-mute">
           <Clock className="h-3 w-3" /> {post.readTime} · por {post.author}
         </p>
-        <img src={bannerSvg(post.title, index, ['#0F1115', '#22D3EE'])} alt="" className="mt-6 aspect-[16/9] w-full rounded-2xl object-cover" />
+        <img
+          src={covers?.[post.slug] || post.cover || bannerSvg(post.title, index, ['#0F1115', '#22D3EE'])}
+          alt=""
+          className="mt-6 aspect-[16/9] w-full rounded-2xl object-cover"
+        />
         <div className="prose prose-sm mt-6 max-w-none text-ink-soft whitespace-pre-line">{post.content}</div>
       </article>
     </div>
