@@ -17,6 +17,7 @@ import { testimonialsRouter } from '../modules/testimonials/testimonials.routes'
 import { couponsRouter } from '../modules/coupons/coupons.routes';
 import { scriptsRouter } from '../modules/scripts/scripts.routes';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes';
+import { diagnosticsRouter } from './diagnostics.routes';
 
 /**
  * Router raiz. Os routers internos por enquanto estão vazios (R1).
@@ -45,3 +46,5 @@ apiRouter.use('/api', testimonialsRouter);
 apiRouter.use('/api', couponsRouter);
 apiRouter.use('/api', scriptsRouter);
 apiRouter.use('/api', dashboardRouter);
+// Diagnóstico de proxy/IP (admin) — ver diagnostics.routes.ts.
+apiRouter.use('/api', diagnosticsRouter);

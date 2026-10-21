@@ -182,14 +182,32 @@ async function request<T>(
 
   if (!res.ok || !payload || payload.ok === false) {
     if (res.status === 401) handleUnauthorized(routeScope(path));
-    const errPayload: ApiErrorPayload = payload?.error ?? {
+    let errPayload: ApiErrorPayload = payload?.error ?? {
       code: `HTTP_${res.status}`,
       message: res.statusText || 'Erro desconhecido.',
     };
+    if (res.status === 429) errPayload = withRetryHint(errPayload, res);
     throw new ApiError(res.status, errPayload);
   }
 
   return payload.data as T;
+}
+
+/**
+ * 429: acrescenta à mensagem quanto falta para liberar. O backend manda
+ * `details.retryAfterSeconds` (o header Retry-After não é legível em
+ * requisição cross-origin); o header fica como reserva quando legível.
+ */
+function withRetryHint(err: ApiErrorPayload, res: Response): ApiErrorPayload {
+  const fromBody = (err.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+  const fromHeader = Number(res.headers.get('retry-after'));
+  const seconds =
+    typeof fromBody === 'number' && fromBody > 0 ? fromBody : Number.isFinite(fromHeader) && fromHeader > 0 ? fromHeader : 0;
+  if (!seconds) return err;
+  const wait =
+    seconds < 60 ? `${Math.ceil(seconds)} segundo${Math.ceil(seconds) === 1 ? '' : 's'}` : `${Math.ceil(seconds / 60)} min`;
+  const base = err.message.replace(/\s*(Tente novamente mais tarde|Aguarde alguns minutos e tente de novo)\.?$/i, '');
+  return { ...err, message: `${base} Tente novamente em ${wait}.` };
 }
 
 // -----------------------------------------------------------------------------

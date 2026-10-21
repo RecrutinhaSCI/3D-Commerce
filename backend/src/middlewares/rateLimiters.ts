@@ -7,9 +7,19 @@ import { fail } from '../utils/apiResponse';
  * em vez do texto default do express-rate-limit. Contam por IP — o app
  * já tem `trust proxy` habilitado para funcionar atrás de Vercel/Render/Cloudflare.
  */
-const handler: Options['handler'] = (_req, res) => {
-  fail(res, 429, 'RATE_LIMITED', 'Muitas tentativas. Tente novamente mais tarde.');
+const handler: Options['handler'] = (req, res) => {
+  fail(res, 429, 'RATE_LIMITED', 'Muitas tentativas. Tente novamente mais tarde.', retryDetails(req));
 };
+
+/**
+ * Segundos até a janela liberar, para o front dizer "tente em X min" (o header
+ * Retry-After não é legível pelo navegador em requisição cross-origin).
+ */
+function retryDetails(req: Parameters<Options['handler']>[0]) {
+  const reset = (req as { rateLimit?: { resetTime?: Date } }).rateLimit?.resetTime;
+  if (!reset) return undefined;
+  return { retryAfterSeconds: Math.max(1, Math.ceil((reset.getTime() - Date.now()) / 1000)) };
+}
 
 /** Login e registro — 10 tentativas / 15 min por IP (limite amplo por origem). */
 export const authRateLimiter = rateLimit({
@@ -79,13 +89,46 @@ export const quoteRateLimiter = rateLimit({
   handler,
 });
 
-/** Uploads (produtos, banners, settings, testimonials, arquivos de orçamento) — 30 / hora por IP. */
-export const uploadRateLimiter = rateLimit({
+/**
+ * Upload PÚBLICO de arquivos de orçamento (anônimo incluso) — 30 / hora por IP.
+ * Contador próprio: não divide cota com os uploads do admin.
+ */
+export const quoteFilesRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   handler,
+});
+
+/**
+ * Uploads do ADMIN (imagens de produto, banners, logo, imagens do site,
+ * avatares) — 120 / 10 min POR USUÁRIO autenticado.
+ *
+ * O front envia uma imagem por requisição (limite de 4,5 MB do corpo), então
+ * reenviar o catálogo gera dezenas de uploads seguidos — o antigo limite de
+ * 30/h por IP (dividido com o upload público de orçamento) travava o admin.
+ * Contar por `req.user.id` também evita o IP de proxy compartilhado. Ainda
+ * limita sessão roubada ou script fora de controle.
+ *
+ * DEVE vir depois do `authMiddleware` (as rotas admin aplicam auth+admin via
+ * `router.use`). Sem usuário — não deveria acontecer — cai no IP.
+ */
+export const adminUploadRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    fail(
+      res,
+      429,
+      'RATE_LIMITED',
+      'Limite de uploads atingido. Aguarde alguns minutos e tente de novo.',
+      retryDetails(req),
+    );
+  },
+  keyGenerator: (req) => (req.user?.id ? `admin:${req.user.id}` : `ip:${ipKeyGenerator(req.ip ?? '')}`),
 });
 
 /** Webhooks de pagamento — 120 / 5 min por IP (PSPs reenviam em rajada; brute force de assinatura não). */

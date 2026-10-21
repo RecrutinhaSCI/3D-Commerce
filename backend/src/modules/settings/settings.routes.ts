@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { authMiddleware } from '../../middlewares/authMiddleware';
 import { adminMiddleware } from '../../middlewares/adminMiddleware';
-import { uploadRateLimiter } from '../../middlewares/rateLimiters';
+import { adminUploadRateLimiter } from '../../middlewares/rateLimiters';
 import { siteImageUpload } from '../../lib/upload';
 import { settingsController } from './settings.controller';
 
@@ -26,14 +26,14 @@ settingsRouter.get('/admin/settings', asyncHandler(settingsController.getAdmin))
 settingsRouter.put('/admin/settings', asyncHandler(settingsController.update));
 settingsRouter.post(
   '/admin/settings/logo',
-  uploadRateLimiter,
+  adminUploadRateLimiter,
   siteImageUpload.single('logo'),
   asyncHandler(settingsController.uploadLogo),
 );
 // Upload avulso: usado para thumbnails dos vídeos do YouTube (retorna só a URL).
 settingsRouter.post(
   '/admin/settings/upload-image',
-  uploadRateLimiter,
+  adminUploadRateLimiter,
   siteImageUpload.single('image'),
   asyncHandler(settingsController.uploadImage),
 );
