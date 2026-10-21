@@ -12,6 +12,7 @@ import { quoteService } from '@/services/quoteService';
 import { ApiError, apiAssetUrl } from '@/services/api';
 import type { ApiQuote, ApiQuoteStatus } from '@/services/types';
 import { formatBRL } from '@/utils/price';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 
 const QUOTE_STATUSES: ApiQuoteStatus[] = [
   'RECEIVED',
@@ -194,7 +195,7 @@ export default function Quotes() {
               </tr>
             )}
             {quotes.map((q) => (
-              <tr key={q.id} className="transition-colors hover:bg-bg-soft/60">
+              <tr key={q.id} {...editOnDoubleClick(() => openDetails(q))} className="transition-colors hover:bg-bg-soft/60">
                 <td className="px-5 py-3 font-semibold">{q.title}</td>
                 <td className="px-5 py-3 text-ink-soft">
                   {q.customerName}

@@ -9,6 +9,7 @@ import { useSEO } from '@/utils/seo';
 import { couponService, type CouponStatusFilter, type CouponInput } from '@/services/couponService';
 import { ApiError } from '@/services/api';
 import type { ApiCoupon, ApiCouponDiscountType, ApiCouponStatus } from '@/services/types';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 
 const STATUS_META: Record<ApiCouponStatus, { label: string; cls: string }> = {
   ACTIVE: { label: 'Ativo', cls: 'bg-emerald-50 text-emerald-700' },
@@ -276,7 +277,7 @@ export default function Coupons() {
           {visible.map((c) => {
             const meta = STATUS_META[c.status];
             return (
-              <div key={c.id} className="card flex flex-col p-5">
+              <div key={c.id} {...editOnDoubleClick(() => openEdit(c))} className="card flex flex-col p-5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">

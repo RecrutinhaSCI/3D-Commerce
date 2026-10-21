@@ -33,6 +33,7 @@ const PayOrder = lazy(() => import('@/pages/public/PayOrder'));
 // Admin inteiro — code-split (visitante público não baixa)
 const AdminLogin = lazy(() => import('@/pages/admin/Login'));
 const AdminDashboard = lazy(() => import('@/pages/admin/Dashboard'));
+const AdminBlog = lazy(() => import('@/pages/admin/Blog'));
 const AdminProducts = lazy(() => import('@/pages/admin/Products'));
 const AdminProductForm = lazy(() => import('@/pages/admin/ProductForm'));
 const AdminCategories = lazy(() => import('@/pages/admin/Categories'));
@@ -117,6 +118,7 @@ export const router = createBrowserRouter([
       { path: 'depoimentos', element: <L><AdminTestimonials /></L> },
       { path: 'mensagens', element: <L><AdminMessages /></L> },
       { path: 'scripts', element: <L><AdminScripts /></L> },
+      { path: 'blog', element: <L><AdminBlog /></L> },
       { path: 'configuracoes', element: <L><AdminSettings /></L> },
     ],
   },

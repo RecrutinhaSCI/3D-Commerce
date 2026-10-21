@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Mail,
   type LucideIcon,
+  Newspaper,
 } from 'lucide-react';
 import { useAdminAuthStore } from '@/store/useAdminAuthStore';
 import { Logo } from '@/components/ui/Logo';
@@ -60,6 +61,7 @@ const groups: NavGroup[] = [
     items: [
       { to: '/admin/depoimentos', label: 'Depoimentos', icon: MessageSquareQuote },
       { to: '/admin/scripts', label: 'Scripts', icon: MessageCircle },
+      { to: '/admin/blog', label: 'Blog', icon: Newspaper },
     ],
   },
   {

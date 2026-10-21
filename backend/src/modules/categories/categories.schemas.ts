@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** Cor HEX #RRGGBB; null volta ao visual padrão. */
+const hexColor = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, 'Cor inválida (use #RRGGBB).')
+  .transform((v) => v.toUpperCase())
+  .nullable()
+  .optional();
 
 export const createCategorySchema = z.object({
   name: z.string().trim().min(2, 'Nome precisa ter no mínimo 2 caracteres.'),
@@ -13,6 +21,9 @@ export const createCategorySchema = z.object({
   seasonalBannerImage: z.string().trim().max(500).optional().nullable(),
   showInMenu: z.boolean().optional(),
   showInHome: z.boolean().optional(),
+  seasonalColorFrom: hexColor,
+  seasonalColorTo: hexColor,
+  seasonalTextColor: hexColor,
   // `imageUrl` NÃO entra aqui: só muda pelo upload (Vercel Blob) ou pela
   // remoção dedicada — evita gravar Base64/URL arbitrária pelo PUT.
 });

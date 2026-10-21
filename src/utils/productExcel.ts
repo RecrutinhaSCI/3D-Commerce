@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { ApiProduct } from '@/services/types';
+import { normalizeMaterial } from './materials';
 
 /**
  * Utilitários de Excel para produtos (R16).
@@ -490,7 +491,11 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
         // "marca" (com seus aliases) vai para `brand`; a coluna "material"
         // vai para `material`. Nenhum caminho faz um substituir o outro.
         brand: optText(row[HEADERS.marca], 80),
-        material: optText(row[HEADERS.material], 80),
+        // Grafia canônica para materiais conhecidos ("tpu" → "TPU"); outros ficam como vieram.
+        material: (() => {
+          const m = optText(row[HEADERS.material], 80);
+          return m === undefined ? undefined : normalizeMaterial(m);
+        })(),
         // R19-C — imagem por URL. Validação sintática por linha é do backend
         // (uma URL ruim aqui só afeta a própria linha, não o lote).
         imageUrl,

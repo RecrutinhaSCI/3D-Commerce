@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import slugify from 'slugify';
 import { Sparkles, Save } from 'lucide-react';
@@ -9,6 +9,8 @@ import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { ApiError } from '@/services/api';
 import type { Category } from '@/types';
 import { useSEO } from '@/utils/seo';
+import { ColorField } from '@/components/admin/ColorField';
+import { SEASONAL_DEFAULTS, resolveSeasonalColors } from '@/utils/seasonalTheme';
 
 export default function SeasonalCategory() {
   useSEO('Admin Categoria Sazonal');
@@ -31,7 +33,17 @@ export default function SeasonalCategory() {
     },
   );
 
+  // Após F5 a tela monta ANTES das categorias chegarem do servidor e o
+  // rascunho nascia como "campanha nova" (campos vazios/cores padrão; salvar
+  // criaria uma 2ª sazonal). Quando a campanha existente carrega e o rascunho
+  // ainda é o provisório, passa a editar a existente.
+  useEffect(() => {
+    if (seasonal && draft.id.startsWith('cat-sazonal-')) setDraft(seasonal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonal?.id]);
+
   const isNew = !categories.some((c) => c.id === draft.id);
+  const colors = resolveSeasonalColors(draft.seasonalColors);
 
   // Sucesso só depois da confirmação do backend.
   async function save() {
@@ -163,10 +175,41 @@ export default function SeasonalCategory() {
         <aside>
           <div className="card p-5">
             <h3 className="text-sm font-bold">Preview</h3>
-            <div className="mt-3 rounded-xl bg-gradient-to-r from-emerald-600 to-ink p-5 text-bg">
-              <p className="text-[10px] font-bold uppercase tracking-widest">Edição especial</p>
-              <h4 className="mt-2 text-xl font-bold">{draft.seasonalBanner || draft.name || 'Nova campanha'}</h4>
-              <p className="mt-1 text-xs text-bg/80">{draft.description}</p>
+            {/* Mesmas cores do banner da Home; atualiza em tempo real. */}
+            <div
+              className="relative mt-3 overflow-hidden rounded-xl p-5"
+              style={{ backgroundImage: `linear-gradient(to right, ${colors.from}, ${colors.to})`, color: colors.text }}
+            >
+              {draft.seasonalBannerImage && (
+                <img src={draft.seasonalBannerImage} alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-40 mix-blend-overlay" />
+              )}
+              <div className="relative">
+                <p className="text-[10px] font-bold uppercase tracking-widest">Edição especial</p>
+                <h4 className="mt-2 text-xl font-bold">{draft.seasonalBanner || draft.name || 'Nova campanha'}</h4>
+                <p className="mt-1 text-xs opacity-80">{draft.description}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">Cores do banner</p>
+              <ColorField
+                label="Cor principal (início do gradiente)"
+                value={draft.seasonalColors?.from}
+                fallback={SEASONAL_DEFAULTS.from}
+                onChange={(v) => setDraft((d) => ({ ...d, seasonalColors: { ...d.seasonalColors, from: v } }))}
+              />
+              <ColorField
+                label="Cor secundária (fim do gradiente)"
+                value={draft.seasonalColors?.to}
+                fallback={SEASONAL_DEFAULTS.to}
+                onChange={(v) => setDraft((d) => ({ ...d, seasonalColors: { ...d.seasonalColors, to: v } }))}
+              />
+              <ColorField
+                label="Cor do texto"
+                value={draft.seasonalColors?.text}
+                fallback={SEASONAL_DEFAULTS.text}
+                onChange={(v) => setDraft((d) => ({ ...d, seasonalColors: { ...d.seasonalColors, text: v } }))}
+              />
+              <p className="text-[11px] text-ink-mute">As cores são gravadas ao clicar em “Salvar campanha”.</p>
             </div>
             <p className="mt-3 text-xs text-ink-mute">
               {draft.seasonalActive ? 'A campanha está ativa e aparecerá no menu e/ou na home.' : 'Campanha desativada.'}

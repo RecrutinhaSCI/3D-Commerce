@@ -26,6 +26,12 @@ export function buildCategoryUpdatePayload(patch: Partial<Category>, currentIsSe
   if (patch.showInHome !== undefined) payload.showInHome = patch.showInHome;
   if (patch.isSeasonal !== undefined) payload.isSeasonal = patch.isSeasonal;
   if (patch.seasonalBanner !== undefined) payload.seasonalTitle = patch.seasonalBanner ?? null;
+  // Cores da sazonal: campo vazio → null (volta ao visual padrão).
+  if (patch.seasonalColors !== undefined) {
+    payload.seasonalColorFrom = patch.seasonalColors?.from || null;
+    payload.seasonalColorTo = patch.seasonalColors?.to || null;
+    payload.seasonalTextColor = patch.seasonalColors?.text || null;
+  }
   // `image`/`seasonalBannerImage` NÃO vão pelo PUT: só pelo upload dedicado.
   return payload;
 }

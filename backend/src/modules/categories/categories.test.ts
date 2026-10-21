@@ -9,6 +9,7 @@ type Row = {
   id: string; name: string; slug: string; description: string | null; active: boolean;
   isSeasonal: boolean; seasonalTitle: string | null; seasonalDescription: string | null;
   seasonalBannerImage: string | null; imageUrl: string | null; showInMenu: boolean; showInHome: boolean;
+  seasonalColorFrom: string | null; seasonalColorTo: string | null; seasonalTextColor: string | null;
   createdAt: Date; updatedAt: Date;
 };
 
@@ -16,7 +17,9 @@ const db = { rows: [] as Row[] };
 const row = (p: Partial<Row>): Row => ({
   id: 'c1', name: 'Filamentos PLA', slug: 'filamentos-pla', description: null, active: true,
   isSeasonal: false, seasonalTitle: null, seasonalDescription: null, seasonalBannerImage: null,
-  imageUrl: null, showInMenu: true, showInHome: true, createdAt: new Date(), updatedAt: new Date(), ...p,
+  imageUrl: null, showInMenu: true, showInHome: true,
+  seasonalColorFrom: null, seasonalColorTo: null, seasonalTextColor: null,
+  createdAt: new Date(), updatedAt: new Date(), ...p,
 });
 
 const prismaMock = {
@@ -97,6 +100,28 @@ describe('flags de exibição', () => {
     db.rows = [row({ showInHome: false })];
     const u = await categoriesService.update('c1', { description: 'nova' });
     expect(u).toMatchObject({ showInMenu: true, showInHome: false, description: 'nova' });
+  });
+});
+
+describe('cores da categoria sazonal', () => {
+  it('grava HEX normalizado em maiúsculas e devolve na pública', async () => {
+    const input = updateCategorySchema.parse({ seasonalColorFrom: '#1d4ed8', seasonalColorTo: '#0f1115', seasonalTextColor: '#ffffff' });
+    const u = await categoriesService.update('c1', input);
+    expect(u).toMatchObject({ seasonalColorFrom: '#1D4ED8', seasonalColorTo: '#0F1115', seasonalTextColor: '#FFFFFF' });
+    const [pub] = await categoriesService.listPublic();
+    expect(pub).toMatchObject({ seasonalColorFrom: '#1D4ED8', seasonalTextColor: '#FFFFFF' });
+  });
+
+  it('null volta ao padrão; ausente preserva', async () => {
+    db.rows = [row({ seasonalColorFrom: '#111111', seasonalColorTo: '#222222' })];
+    const u = await categoriesService.update('c1', updateCategorySchema.parse({ seasonalColorFrom: null }));
+    expect(u).toMatchObject({ seasonalColorFrom: null, seasonalColorTo: '#222222' });
+  });
+
+  it('cor inválida é recusada (sem gravar CSS arbitrário)', () => {
+    for (const bad of ['red', '#12345', '#GGGGGG', 'url(x)', 'rgb(1,2,3)']) {
+      expect(updateCategorySchema.safeParse({ seasonalColorFrom: bad }).success, bad).toBe(false);
+    }
   });
 });
 

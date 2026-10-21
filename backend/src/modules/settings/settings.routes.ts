@@ -31,6 +31,14 @@ settingsRouter.post(
   asyncHandler(settingsController.uploadLogo),
 );
 // Upload avulso: usado para thumbnails dos vídeos do YouTube (retorna só a URL).
+// Capas do Blog — Vercel Blob, uma por post (slug).
+settingsRouter.post(
+  '/admin/settings/blog-covers/:slug',
+  adminUploadRateLimiter,
+  siteImageUpload.single('image'),
+  asyncHandler(settingsController.uploadBlogCover),
+);
+settingsRouter.delete('/admin/settings/blog-covers/:slug', asyncHandler(settingsController.removeBlogCover));
 settingsRouter.post(
   '/admin/settings/upload-image',
   adminUploadRateLimiter,

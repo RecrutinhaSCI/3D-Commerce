@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Edit, FileSpreadsheet, Plus, Search, Trash2, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
@@ -12,6 +12,7 @@ import { exportProductsXlsx, downloadProductTemplate } from '@/utils/productExce
 import { ProductImportModal } from '@/components/admin/ProductImportModal';
 import { ApiError } from '@/services/api';
 import { productService } from '@/services/productService';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 
 /** R19-E — dd/MM/aaaa HH:mm em pt-BR; `null` → traço. */
 function formatDateTime(iso: string | null | undefined): string {
@@ -30,13 +31,42 @@ function formatDateTime(iso: string | null | undefined): string {
 export default function Products() {
   useSEO('Admin Produtos');
   const { products, categories, removeProduct, updateProduct, bulkRemoveProducts, refresh } = useAdminDataStore();
+  const navigate = useNavigate();
   const [importOpen, setImportOpen] = useState(false);
   const [params, setParams] = useSearchParams();
-  const [q, setQ] = useState('');
-  const [cat, setCat] = useState('all');
+  // Filtros vivem na URL (?busca=&categoria=&marca=&status=): sobrevivem a
+  // abrir um produto e voltar, e o link pode ser compartilhado/recarregado.
+  const q = params.get('busca') ?? '';
+  const catSlug = params.get('categoria') ?? '';
+  const cat = categories.find((c) => c.slug === catSlug)?.id ?? 'all';
+  const brand = params.get('marca') ?? '';
   // Inativo = fora da loja, mas ainda cadastrado (pode ser reativado).
   // Excluído = apagado do banco — nunca volta para esta lista.
-  const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const statusParam = params.get('status');
+  const status: 'all' | 'active' | 'inactive' =
+    statusParam === 'ativos' ? 'active' : statusParam === 'inativos' ? 'inactive' : 'all';
+  /** Atualiza um filtro na URL sem empilhar histórico a cada tecla. */
+  function setFilter(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  }
+  const hasFilters = ['busca', 'categoria', 'marca', 'status', 'filter'].some((k) => params.has(k));
+  function clearFilters() {
+    const next = new URLSearchParams(params);
+    ['busca', 'categoria', 'marca', 'status', 'filter'].forEach((k) => next.delete(k));
+    setParams(next, { replace: true });
+  }
+  // Marcas REAIS do catálogo (nada fixo), com contagem, em ordem alfabética.
+  const brands = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const p of products) {
+      const b = p.brand?.trim();
+      if (b) count.set(b, (count.get(b) ?? 0) + 1);
+    }
+    return [...count].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
+  }, [products]);
   const [exporting, setExporting] = useState(false);
   const [lowStockOnly, setLowStockOnly] = useState(params.get('filter') === 'low-stock');
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -53,13 +83,14 @@ export default function Products() {
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (cat !== 'all' && !p.categoryIds.includes(cat)) return false;
+      if (brand && (p.brand ?? '').trim() !== brand) return false;
       if (status === 'active' && !p.active) return false;
       if (status === 'inactive' && p.active) return false;
       if (lowStockOnly && p.stock > 5) return false;
       if (q && !`${p.name} ${p.brand}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
     });
-  }, [products, cat, q, lowStockOnly, status]);
+  }, [products, cat, brand, q, lowStockOnly, status]);
 
   // R19-E — Ao trocar filtros, remove da seleção quaisquer IDs que saíram
   // da lista visível — evita deletar produto que o admin não vê mais.
@@ -206,26 +237,51 @@ export default function Products() {
       <div className="card mb-4 flex flex-wrap items-center gap-3 p-4">
         <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar produto..." className="!pl-9" />
+          <Input value={q} onChange={(e) => setFilter('busca', e.target.value)} placeholder="Buscar produto..." className="!pl-9" />
         </div>
-        <Select value={cat} onChange={(e) => setCat(e.target.value)} className="max-w-[220px]">
-          <option value="all">Todas as categorias</option>
+        <Select
+          value={cat === 'all' ? '' : catSlug}
+          onChange={(e) => setFilter('categoria', e.target.value)}
+          className="max-w-[220px]"
+          aria-label="Filtrar por categoria"
+        >
+          <option value="">Todas as categorias</option>
           {categories.map((c) => (
-            <option key={c.id} value={c.id}>
+            <option key={c.id} value={c.slug}>
               {c.name}
             </option>
           ))}
         </Select>
         <Select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as typeof status)}
+          value={brand}
+          onChange={(e) => setFilter('marca', e.target.value)}
+          className="max-w-[200px]"
+          aria-label="Filtrar por marca"
+        >
+          <option value="">Todas as marcas</option>
+          {brands.map(([b, n]) => (
+            <option key={b} value={b}>
+              {b} ({n})
+            </option>
+          ))}
+          {/* Marca da URL que não existe mais no catálogo: mantém visível para dar para limpar. */}
+          {brand && !brands.some(([b]) => b === brand) && <option value={brand}>{brand} (0)</option>}
+        </Select>
+        <Select
+          value={status === 'active' ? 'ativos' : status === 'inactive' ? 'inativos' : ''}
+          onChange={(e) => setFilter('status', e.target.value)}
           className="max-w-[180px]"
           aria-label="Filtrar por status"
         >
-          <option value="all">Todos os status</option>
-          <option value="active">Somente ativos</option>
-          <option value="inactive">Somente inativos</option>
+          <option value="">Todos os status</option>
+          <option value="ativos">Somente ativos</option>
+          <option value="inativos">Somente inativos</option>
         </Select>
+        {hasFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            Limpar filtros
+          </Button>
+        )}
         <label className="ml-auto flex items-center gap-2 text-xs text-ink-soft">
           <input
             type="checkbox"
@@ -286,6 +342,7 @@ export default function Products() {
             {filtered.map((p) => (
               <tr
                 key={p.id}
+                {...editOnDoubleClick(() => navigate(`/admin/produtos/${p.id}`))}
                 className={`hover:bg-bg-soft/50 ${selected.has(p.id) ? 'bg-bg-soft/40' : ''} ${p.active ? '' : 'text-ink-mute'}`}
               >
                 <td className="px-4 py-3">

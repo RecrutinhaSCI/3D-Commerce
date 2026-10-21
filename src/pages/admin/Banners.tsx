@@ -11,6 +11,7 @@ import { ApiError } from '@/services/api';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import type { Banner, HeroBadge } from '@/types';
 import { useSEO } from '@/utils/seo';
+import { editOnDoubleClick } from '@/utils/rowEdit';
 
 export default function Banners() {
   useSEO('Admin Banners');
@@ -77,7 +78,7 @@ export default function Banners() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {banners.map((b) => (
-          <div key={b.id} className="card overflow-hidden">
+          <div key={b.id} {...editOnDoubleClick(() => setEditing(b))} className="card overflow-hidden">
             <div className="relative aspect-[2.5/1] overflow-hidden bg-ink text-bg">
               {b.image ? (
                 <img src={b.image} alt={b.title} className="absolute inset-0 h-full w-full object-cover" />

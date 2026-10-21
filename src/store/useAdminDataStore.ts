@@ -70,6 +70,7 @@ const DEFAULT_SETTINGS: StoreSettings = {
   trustItems: [],
   footerDescription: '',
   footerShowSocials: true,
+  blogCovers: {},
 };
 
 interface AdminDataState {
@@ -308,6 +309,9 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
         showInHome: c.showInHome,
         isSeasonal: !!c.isSeasonal,
         seasonalTitle: c.seasonalBanner ?? null,
+        seasonalColorFrom: c.seasonalColors?.from || null,
+        seasonalColorTo: c.seasonalColors?.to || null,
+        seasonalTextColor: c.seasonalColors?.text || null,
         // Imagens só pelo upload (Vercel Blob) — nunca Base64 no cadastro.
       });
       const created = apiCategoryToInternal(category, get().categories.length);
