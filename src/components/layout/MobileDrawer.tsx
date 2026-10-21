@@ -9,6 +9,7 @@ import { whatsappContact } from '@/utils/whatsapp';
 import { site } from '@/config/site';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { categoryPath, showsInMenu } from '@/utils/categoryGroups';
 
 export function MobileDrawer() {
   const open = useUIStore((s) => s.mobileMenuOpen);
@@ -109,10 +110,10 @@ export function MobileDrawer() {
 
         <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-ink-mute">Categorias</p>
         <div className="mb-6 grid grid-cols-2 gap-2">
-          {categories.filter((c) => c.showInMenu && (c.slug === 'ofertas' || c.isSeasonal || hasProducts(c.id))).sort((a, b) => a.order - b.order).map((c) => (
+          {categories.filter((c) => showsInMenu(c) && (c.slug === 'ofertas' || c.isSeasonal || hasProducts(c.id))).sort((a, b) => a.order - b.order).map((c) => (
             <Link
               key={c.id}
-              to={`/categoria/${c.slug}`}
+              to={categoryPath(c.slug)}
               onClick={close}
               className="rounded-xl border border-ink-line px-3 py-2.5 text-xs font-semibold text-ink-soft hover:bg-ink/5"
             >

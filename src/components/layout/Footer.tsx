@@ -4,9 +4,22 @@ import { Instagram, Mail, MapPin, MessageCircle, ShieldCheck, Truck, Wrench, You
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { whatsappContact } from '@/utils/whatsapp';
 import { site } from '@/config/site';
+import { FILAMENTS_GROUP_PATH, categoryPath, isFilamentCategory, isMaterialCategory, showsInMenu } from '@/utils/categoryGroups';
 
 export function Footer() {
   const settings = useAdminDataStore((s) => s.settings);
+  const categories = useAdminDataStore((s) => s.categories);
+  const products = useAdminDataStore((s) => s.products);
+  // Mesma regra do mega menu: sem produto ativo não aparece (Ofertas é virtual).
+  const hasProducts = (id: string) => products.some((p) => p.active && p.categoryIds.includes(id));
+  const visible = categories.filter(
+    (c) => showsInMenu(c) && !c.isSeasonal && (c.slug === 'ofertas' || hasProducts(c.id)),
+  );
+  const hasFilaments = visible.some(isFilamentCategory);
+  // Tipos de produto (ex.: Impressoras 3D) + Ofertas; materiais ficam no "Filamentos".
+  const footerCats = visible
+    .filter((c) => !isMaterialCategory(c))
+    .sort((a, b) => Number(a.slug === 'ofertas') - Number(b.slug === 'ofertas'));
   return (
     <footer className="mt-20 border-t border-ink-line bg-bg-card">
       <div className="container-x grid grid-cols-1 gap-10 py-12 md:grid-cols-4">
@@ -64,9 +77,15 @@ export function Footer() {
           <p className="mb-3 text-xs font-bold uppercase tracking-widest text-ink-mute">Loja</p>
           <ul className="space-y-2 text-sm">
             <li><Link to="/loja" className="text-ink-soft transition hover:text-ink">Todos os produtos</Link></li>
-            <li><Link to="/categoria/pla" className="text-ink-soft transition hover:text-ink">Filamentos PLA</Link></li>
-            <li><Link to="/categoria/impressoras-3d" className="text-ink-soft transition hover:text-ink">Impressoras 3D</Link></li>
-            <li><Link to="/categoria/ofertas" className="text-ink-soft transition hover:text-ink">Ofertas</Link></li>
+            {/* Links das categorias REAIS do admin (antes: /categoria/pla, que não existe). */}
+            {hasFilaments && (
+              <li><Link to={FILAMENTS_GROUP_PATH} className="text-ink-soft transition hover:text-ink">Filamentos</Link></li>
+            )}
+            {footerCats.map((c) => (
+              <li key={c.id}>
+                <Link to={categoryPath(c.slug)} className="text-ink-soft transition hover:text-ink">{c.name}</Link>
+              </li>
+            ))}
             <li><Link to="/orcamento" className="text-ink-soft transition hover:text-ink">Pedir orçamento</Link></li>
           </ul>
         </div>

@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { Carousel } from '@/components/ui/Carousel';
+import { categoryPath, showsInHome } from '@/utils/categoryGroups';
 
 export function CategoryCards() {
-  const categories = useAdminDataStore((s) => s.categories).filter((c) => c.showInHome && !c.isSeasonal);
+  // Ativa + "Mostrar na home" do admin (sazonal tem bloco próprio).
+  const categories = useAdminDataStore((s) => s.categories).filter(showsInHome);
 
   return (
     <section className="container-x py-20">
@@ -30,7 +32,7 @@ export function CategoryCards() {
             transition={{ delay: i * 0.04 }}
           >
             <Link
-              to={`/categoria/${c.slug}`}
+              to={categoryPath(c.slug)}
               className="group relative flex h-36 flex-col justify-between overflow-hidden rounded-2xl border border-ink-line/70 bg-bg-card p-5 transition-all duration-300 hover:-translate-y-1 hover:border-ink/20 hover:shadow-[0_18px_40px_-15px_rgba(15,17,21,0.18)]"
             >
               {c.image ? (

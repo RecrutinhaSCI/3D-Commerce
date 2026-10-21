@@ -10,13 +10,14 @@ import { useCartStore } from '@/store/useCartStore';
 import { whatsappContact } from '@/utils/whatsapp';
 import { MegaMenu } from './MegaMenu';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { categoryPath, showsInMenu } from '@/utils/categoryGroups';
 
 export function Header() {
   const setCartOpen = useUIStore((s) => s.setCartOpen);
   const setMobileMenuOpen = useUIStore((s) => s.setMobileMenuOpen);
   const count = useCartStore((s) => s.count());
   const categories = useAdminDataStore((s) => s.categories);
-  const seasonal = categories.find((c) => c.isSeasonal && c.seasonalActive && c.showInMenu);
+  const seasonal = categories.find((c) => c.isSeasonal && c.seasonalActive && showsInMenu(c));
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -139,7 +140,7 @@ export function Header() {
               Blog
             </NavLink>
             {seasonal && (
-              <NavLink to={`/categoria/${seasonal.slug}`} className="nav-link text-emerald-600">
+              <NavLink to={categoryPath(seasonal.slug)} className="nav-link text-emerald-600">
                 {seasonal.name}
               </NavLink>
             )}

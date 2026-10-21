@@ -71,6 +71,19 @@ export async function findLegacyUploads(): Promise<LegacyRef[]> {
     });
   }
 
+  const categoryCards = await prisma.category.findMany({
+    where: { imageUrl: { contains: '/uploads/' } },
+    select: { id: true, name: true, imageUrl: true },
+  });
+  for (const c of categoryCards) {
+    if (!isLegacyUploadUrl(c.imageUrl)) continue;
+    refs.push({
+      where: `Categoria "${c.name}" (imagem do card)`,
+      url: c.imageUrl,
+      update: (url) => prisma.category.update({ where: { id: c.id }, data: { imageUrl: url } }),
+    });
+  }
+
   const banners = await prisma.banner.findMany({
     where: { imageUrl: { contains: '/uploads/' } },
     select: { id: true, title: true, imageUrl: true },

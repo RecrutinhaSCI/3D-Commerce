@@ -4,14 +4,16 @@ import slugify from 'slugify';
 import { Sparkles, Save } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Textarea } from '@/components/ui/Input';
-import { ImageUploader } from '@/components/admin/ImageUploader';
+import { RemoteImageUploader } from '@/components/admin/RemoteImageUploader';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { ApiError } from '@/services/api';
 import type { Category } from '@/types';
 import { useSEO } from '@/utils/seo';
 
 export default function SeasonalCategory() {
   useSEO('Admin Categoria Sazonal');
-  const { categories, updateCategory, addCategory, products } = useAdminDataStore();
+  const { categories, updateCategory, addCategory, products, uploadCategoryImage, removeCategoryImage } =
+    useAdminDataStore();
   const seasonal = categories.find((c) => c.isSeasonal);
   const [draft, setDraft] = useState<Category>(
     seasonal ?? {
@@ -29,16 +31,21 @@ export default function SeasonalCategory() {
     },
   );
 
-  function save() {
+  const isNew = !categories.some((c) => c.id === draft.id);
+
+  // Sucesso só depois da confirmação do backend.
+  async function save() {
     if (!draft.name) {
       toast.error('Informe o nome');
       return;
     }
     const payload = { ...draft, slug: draft.slug || slugify(draft.name, { lower: true, strict: true }) };
-    if (categories.find((c) => c.id === payload.id)) {
-      updateCategory(payload.id, payload);
+    if (!isNew) {
+      if (!(await updateCategory(payload.id, payload))) return void toast.error('Não foi possível salvar.');
     } else {
-      addCategory(payload);
+      const created = await addCategory(payload);
+      if (!created) return void toast.error('Não foi possível criar a categoria sazonal.');
+      setDraft({ ...payload, id: created.id, slug: created.slug });
     }
     toast.success('Categoria sazonal salva');
   }
@@ -91,11 +98,29 @@ export default function SeasonalCategory() {
                 <Input value={draft.seasonalBanner ?? ''} onChange={(e) => setDraft({ ...draft, seasonalBanner: e.target.value })} />
               </div>
               <div className="rounded-xl border border-ink-line p-3">
-                <ImageUploader
+                <RemoteImageUploader
                   label="Imagem do banner (opcional)"
-                  value={draft.seasonalBannerImage ?? ''}
-                  onChange={(v) => setDraft({ ...draft, seasonalBannerImage: v })}
-                  hint="Aparece atrás do gradiente quando preenchida."
+                  value={draft.seasonalBannerImage ?? null}
+                  onUpload={async (file) => {
+                    if (isNew) throw new Error('Salve a categoria sazonal antes de enviar a imagem.');
+                    try {
+                      const updated = await uploadCategoryImage(draft.id, file, 'seasonal');
+                      setDraft((cur) => ({ ...cur, seasonalBannerImage: updated.seasonalBannerImage }));
+                      return updated.seasonalBannerImage ?? '';
+                    } catch (err) {
+                      throw new Error(err instanceof ApiError ? err.message : 'Falha no upload da imagem.');
+                    }
+                  }}
+                  onRemove={async () => {
+                    if (isNew) return;
+                    try {
+                      await removeCategoryImage(draft.id, 'seasonal');
+                      setDraft((cur) => ({ ...cur, seasonalBannerImage: undefined }));
+                    } catch (err) {
+                      throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover a imagem.');
+                    }
+                  }}
+                  hint="Salva na hora no armazenamento da loja. Aparece atrás do gradiente quando preenchida."
                 />
               </div>
               <div className="flex gap-5 text-sm">

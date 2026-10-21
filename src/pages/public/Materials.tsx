@@ -1,10 +1,16 @@
 import { Link } from 'react-router-dom';
 import { useSEO } from '@/utils/seo';
+import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { categoryPath, findMaterialCategory } from '@/utils/categoryGroups';
 
+/**
+ * Conteúdo editorial por material. O LINK não é fixo: vem da categoria real
+ * do admin cujo nome corresponde ao material ("Filamentos PLA" → PLA). Sem
+ * categoria ativa correspondente, o botão não aparece (nada de 404).
+ */
 const materials = [
   {
     name: 'PLA',
-    slug: 'pla',
     color: '#22D3EE',
     intro: 'O filamento mais usado no mundo. Fácil de imprimir, biodegradável, ótimo acabamento.',
     bestFor: 'Iniciantes, peças decorativas, protótipos e brinquedos.',
@@ -12,7 +18,6 @@ const materials = [
   },
   {
     name: 'PETG',
-    slug: 'petg',
     color: '#34D399',
     intro: 'Equilíbrio entre PLA e ABS. Mais resistente, brilhante e bom para peças funcionais.',
     bestFor: 'Suportes, peças mecânicas leves, embalagens, projetos ao ar livre.',
@@ -20,15 +25,27 @@ const materials = [
   },
   {
     name: 'ABS',
-    slug: 'abs',
     color: '#F472B6',
     intro: 'Material clássico da indústria. Resistente ao calor e a impactos, exige câmara fechada.',
     bestFor: 'Peças funcionais, componentes automotivos, eletrônicos.',
     avoid: 'Iniciantes sem câmara fechada — sofre com contração e odor.',
   },
   {
+    name: 'ASA',
+    color: '#F59E0B',
+    intro: 'Parente do ABS com resistência a raios UV e ao tempo. Mantém cor e forma ao ar livre.',
+    bestFor: 'Peças externas, suportes, carenagens e componentes expostos ao sol.',
+    avoid: 'Impressoras abertas e sem ventilação — exige câmara fechada e local arejado.',
+  },
+  {
+    name: 'TPU',
+    color: '#FB7185',
+    intro: 'Filamento flexível e emborrachado, com ótima resistência a impacto e desgaste.',
+    bestFor: 'Capas, vedações, amortecedores, pneus e peças que precisam dobrar.',
+    avoid: 'Velocidade alta e extrusoras Bowden longas — imprima devagar.',
+  },
+  {
     name: 'Resina',
-    slug: 'resinas',
     color: '#A78BFA',
     intro: 'Para impressoras LCD/SLA. Resolução excepcional, ideal para miniaturas.',
     bestFor: 'Miniaturas, jóias, modelos dentais, brinquedos detalhados.',
@@ -38,6 +55,7 @@ const materials = [
 
 export default function Materials() {
   useSEO('Materiais e aplicações');
+  const categories = useAdminDataStore((s) => s.categories);
   return (
     <div className="container-x py-12">
       <header className="max-w-3xl">
@@ -49,8 +67,10 @@ export default function Materials() {
       </header>
 
       <div className="mt-10 space-y-6">
-        {materials.map((m) => (
-          <article key={m.slug} className="group card p-6 transition-shadow hover:shadow-card md:p-8">
+        {materials.map((m) => {
+          const category = findMaterialCategory(categories, m.name);
+          return (
+          <article key={m.name} className="group card p-6 transition-shadow hover:shadow-card md:p-8">
             <div className="flex items-center gap-3">
               <span className="h-3 w-14 rounded-full transition-all group-hover:w-20" style={{ background: m.color }} />
               <h2 className="font-display text-2xl font-bold tracking-tight">{m.name}</h2>
@@ -66,11 +86,14 @@ export default function Materials() {
                 <p className="mt-1 text-sm">{m.avoid}</p>
               </div>
             </div>
-            <Link to={`/categoria/${m.slug}`} className="btn-secondary mt-5">
-              Ver produtos de {m.name}
-            </Link>
+            {category && (
+              <Link to={categoryPath(category.slug)} className="btn-secondary mt-5">
+                Ver produtos de {m.name}
+              </Link>
+            )}
           </article>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

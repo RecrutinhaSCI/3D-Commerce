@@ -15,6 +15,7 @@ import { formatBRL, getDiscountPercent, getEffectivePrice, getPixPrice, calcInst
 import { whatsappProduct, whatsappQuoteProduct } from '@/utils/whatsapp';
 import { useSEO, useJsonLd } from '@/utils/seo';
 import { site } from '@/config/site';
+import { categoryPath } from '@/utils/categoryGroups';
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -150,7 +151,7 @@ export default function Product() {
         <ChevronRight className="h-3 w-3" />
         {category ? (
           <>
-            <Link to={`/categoria/${category.slug}`} className="hover:text-ink">{category.name}</Link>
+            <Link to={categoryPath(category.slug)} className="hover:text-ink">{category.name}</Link>
             <ChevronRight className="h-3 w-3" />
           </>
         ) : (

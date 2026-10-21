@@ -76,6 +76,8 @@ export interface Category {
   description?: string;
   icon?: string;
   image?: string;
+  /** false = categoria fora do ar (some da loja). Ausente = ativa. */
+  active?: boolean;
   showInMenu: boolean;
   showInHome: boolean;
   order: number;

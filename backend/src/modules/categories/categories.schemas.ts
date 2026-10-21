@@ -11,6 +11,10 @@ export const createCategorySchema = z.object({
   seasonalTitle: z.string().trim().max(120).optional().nullable(),
   seasonalDescription: z.string().trim().max(500).optional().nullable(),
   seasonalBannerImage: z.string().trim().max(500).optional().nullable(),
+  showInMenu: z.boolean().optional(),
+  showInHome: z.boolean().optional(),
+  // `imageUrl` NÃO entra aqui: só muda pelo upload (Vercel Blob) ou pela
+  // remoção dedicada — evita gravar Base64/URL arbitrária pelo PUT.
 });
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 

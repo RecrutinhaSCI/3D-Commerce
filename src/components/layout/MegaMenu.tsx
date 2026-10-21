@@ -2,7 +2,15 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Flame, Sparkles, Tag } from 'lucide-react';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
-import { isFilamentCategory, isMaterialCategory, materialLabel, sortMaterials } from '@/utils/categoryGroups';
+import {
+  FILAMENTS_GROUP_PATH,
+  categoryPath,
+  isFilamentCategory,
+  isMaterialCategory,
+  materialLabel,
+  showsInMenu,
+  sortMaterials,
+} from '@/utils/categoryGroups';
 
 interface Props {
   open: boolean;
@@ -20,10 +28,10 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
   const hasProducts = (id: string) => activeProducts.some((p) => p.categoryIds.includes(id));
 
   const main = categories
-    .filter((c) => c.showInMenu && !c.isSeasonal && c.slug !== 'ofertas' && hasProducts(c.id))
+    .filter((c) => showsInMenu(c) && !c.isSeasonal && c.slug !== 'ofertas' && hasProducts(c.id))
     .sort((a, b) => a.order - b.order);
-  const seasonal = categories.find((c) => c.isSeasonal && c.seasonalActive && c.showInMenu);
-  const offers = categories.find((c) => c.slug === 'ofertas');
+  const seasonal = categories.find((c) => c.isSeasonal && c.seasonalActive && showsInMenu(c));
+  const offers = categories.find((c) => c.slug === 'ofertas' && c.active !== false);
   const highlights = activeProducts.filter((p) => p.isHighlight).slice(0, 4);
 
   // "Materiais": cada filamento/resina pelo nome curto (PLA, PETG…).
@@ -33,8 +41,8 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
   const hasFilaments = materialCats.some(isFilamentCategory);
   const otherCats = main.filter((c) => !isMaterialCategory(c));
   const shopLinks = [
-    ...otherCats.map((c) => ({ key: c.id, to: `/categoria/${c.slug}`, label: c.name })),
-    ...(hasFilaments ? [{ key: 'filamentos', to: '/loja?grupo=filamentos', label: 'Filamentos' }] : []),
+    ...otherCats.map((c) => ({ key: c.id, to: categoryPath(c.slug), label: c.name })),
+    ...(hasFilaments ? [{ key: 'filamentos', to: FILAMENTS_GROUP_PATH, label: 'Filamentos' }] : []),
   ];
 
   return (
@@ -59,7 +67,7 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
                 {materialCats.map((c) => (
                   <li key={c.id}>
                     <Link
-                      to={`/categoria/${c.slug}`}
+                      to={categoryPath(c.slug)}
                       onClick={onClose}
                       className="group inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink"
                     >
@@ -99,7 +107,7 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
               <div className="mt-6 space-y-2">
                 {offers && (
                   <Link
-                    to={`/categoria/${offers.slug}`}
+                    to={categoryPath(offers.slug)}
                     onClick={onClose}
                     className="flex items-center justify-between rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-600"
                   >
@@ -111,7 +119,7 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
                 )}
                 {seasonal && (
                   <Link
-                    to={`/categoria/${seasonal.slug}`}
+                    to={categoryPath(seasonal.slug)}
                     onClick={onClose}
                     className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"
                   >

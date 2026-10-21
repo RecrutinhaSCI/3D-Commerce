@@ -183,6 +183,11 @@ model Category {
   seasonalTitle       String?  @map("seasonal_title")
   seasonalDescription String?  @map("seasonal_description")
   seasonalBannerImage String?  @map("seasonal_banner_image")
+  /// Imagem do card na Home (URL pública do Vercel Blob).
+  imageUrl            String?  @map("image_url")
+  /// Flags de exibição independentes de `active` (que tira a categoria do ar).
+  showInMenu          Boolean  @default(true) @map("show_in_menu")
+  showInHome          Boolean  @default(true) @map("show_in_home")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
