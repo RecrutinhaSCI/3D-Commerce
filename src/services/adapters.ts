@@ -250,6 +250,7 @@ export function apiSettingsToInternal(s: ApiSettings): StoreSettings {
     })),
     footerDescription: s.footerDescription ?? '',
     footerShowSocials: s.footerShowSocials,
+    blogContent: s.blogContentJson ?? {},
     blogCovers: Object.fromEntries(
       Object.entries(s.blogCoversJson ?? {}).map(([slug, url]) => [slug, apiAssetUrl(url)]),
     ),

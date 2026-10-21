@@ -1,6 +1,31 @@
 import { z } from 'zod';
 
 /**
+ * Texto de um post do Blog editado no admin. Todo campo é opcional: o que não
+ * vier (ou vier null) volta ao padrão do código. O slug é fixo (rota pública).
+ */
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v ? v : undefined));
+
+export const blogPostContentSchema = z
+  .object({
+    title: optionalText(160),
+    category: optionalText(40),
+    excerpt: optionalText(400),
+    readTime: optionalText(20),
+    // Markdown. O front renderiza SEM HTML (react-markdown sem rehype-raw).
+    content: optionalText(60_000),
+  })
+  .strict();
+export type BlogPostContent = z.infer<typeof blogPostContentSchema>;
+
+/**
  * URL segura: apenas http/https. Bloqueia javascript:, data:, vbscript: etc.
  * Aceita string vazia (tratada como "sem valor") e null.
  */

@@ -71,6 +71,7 @@ const DEFAULT_SETTINGS: StoreSettings = {
   footerDescription: '',
   footerShowSocials: true,
   blogCovers: {},
+  blogContent: {},
 };
 
 interface AdminDataState {

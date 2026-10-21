@@ -3,7 +3,7 @@ import { ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
 import { safeUnlinkSiteImage, storedFileUrl } from '../../lib/upload';
 import { settingsService } from './settings.service';
-import { updateSettingsSchema } from './settings.schemas';
+import { blogPostContentSchema, updateSettingsSchema } from './settings.schemas';
 import { z } from 'zod';
 
 /** Slug de post do Blog (os posts ficam no código do front). */
@@ -51,6 +51,21 @@ export const settingsController = {
       safeUnlinkSiteImage(url);
       throw err;
     }
+  },
+
+  /** PUT /admin/settings/blog-posts/:slug — texto do post (Markdown + metadados). */
+  async updateBlogContent(req: Request, res: Response) {
+    const { slug } = blogSlugParam.parse(req.params);
+    const content = blogPostContentSchema.parse(req.body ?? {});
+    const settings = await settingsService.setBlogContent(slug, content);
+    return ok(res, { settings });
+  },
+
+  /** DELETE /admin/settings/blog-posts/:slug — volta ao texto padrão do código. */
+  async resetBlogContent(req: Request, res: Response) {
+    const { slug } = blogSlugParam.parse(req.params);
+    const settings = await settingsService.setBlogContent(slug, null);
+    return ok(res, { settings });
   },
 
   /** DELETE /admin/settings/blog-covers/:slug */

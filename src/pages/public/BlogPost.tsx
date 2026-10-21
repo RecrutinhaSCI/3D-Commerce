@@ -4,12 +4,17 @@ import { seedBlogPosts } from '@/data/blogPosts';
 import { useSEO } from '@/utils/seo';
 import { bannerSvg } from '@/utils/productImage';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
+import { resolveBlogPost } from '@/utils/blog';
+import { BlogMarkdown } from '@/components/blog/BlogMarkdown';
 
 export default function BlogPost() {
   const { slug } = useParams();
-  const post = seedBlogPosts.find((p) => p.slug === slug);
+  const base = seedBlogPosts.find((p) => p.slug === slug);
   const covers = useAdminDataStore((s) => s.settings.blogCovers);
-  useSEO(post?.title ?? 'Post');
+  const overrides = useAdminDataStore((s) => s.settings.blogContent);
+  // Texto padrão do código + versão salva no admin + capa. Nunca fica vazio.
+  const post = base ? resolveBlogPost(base, overrides?.[base.slug], covers?.[base.slug]) : undefined;
+  useSEO(post?.title ?? 'Post', post?.excerpt);
   if (!post) {
     return (
       <div className="container-x py-20 text-center">
@@ -26,16 +31,17 @@ export default function BlogPost() {
       </Link>
       <article className="mx-auto mt-5 max-w-3xl">
         <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">{post.category}</p>
-        <h1 className="mt-2 font-display text-4xl font-bold leading-tight">{post.title}</h1>
+        <h1 className="mt-2 font-display text-3xl font-bold leading-tight md:text-4xl">{post.title}</h1>
         <p className="mt-3 inline-flex items-center gap-2 text-xs text-ink-mute">
           <Clock className="h-3 w-3" /> {post.readTime} · por {post.author}
         </p>
         <img
-          src={covers?.[post.slug] || post.cover || bannerSvg(post.title, index, ['#0F1115', '#22D3EE'])}
+          src={post.cover || bannerSvg(post.title, index, ['#0F1115', '#22D3EE'])}
           alt=""
           className="mt-6 aspect-[16/9] w-full rounded-2xl object-cover"
         />
-        <div className="prose prose-sm mt-6 max-w-none text-ink-soft whitespace-pre-line">{post.content}</div>
+        {post.excerpt && <p className="mt-8 text-lg leading-relaxed text-ink">{post.excerpt}</p>}
+        <BlogMarkdown content={post.content} className="mt-2" />
       </article>
     </div>
   );

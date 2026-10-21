@@ -528,6 +528,9 @@ model SiteSettings {
   /// Capas do Blog: { "<slug-do-post>": "<url no Vercel Blob>" }. Os posts
   /// continuam no código; só a imagem é gerenciada pelo admin.
   blogCoversJson             Json?   @map("blog_covers_json")
+  /// Textos dos posts do Blog editados no admin: { "<slug>": { title?,
+  /// category?, excerpt?, readTime?, content? } }. Campo ausente = padrão do código.
+  blogContentJson            Json?   @map("blog_content_json")
 
   // Seção YouTube
   youtubeSectionEnabled  Boolean @default(true) @map("youtube_section_enabled")
