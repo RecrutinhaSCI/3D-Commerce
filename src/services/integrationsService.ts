@@ -21,7 +21,7 @@ export const integrationsService = {
   sandboxQuote(cep: string, couponFreeShipping: boolean, missingMeasures: boolean, aboveThreshold: boolean) {
     return api.post<ApiShippingQuote>('/api/admin/integrations/melhor-envio/sandbox/quote', {
       cep, couponFreeShipping,
-      items: [{ productId: 'admin-simulation', quantity: 1, unitPrice: aboveThreshold ? 10000 : 100,
+      items: [{ productId: 'admin-simulation', quantity: 1, unitPrice: aboveThreshold ? 400 : 100,
         weight: missingMeasures ? null : 1, width: 20, height: 10, depth: 20 }],
     });
   },
