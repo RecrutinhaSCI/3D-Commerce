@@ -17,6 +17,21 @@ Loja: Bento Goncalves/RS, envia pra todo o Brasil.
 
 ---
 
+## Auditoria de preparação para produção — 22/10/2026
+
+- Branch auditada: feat/frete-melhor-envio. OAuth implementado em 9c92d70, com escopo shipping-calculate, tokens cifrados, state de uso único e refresh automático. As recomendações do spike abaixo são históricas; OAuth já não é uma etapa futura.
+- Sandbox: aplicativo 3DCommerce existente; site e callback conferidos. Client ID e secret do Render correspondem a esse aplicativo. Isso confirma configuração, não homologação ponta a ponta.
+- Render: serviço existente em main, commit publicado b216f28. Todas as sete variáveis exigidas estão presentes; base Sandbox, callback correto, chave de cifragem em formato válido e CEP de origem com oito dígitos. Nenhum valor foi alterado, nenhum deploy foi executado.
+- Smoke do backend publicado: /api/health retorna 200; /api/integrations/melhor-envio/callback sem parâmetros retorna 401. O callback OAuth desta branch ainda não está publicado. Autorização, troca de code, refresh real e cotações PAC/Sedex com CEPs diferentes continuam pendentes; não classificar o Sandbox como homologado.
+- Produção Melhor Envio: conta acessível, nenhum aplicativo cadastrado. Cadastro disponível no painel, ainda não submetido. Concluir o Sandbox antes de criar/ativar produção; a criação de credenciais pelo navegador exige confirmação no momento da ação. Não substituir envs Sandbox antes disso.
+- Neon: identidade conferida contra DATABASE_URL do serviço Render. As 22 migrations anteriores estavam concluídas, sem falhas ou divergências de conteúdo (diferenças de checksum decorrentes de CRLF/LF conferidas). Backup JSON/SQL gerado com o script existente antes da aplicação, na pasta ignorada backups/.
+- Aplicadas somente 20261022150000_order_shipping_quote e 20261023120000_integration_oauth. Prisma migrate status: atualizado, 24 migrations. Cinco novas colunas opcionais de orders e tabelas integration_credentials/oauth_states verificadas. Todos os registros anteriores foram comparados ao backup e permaneceram intactos, incluindo 81 produtos e 1 pedido.
+- Gates já concluídos nesta finalização: 303 testes backend aprovados, 11 ignorados; typecheck/build backend, typecheck/build frontend e Prisma validate aprovados. Não repetidos nesta retomada, pois não houve alteração de código. Avisos existentes: bundle frontend e VITE_SITE_URL ausente no ambiente de build local.
+- Nenhum produto real foi modificado para testes. Peso e dimensões dos produtos continuam sob responsabilidade da 3DCommerce.
+- Próximo passo operacional: aprovação humana de uma publicação controlada que disponibilize o callback, homologação real Sandbox e só então cadastro/conexão de produção. Merge e deploy finais permanecem manuais.
+
+---
+
 ## Recomendacao: Melhor Envio
 
 Uma unica API cobre Correios + Jadlog + Loggi + outras transportadoras, tem sandbox com R$10.000 de saldo fake, e o cadastro e simples (nao exige contrato proprio com transportadora). Para loja pequena de Bento Goncalves e o caminho de menor atrito: sem contrato Correios, sem 2FA/CWS, e ja compara precos/prazos entre varias transportadoras numa chamada so.
