@@ -18,6 +18,7 @@ import { couponsRouter } from '../modules/coupons/coupons.routes';
 import { scriptsRouter } from '../modules/scripts/scripts.routes';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes';
 import { diagnosticsRouter } from './diagnostics.routes';
+import { integrationsRouter } from '../modules/integrations/integrations.routes';
 
 /**
  * Router raiz. Os routers internos por enquanto estão vazios (R1).
@@ -45,6 +46,10 @@ apiRouter.use('/api', bannersRouter);
 apiRouter.use('/api', testimonialsRouter);
 apiRouter.use('/api', couponsRouter);
 apiRouter.use('/api', scriptsRouter);
+// OAuth de integrações (Melhor Envio) — início/status admin + callback PÚBLICO.
+// Precisa vir ANTES do dashboardRouter: ele aplica auth+admin via `router.use`
+// a tudo que chega até ele, o que bloquearia o callback (401).
+apiRouter.use('/api', integrationsRouter);
 apiRouter.use('/api', dashboardRouter);
 // Diagnóstico de proxy/IP (admin) — ver diagnostics.routes.ts.
 apiRouter.use('/api', diagnosticsRouter);

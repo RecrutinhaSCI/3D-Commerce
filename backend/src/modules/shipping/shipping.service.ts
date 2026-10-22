@@ -247,6 +247,11 @@ export const shippingService = {
     } catch (err) {
       if (!(err instanceof MelhorEnvioError)) throw err;
       if (err.code === 'INVALID_CEP') throw HttpError.badRequest('CEP inválido.');
+      // OAuth configurado mas ainda NÃO conectado e sem token manual: é o
+      // mesmo que "desligado de propósito" → tabela fixa (legado).
+      if (err.code === 'NOT_CONFIGURED') {
+        return { status: 'fixed', message: null, retryable: false, ...base, options: applyFreeShipping(fixedOptions(), eligible) };
+      }
       // Motivo técnico SÓ no log (sem token/dados): o cliente recebe `unavailable`.
       const extra = err.code === 'MISSING_PRODUCT_DATA' ? ` (${err.productIds.length} produto(s) sem peso/medidas: ${err.productIds.join(', ')})` : '';
       console.warn(`[shipping] cotação Melhor Envio indisponível: ${err.code}${extra} — só retirada.`);

@@ -212,3 +212,73 @@ describe('quoteMelhorEnvio', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('token via camada OAuth', () => {
+  const withStatus = (status: number) => new Response(JSON.stringify(status === 200 ? ME_RESPONSE : {}), { status });
+
+  it('sem token disponível (OAuth não conectado, sem manual) = NOT_CONFIGURED', async () => {
+    const fetchImpl = okFetch();
+    await expect(
+      quoteMelhorEnvio('01310100', [item()], { fetchImpl, getToken: async () => null }),
+    ).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('usa o token OAuth no header', async () => {
+    const fetchImpl = okFetch();
+    await quoteMelhorEnvio('01310100', [item()], { fetchImpl, getToken: async () => ({ token: 'oauth-1', source: 'oauth' }) });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer oauth-1');
+  });
+
+  it('401 com token OAuth: renova UMA vez e repete com o token novo', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(withStatus(401)).mockResolvedValueOnce(withStatus(200));
+    const refreshToken = vi.fn(async () => 'oauth-2');
+    const r = await quoteMelhorEnvio('01310100', [item()], {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      getToken: async () => ({ token: 'oauth-1', source: 'oauth' }),
+      refreshToken,
+    });
+    expect(r).toHaveLength(2);
+    expect(refreshToken).toHaveBeenCalledWith('oauth-1');
+    const auths = fetchImpl.mock.calls.map((c) => ((c as unknown as [string, RequestInit])[1].headers as Record<string, string>).Authorization);
+    expect(auths).toEqual(['Bearer oauth-1', 'Bearer oauth-2']);
+  });
+
+  it('401 e renovação falha: UNAUTHORIZED (checkout trata como indisponível)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(withStatus(401));
+    await expect(
+      quoteMelhorEnvio('01310100', [item()], {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        getToken: async () => ({ token: 'oauth-1', source: 'oauth' }),
+        refreshToken: async () => {
+          throw new Error('refresh recusado');
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('401 com token MANUAL: não tenta renovar', async () => {
+    const refreshToken = vi.fn(async () => 'x');
+    await expect(
+      quoteMelhorEnvio('01310100', [item()], {
+        fetchImpl: okFetch({}, 401),
+        getToken: async () => ({ token: 'manual', source: 'manual' }),
+        refreshToken,
+      }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(refreshToken).not.toHaveBeenCalled();
+  });
+
+  it('camada OAuth indisponível (precisa reconectar): UNAUTHORIZED', async () => {
+    await expect(
+      quoteMelhorEnvio('01310100', [item()], {
+        fetchImpl: okFetch(),
+        getToken: async () => {
+          throw new Error('needs_reconnect');
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+});

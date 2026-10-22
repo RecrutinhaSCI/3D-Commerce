@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
-import { resolveMelhorEnvioConfig } from '../modules/shipping/melhorEnvioConfig';
+import { resolveMelhorEnvioConfig, resolveMelhorEnvioOAuthConfig } from '../modules/shipping/melhorEnvioConfig';
 
 /**
  * Schema único de variáveis de ambiente.
@@ -100,6 +100,13 @@ const envSchema = z.object({
   MELHOR_ENVIO_TIMEOUT_MS: z.preprocess(emptyToUndefined, z.string().optional()),
   // CEP de onde sai a mercadoria (loja de Bento Gonçalves).
   SHIPPING_ORIGIN_CEP: z.preprocess(emptyToUndefined, z.string().optional()),
+  // OAuth do aplicativo Melhor Envio (opcional). Sem eles vale o
+  // MELHOR_ENVIO_TOKEN manual. Validados em `resolveMelhorEnvioOAuthConfig`.
+  MELHOR_ENVIO_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  MELHOR_ENVIO_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+  MELHOR_ENVIO_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().optional()),
+  // 32 bytes em hex (64 caracteres) ou base64 — cifra os tokens no banco.
+  MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // --- Pix Banco Inter / mock (R19) — módulo modules/pix-inter, SEM rotas ativas ---
   // A integração de pagamento em uso é o Mercado Pago (acima).
@@ -197,7 +204,7 @@ export const paymentWebhookSecret =
  * dev), porque um valor inválido desliga a cotação sem derrubar o servidor.
  */
 export function melhorEnvioConfigWarnings(): string[] {
-  return resolveMelhorEnvioConfig(env).issues;
+  return [...resolveMelhorEnvioConfig(env).issues, ...resolveMelhorEnvioOAuthConfig(env).issues];
 }
 
 export function productionConfigWarnings(): string[] {

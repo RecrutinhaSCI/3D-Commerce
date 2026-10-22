@@ -3,7 +3,7 @@
  * a cotação (ou cai no padrão) e vira aviso.
  */
 import { describe, expect, it } from 'vitest';
-import { ME_DEFAULT_BASE_URL, ME_DEFAULT_TIMEOUT_MS, resolveMelhorEnvioConfig } from './melhorEnvioConfig';
+import { environmentOf, ME_DEFAULT_BASE_URL, ME_DEFAULT_TIMEOUT_MS, resolveMelhorEnvioConfig, resolveMelhorEnvioOAuthConfig } from './melhorEnvioConfig';
 
 const OK = {
   NODE_ENV: 'development',
@@ -68,5 +68,58 @@ describe('resolveMelhorEnvioConfig', () => {
   it('avisos nunca contêm o token', () => {
     const c = resolveMelhorEnvioConfig({ ...OK, MELHOR_ENVIO_TOKEN: 'segredo-123', SHIPPING_ORIGIN_CEP: 'x', MELHOR_ENVIO_TIMEOUT_MS: 'y' });
     expect(c.issues.join()).not.toContain('segredo-123');
+  });
+});
+
+describe('resolveMelhorEnvioOAuthConfig', () => {
+  const KEY = 'a'.repeat(64);
+  const OAUTH = {
+    MELHOR_ENVIO_CLIENT_ID: '1234',
+    MELHOR_ENVIO_CLIENT_SECRET: 'segredo',
+    MELHOR_ENVIO_REDIRECT_URI: 'https://staging.example.test/api/integrations/melhor-envio/callback',
+    MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: KEY,
+  };
+
+  it('sem nenhuma variável: desligado, sem aviso', () => {
+    expect(resolveMelhorEnvioOAuthConfig({})).toMatchObject({ enabled: false, issues: [] });
+  });
+
+  it('completo: ligado; ambiente vem do host (sandbox/produção)', () => {
+    expect(resolveMelhorEnvioOAuthConfig(OAUTH)).toMatchObject({ enabled: true, environment: 'sandbox', clientId: '1234' });
+    expect(resolveMelhorEnvioOAuthConfig({ ...OAUTH, MELHOR_ENVIO_BASE_URL: 'https://melhorenvio.com.br' }).environment).toBe('production');
+    expect(environmentOf('http://localhost:4010')).toBe('sandbox');
+  });
+
+  it('incompleto: desligado e o aviso só cita NOMES de variáveis (nunca valores)', () => {
+    const c = resolveMelhorEnvioOAuthConfig({ ...OAUTH, MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: undefined });
+    expect(c.enabled).toBe(false);
+    expect(c.issues.join()).toMatch(/MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY/);
+    expect(c.issues.join()).not.toContain('segredo');
+    expect(c.clientSecret).toBeNull();
+  });
+
+  it.each([
+    ['client id não numérico', { MELHOR_ENVIO_CLIENT_ID: 'abc' }, /CLIENT_ID/],
+    ['chave curta', { MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: 'abcd' }, /ENCRYPTION_KEY/],
+    ['redirect sem HTTPS', { MELHOR_ENVIO_REDIRECT_URI: 'http://loja.test/cb' }, /REDIRECT_URI/],
+  ])('%s: desligado + aviso', (_l, over, re) => {
+    const c = resolveMelhorEnvioOAuthConfig({ ...OAUTH, ...over });
+    expect(c.enabled).toBe(false);
+    expect(c.issues.join()).toMatch(re);
+  });
+
+  it('http://localhost só fora de produção', () => {
+    const local = { ...OAUTH, MELHOR_ENVIO_REDIRECT_URI: 'http://localhost:3333/api/integrations/melhor-envio/callback' };
+    expect(resolveMelhorEnvioOAuthConfig(local).enabled).toBe(true);
+    expect(resolveMelhorEnvioOAuthConfig({ ...local, NODE_ENV: 'production' }).enabled).toBe(false);
+  });
+
+  it('chave aceita em base64 (32 bytes)', () => {
+    expect(resolveMelhorEnvioOAuthConfig({ ...OAUTH, MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') }).enabled).toBe(true);
+  });
+
+  it('cotação liga com OAuth configurado mesmo sem token manual', () => {
+    const c = resolveMelhorEnvioConfig({ ...OAUTH, SHIPPING_ORIGIN_CEP: '95700000', MELHOR_ENVIO_USER_AGENT: 'x (a@b.c)' });
+    expect(c).toMatchObject({ enabled: true, token: null, oauthEnabled: true });
   });
 });

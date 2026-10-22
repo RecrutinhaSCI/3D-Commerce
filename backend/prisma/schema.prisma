@@ -701,3 +701,50 @@ model NewsletterSubscriber {
   @@index([createdAt])
   @@map("newsletter_subscribers")
 }
+
+// =========================================================================
+// Integrações OAuth (Melhor Envio) — tokens SEMPRE cifrados (AES-256-GCM,
+// chave em MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY). Nunca guardar token em claro.
+// =========================================================================
+
+/// Credencial OAuth de uma integração por ambiente (sandbox/production).
+model IntegrationCredential {
+  id                    String    @id @default(cuid())
+  provider              String // "melhor_envio"
+  environment           String // "sandbox" | "production"
+  accessTokenEnc        String    @map("access_token_enc")
+  refreshTokenEnc       String    @map("refresh_token_enc")
+  accessTokenExpiresAt  DateTime  @map("access_token_expires_at")
+  // Estimada na emissão (o Melhor Envio informa 45 dias para o refresh token).
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  // Controle otimista: cada renovação grava version + 1.
+  version               Int       @default(0)
+  // Lease da renovação (impede dois processos renovando ao mesmo tempo).
+  refreshLockUntil      DateTime? @map("refresh_lock_until")
+  needsReconnect        Boolean   @default(false) @map("needs_reconnect")
+  lastRefreshedAt       DateTime? @map("last_refreshed_at")
+  // Código curto do último erro (ex.: "refresh_invalid") — nunca token/resposta.
+  lastError             String?   @map("last_error")
+  connectedByUserId     String?   @map("connected_by_user_id")
+  connectedAt           DateTime  @default(now()) @map("connected_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@unique([provider, environment])
+  @@map("integration_credentials")
+}
+
+/// State do OAuth: só o HASH (sha256), uso único e expiração curta.
+model OAuthState {
+  id          String    @id @default(cuid())
+  provider    String
+  environment String
+  stateHash   String    @unique @map("state_hash")
+  userId      String    @map("user_id")
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("oauth_states")
+}

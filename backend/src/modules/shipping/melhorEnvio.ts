@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { ShippingMethod } from '@prisma/client';
 import { env } from '../../config/env';
 import { resolveMelhorEnvioConfig, type MelhorEnvioConfig } from './melhorEnvioConfig';
+import { getMelhorEnvioAccessToken, refreshMelhorEnvioToken } from '../integrations/melhorEnvioOAuth';
 
 /**
  * Melhor Envio — cliente de COTAÇÃO de frete (só cotação; etiqueta e rastreio
@@ -177,6 +178,10 @@ export interface QuoteDeps {
   now?: () => number;
   /** Só para testes: sobrescreve o timeout da configuração. */
   timeoutMs?: number;
+  /** Só para testes: origem do token (padrão: camada OAuth com fallback manual). */
+  getToken?: (manualToken: string | null) => Promise<{ token: string; source: 'oauth' | 'manual' } | null>;
+  /** Só para testes: renovação após 401 (padrão: camada OAuth). */
+  refreshToken?: (failedAccessToken: string) => Promise<string>;
 }
 
 /**
@@ -191,7 +196,7 @@ export async function quoteMelhorEnvio(
   const now = deps.now ?? Date.now;
   const config = melhorEnvioConfig();
 
-  if (!config.enabled || !config.token || !config.originCep) {
+  if (!config.enabled || !config.originCep) {
     throw new MelhorEnvioError('NOT_CONFIGURED', 'Cotação do Melhor Envio não configurada.');
   }
   const toCep = normalizeCep(toCepRaw);
@@ -230,7 +235,6 @@ async function requestQuote(
   items: QuoteItem[],
   deps: QuoteDeps,
 ): Promise<QuotedOption[]> {
-  const fetchImpl = deps.fetchImpl ?? fetch;
   const payload = {
     from: { postal_code: config.originCep },
     to: { postal_code: toCep },
@@ -248,6 +252,37 @@ async function requestQuote(
     services: Object.keys(CORREIOS_SERVICES).join(','),
   };
 
+  // Token: OAuth conectado (renovado sozinho) ou, sem ele, o manual.
+  let auth: { token: string; source: 'oauth' | 'manual' } | null;
+  try {
+    auth = await (deps.getToken ?? ((manual) => getMelhorEnvioAccessToken(manual)))(config.token);
+  } catch {
+    throw new MelhorEnvioError('UNAUTHORIZED', 'Credencial do Melhor Envio indisponível.');
+  }
+  if (!auth) throw new MelhorEnvioError('NOT_CONFIGURED', 'Cotação do Melhor Envio não configurada.');
+
+  try {
+    return await callCalculate(config, auth.token, payload, deps);
+  } catch (err) {
+    // 401 com token OAuth: renova UMA vez e repete (token revogado/expirado antes da hora).
+    if (!(err instanceof MelhorEnvioError && err.code === 'UNAUTHORIZED' && auth.source === 'oauth')) throw err;
+    let fresh: string;
+    try {
+      fresh = await (deps.refreshToken ?? ((failed) => refreshMelhorEnvioToken({ failedAccessToken: failed })))(auth.token);
+    } catch {
+      throw new MelhorEnvioError('UNAUTHORIZED', 'Token do Melhor Envio inválido ou sem permissão.');
+    }
+    return callCalculate(config, fresh, payload, deps);
+  }
+}
+
+async function callCalculate(
+  config: MelhorEnvioConfig,
+  token: string,
+  payload: unknown,
+  deps: QuoteDeps,
+): Promise<QuotedOption[]> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
   // O timeout cobre a requisição INTEIRA (headers + leitura do corpo).
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? config.timeoutMs);
@@ -257,7 +292,7 @@ async function requestQuote(
       res = await fetchImpl(`${config.baseUrl}/api/v2/me/shipment/calculate`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${config.token}`,
+          Authorization: `Bearer ${token}`,
           Accept: 'application/json',
           'Content-Type': 'application/json',
           'User-Agent': config.userAgent,

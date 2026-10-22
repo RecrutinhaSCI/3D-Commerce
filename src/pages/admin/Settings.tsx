@@ -14,6 +14,7 @@ import { useAdminDataStore } from '@/store/useAdminDataStore';
 import type { InstagramItemContent, StoreSettings, TrustItemContent, YoutubeVideoItem } from '@/types';
 import { apiAssetUrl } from '@/services/api';
 import { useSEO } from '@/utils/seo';
+import { MelhorEnvioCard } from '@/components/admin/MelhorEnvioCard';
 
 const schema = z.object({
   name: z.string().min(2),
@@ -211,6 +212,9 @@ export default function Settings() {
           <Button type="submit" size="lg"><Save className="h-4 w-4" /> Salvar identidade e contato</Button>
         </div>
       </form>
+
+      {/* Integração de frete (OAuth do Melhor Envio) — status e conexão. */}
+      <MelhorEnvioCard />
 
       {/* ---------------- Conteúdo editável (R17) ---------------- */}
       <div className="space-y-5">
