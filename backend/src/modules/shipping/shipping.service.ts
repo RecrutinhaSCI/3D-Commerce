@@ -1,3 +1,4 @@
+import { env } from '../../config/env';
 import { Prisma, ShippingMethod, type Product } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { decimalToNumber } from '../../utils/decimal';
@@ -6,6 +7,7 @@ import { assertCartPurchasable, effectivePrice } from '../cart/cart.service';
 import { couponsService } from '../coupons/coupons.service';
 import {
   isMelhorEnvioConfigured,
+  melhorEnvioConfig,
   MelhorEnvioError,
   normalizeCep,
   quoteMelhorEnvio,
@@ -177,6 +179,78 @@ export function toQuoteItems(lines: CartLine[]): { items: QuoteItem[]; subtotal:
   return { items, subtotal: decimalToNumber(subtotal) ?? 0 };
 }
 
+
+type QuoteParams = { cep: string; items: QuoteItem[]; subtotal: number; couponFreeShipping: boolean };
+
+// Contrato exato da main enquanto a homologação estiver isolada.
+function legacyOptions(subtotal: number, threshold: number, coupon: boolean): CartQuoteOption[] {
+  const pac = coupon || (threshold > 0 && subtotal >= threshold) ? 0 : PAC_BASE;
+  const prices = { PAC: pac, SEDEX: coupon ? 0 : round2(pac + SEDEX_EXTRA), PICKUP: 0 };
+  return fixedOptions().map(o => ({ ...o, price: prices[o.method], basePrice: prices[o.method] }));
+}
+
+async function calculateQuote(params: QuoteParams, sandbox: boolean): Promise<CartQuote> {
+  const threshold = await freeShippingThreshold();
+  const eligible = isFreeEligible(params.subtotal, threshold, params.couponFreeShipping);
+  const base = { freeShippingThreshold: threshold, freeShippingApplied: eligible };
+
+  if (!sandbox && env.MELHOR_ENVIO_HOMOLOGATION_ONLY !== 'false') {
+    return { status: 'fixed', message: null, retryable: false, ...base, options: legacyOptions(params.subtotal, threshold, params.couponFreeShipping) };
+  }
+  // Desligado de propósito → tabela fixa (comportamento legado).
+  if (sandbox && !isMelhorEnvioConfigured()) throw new HttpError(503, 'INTEGRATION_NOT_CONFIGURED', 'Sandbox não configurado.');
+  if (!isMelhorEnvioConfigured()) {
+    return { status: 'fixed', message: null, retryable: false, ...base, options: applyFreeShipping(fixedOptions(), eligible) };
+  }
+
+  const cep = normalizeCep(params.cep);
+  if (!cep) throw HttpError.badRequest('CEP inválido.');
+
+  const unavailable = (message: string, retryable: boolean): CartQuote => ({
+    status: 'unavailable',
+    message,
+    retryable,
+    ...base,
+    options: [pickupOption()],
+  });
+
+  try {
+    const quoted = await quoteMelhorEnvio(cep, params.items);
+    if (quoted.length === 0) {
+      console.warn(`[shipping] Melhor Envio sem PAC/Sedex para o CEP ${cep.slice(0, 5)}*** — só retirada.`);
+      return unavailable(MESSAGES.noService, false);
+    }
+    const options: CartQuoteOption[] = quoted.map((q) => ({
+      method: q.method,
+      label: LABELS[q.method].label,
+      deadline: deadlineText(q.deadlineDays),
+      deadlineDays: q.deadlineDays,
+      price: q.price,
+      basePrice: q.price,
+      carrier: q.carrier,
+      serviceId: q.serviceId,
+      serviceName: q.serviceName,
+      source: 'melhor_envio',
+    }));
+    options.push(pickupOption());
+    return { status: 'ok', message: null, retryable: false, ...base, options: applyFreeShipping(options, eligible) };
+  } catch (err) {
+    if (!(err instanceof MelhorEnvioError)) throw err;
+    if (err.code === 'INVALID_CEP') throw HttpError.badRequest('CEP inválido.');
+    // OAuth configurado mas ainda NÃO conectado e sem token manual: é o
+    // mesmo que "desligado de propósito" → tabela fixa (legado).
+    if (sandbox && err.code === 'NOT_CONFIGURED') throw new HttpError(503, 'INTEGRATION_NOT_CONFIGURED', 'Conecte o Sandbox primeiro.');
+    if (err.code === 'NOT_CONFIGURED') {
+      return { status: 'fixed', message: null, retryable: false, ...base, options: applyFreeShipping(fixedOptions(), eligible) };
+    }
+    // Motivo técnico SÓ no log (sem token/dados): o cliente recebe `unavailable`.
+    const extra = err.code === 'MISSING_PRODUCT_DATA' ? ` (${err.productIds.length} produto(s) sem peso/medidas: ${err.productIds.join(', ')})` : '';
+    console.warn(`[shipping] cotação Melhor Envio indisponível: ${err.code}${extra} — só retirada.`);
+    if (err.code === 'MISSING_PRODUCT_DATA') return unavailable(MESSAGES.missingData, false);
+    return unavailable(MESSAGES.temporary, true);
+  }
+}
+
 export const shippingService = {
   /**
    * Tabela fixa para um subtotal (rota pública legada `GET /public/shipping/options`).
@@ -184,7 +258,10 @@ export const shippingService = {
    */
   async getShippingOptions(subtotal: number, couponFreeShipping = false): Promise<ShippingOption[]> {
     const threshold = await freeShippingThreshold();
-    return applyFreeShipping(fixedOptions(), isFreeEligible(subtotal, threshold, couponFreeShipping)).map(
+    const options = env.MELHOR_ENVIO_HOMOLOGATION_ONLY !== 'false'
+      ? legacyOptions(subtotal, threshold, couponFreeShipping)
+      : applyFreeShipping(fixedOptions(), isFreeEligible(subtotal, threshold, couponFreeShipping));
+    return options.map(
       ({ method, label, deadline, price }) => ({ method, label, deadline, price }),
     );
   },
@@ -198,66 +275,16 @@ export const shippingService = {
    * cotação e pela criação do pedido — por isso não lê nada do cliente além do
    * CEP de destino e do benefício de cupom já resolvido no servidor.
    */
-  async quoteForItems(params: {
-    cep: string;
-    items: QuoteItem[];
-    subtotal: number;
-    couponFreeShipping: boolean;
-  }): Promise<CartQuote> {
-    const threshold = await freeShippingThreshold();
-    const eligible = isFreeEligible(params.subtotal, threshold, params.couponFreeShipping);
-    const base = { freeShippingThreshold: threshold, freeShippingApplied: eligible };
+  async quoteForItems(params: QuoteParams): Promise<CartQuote> {
+    return calculateQuote(params, false);
+  },
 
-    // Desligado de propósito → tabela fixa (comportamento legado).
-    if (!isMelhorEnvioConfigured()) {
-      return { status: 'fixed', message: null, retryable: false, ...base, options: applyFreeShipping(fixedOptions(), eligible) };
+  // Somente a rota admin usa esta entrada; nunca aceita seleção via checkout.
+  async quoteSandboxForItems(params: QuoteParams): Promise<CartQuote> {
+    if (env.MELHOR_ENVIO_HOMOLOGATION_ONLY !== 'true' || melhorEnvioConfig().environment !== 'sandbox') {
+      throw new HttpError(404, 'NOT_FOUND', 'Recurso indisponível.');
     }
-
-    const cep = normalizeCep(params.cep);
-    if (!cep) throw HttpError.badRequest('CEP inválido.');
-
-    const unavailable = (message: string, retryable: boolean): CartQuote => ({
-      status: 'unavailable',
-      message,
-      retryable,
-      ...base,
-      options: [pickupOption()],
-    });
-
-    try {
-      const quoted = await quoteMelhorEnvio(cep, params.items);
-      if (quoted.length === 0) {
-        console.warn(`[shipping] Melhor Envio sem PAC/Sedex para o CEP ${cep.slice(0, 5)}*** — só retirada.`);
-        return unavailable(MESSAGES.noService, false);
-      }
-      const options: CartQuoteOption[] = quoted.map((q) => ({
-        method: q.method,
-        label: LABELS[q.method].label,
-        deadline: deadlineText(q.deadlineDays),
-        deadlineDays: q.deadlineDays,
-        price: q.price,
-        basePrice: q.price,
-        carrier: q.carrier,
-        serviceId: q.serviceId,
-        serviceName: q.serviceName,
-        source: 'melhor_envio',
-      }));
-      options.push(pickupOption());
-      return { status: 'ok', message: null, retryable: false, ...base, options: applyFreeShipping(options, eligible) };
-    } catch (err) {
-      if (!(err instanceof MelhorEnvioError)) throw err;
-      if (err.code === 'INVALID_CEP') throw HttpError.badRequest('CEP inválido.');
-      // OAuth configurado mas ainda NÃO conectado e sem token manual: é o
-      // mesmo que "desligado de propósito" → tabela fixa (legado).
-      if (err.code === 'NOT_CONFIGURED') {
-        return { status: 'fixed', message: null, retryable: false, ...base, options: applyFreeShipping(fixedOptions(), eligible) };
-      }
-      // Motivo técnico SÓ no log (sem token/dados): o cliente recebe `unavailable`.
-      const extra = err.code === 'MISSING_PRODUCT_DATA' ? ` (${err.productIds.length} produto(s) sem peso/medidas: ${err.productIds.join(', ')})` : '';
-      console.warn(`[shipping] cotação Melhor Envio indisponível: ${err.code}${extra} — só retirada.`);
-      if (err.code === 'MISSING_PRODUCT_DATA') return unavailable(MESSAGES.missingData, false);
-      return unavailable(MESSAGES.temporary, true);
-    }
+    return calculateQuote(params, true);
   },
 
   /**

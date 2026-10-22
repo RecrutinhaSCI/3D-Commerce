@@ -51,6 +51,7 @@ vi.mock('./melhorEnvio', async (orig) => {
   return { ...real, isMelhorEnvioConfigured: () => meState.configured, quoteMelhorEnvio };
 });
 
+const { env } = await import('../../config/env');
 const { shippingService, applyFreeShipping } = await import('./shipping.service');
 const { MelhorEnvioError } = await import('./melhorEnvio');
 
@@ -60,6 +61,7 @@ const QUOTED = [
 ];
 
 beforeEach(() => {
+  env.MELHOR_ENVIO_HOMOLOGATION_ONLY = 'false';
   db.cart = { items: [{ quantity: 1, product: product() }] };
   db.threshold = 299;
   meState.configured = true;

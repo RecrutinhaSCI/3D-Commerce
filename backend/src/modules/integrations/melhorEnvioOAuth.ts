@@ -451,6 +451,7 @@ export async function getMelhorEnvioOAuthStatus(manualTokenConfigured: boolean, 
   const cfg = cfgOf(deps);
   const cred = cfg.enabled ? await findCredential(cfg.environment) : null;
   return {
+    homologationOnly: env.MELHOR_ENVIO_HOMOLOGATION_ONLY !== 'false',
     oauthConfigured: cfg.enabled,
     environment: cfg.environment,
     connected: Boolean(cred && !cred.needsReconnect),

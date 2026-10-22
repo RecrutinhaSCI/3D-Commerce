@@ -8,6 +8,7 @@ import { adminMiddleware } from '../../middlewares/adminMiddleware';
 import { integrationAuthorizeRateLimiter, integrationCallbackRateLimiter } from '../../middlewares/rateLimiters';
 import { resolveMelhorEnvioConfig } from '../shipping/melhorEnvioConfig';
 import {
+  refreshMelhorEnvioToken,
   createAuthorizationUrl,
   getMelhorEnvioOAuthStatus,
   handleOAuthCallback,
@@ -79,5 +80,20 @@ integrationsRouter.get(
       target.searchParams.set('motivo', CALLBACK_REASONS[result.reason] ?? 'falha');
     }
     return res.redirect(302, target.toString());
+  }),
+);
+
+// Renovação real, somente na homologação Sandbox; nunca devolve tokens.
+integrationsRouter.post('/admin/integrations/melhor-envio/sandbox/refresh',
+  authMiddleware, adminMiddleware, integrationAuthorizeRateLimiter,
+  asyncHandler(async (_req, res) => {
+    const cfg = resolveMelhorEnvioConfig(env);
+    if (env.MELHOR_ENVIO_HOMOLOGATION_ONLY !== 'true' || cfg.environment !== 'sandbox') {
+      throw new HttpError(404, 'NOT_FOUND', 'Recurso indisponível.');
+    }
+    try { await refreshMelhorEnvioToken({ force: true }); }
+    catch { throw new HttpError(503, 'SANDBOX_REFRESH_FAILED', 'Não foi possível renovar a conexão Sandbox.'); }
+    res.set('Cache-Control', 'no-store');
+    return ok(res, await getMelhorEnvioOAuthStatus(Boolean(cfg.token)));
   }),
 );

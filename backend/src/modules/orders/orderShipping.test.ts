@@ -60,7 +60,7 @@ const tx = {
 const prismaMock = {
   cart: { findUnique: vi.fn(async () => db.cart) },
   siteSettings: { findUnique: vi.fn(async () => ({ freeShippingThreshold: new Prisma.Decimal(db.threshold) })) },
-  user: { findFirst: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, email: `${where.id}@t.test`, role: 'CUSTOMER' })) },
+  user: { findFirst: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, email: `${where.id}@t.test`, role: where.id === 'admin-isolation' ? 'ADMIN' : 'CUSTOMER' })) },
   order: { findFirst: vi.fn(async () => db.storedOrder) },
   $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
 };
@@ -154,6 +154,7 @@ async function postQuote(body: unknown, user: string | null = 'u1') {
 }
 
 beforeEach(() => {
+  env.MELHOR_ENVIO_HOMOLOGATION_ONLY = 'false';
   setMelhorEnvio(true);
   clearQuoteCache();
   mePricesByCep = { [CEP_A]: { pac: 23.5, sedex: 41.3 }, [CEP_B]: { pac: 58.2, sedex: 97.4 } };
@@ -381,5 +382,62 @@ describe('pedidos antigos', () => {
       shippingValue: 24.9, shippingMethod: 'PAC', shippingServiceId: null, shippingServiceName: null,
       shippingCarrier: null, shippingDeadlineDays: null, shippingQuoteSource: null,
     });
+  });
+});
+
+
+describe('homologação isolada — HTTP e pedido, sem Sandbox para clientes', () => {
+  beforeEach(() => { env.MELHOR_ENVIO_HOMOLOGATION_ONLY = 'true'; });
+  const sample = { productId: 'simulation-only', quantity: 1, unitPrice: 100, weight: 1, width: 20, height: 10, depth: 20 };
+  async function sandboxQuote(user: string | null, body: unknown = { cep: CEP_A, items: [sample] }) {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (user) headers.Authorization = 'Bearer ' + signAuthToken({ sub: user, email: user+'@t.test', role: user === 'admin-isolation' ? 'ADMIN' : 'CUSTOMER' });
+    return realFetch(baseUrl+'/api/admin/integrations/melhor-envio/sandbox/quote', { method: 'POST', headers, body: JSON.stringify(body) });
+  }
+  it('cliente com produto sem medidas recebe tabela fixa, mesmo tentando forjar o contexto', async () => {
+    db.cart!.items[0].product = product({ weight: null, width: null, height: null, depth: null });
+    const r = await postQuote({ cep: CEP_A, sandbox: true, sandboxAdmin: true, items: [sample] }, 'public-isolation');
+    expect(r.status).toBe(200);
+    expect(r.json.data.status).toBe('fixed');
+    expect(r.json.data.options.map((o: any) => [o.method, o.price])).toEqual([['PAC',24.9],['SEDEX',42.9],['PICKUP',0]]);
+    expect(meFetch).not.toHaveBeenCalled();
+  });
+  it.each([[100,false,24.9,42.9],[400,false,0,18],[100,true,0,0]])('GET público preserva preços da main: subtotal %s cupom %s', async (subtotal,coupon,pac,sedex) => {
+    const r = await realFetch(baseUrl+'/api/public/shipping/options?subtotal='+subtotal+'&freeShipping='+coupon);
+    const q = (await r.json()).data;
+    expect(q.options.map((o: any) => o.price)).toEqual([pac,sedex,0]);
+    expect(meFetch).not.toHaveBeenCalled();
+  });
+  it('pedido público sem medidas continua com Sedex legado e cupom grátis', async () => {
+    db.cart!.items[0].product = product({ weight: null });
+    resolveForOrder.mockResolvedValue({ coupon:{id:'coupon1',code:'FREE',usageLimit:null,discountType:'FREE_SHIPPING'},discountAmount:0,freeShipping:true });
+    await ordersService.createFromCart('u1',orderInput({shippingMethod:'SEDEX',couponCode:'FREE'}));
+    expect(num(savedData().shippingValue)).toBe(0);
+    expect(savedData().shippingQuoteSource).toBe('fixed');
+    expect(meFetch).not.toHaveBeenCalled();
+  });
+  it('simulação requer login e ADMIN; cliente não dispara chamada externa', async () => {
+    expect((await sandboxQuote(null)).status).toBe(401);
+    expect((await sandboxQuote('customer-isolation')).status).toBe(403);
+    expect(meFetch).not.toHaveBeenCalled();
+  });
+  it('admin cota Sandbox e aplica PAC grátis/Sedex diferença sem gravar pedido ou tocar no carrinho', async () => {
+    const cartReads = prismaMock.cart.findUnique.mock.calls.length;
+    const r = await sandboxQuote('admin-isolation',{cep:CEP_A,items:[sample],couponFreeShipping:true});
+    expect(r.status).toBe(200);
+    const q = (await r.json()).data;
+    expect(q.status).toBe('ok');
+    expect(q.options.map((o:any)=>[o.method,o.price])).toEqual([['PAC',0],['SEDEX',17.8],['PICKUP',0]]);
+    expect(meFetch).toHaveBeenCalledTimes(1);
+    expect(orderCreate).not.toHaveBeenCalled();
+    expect(prismaMock.cart.findUnique.mock.calls.length).toBe(cartReads);
+  });
+  it('rota de simulação fecha fora de Sandbox e fora do modo isolado', async () => {
+    env.MELHOR_ENVIO_BASE_URL='https://melhorenvio.com.br';
+    expect((await sandboxQuote('admin-isolation')).status).toBe(404);
+    env.MELHOR_ENVIO_BASE_URL='https://sandbox.melhorenvio.com.br';
+    env.MELHOR_ENVIO_HOMOLOGATION_ONLY='false';
+    expect((await sandboxQuote('admin-isolation')).status).toBe(404);
+    expect(meFetch).not.toHaveBeenCalled();
   });
 });

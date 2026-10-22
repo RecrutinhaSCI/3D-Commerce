@@ -17,6 +17,18 @@ Loja: Bento Goncalves/RS, envia pra todo o Brasil.
 
 ---
 
+## Isolamento temporário de homologação
+
+- MELHOR_ENVIO_HOMOLOGATION_ONLY=true é o padrão seguro. Mantém GET público, cotação do carrinho e cálculo do pedido na tabela exata da main: PAC 24,90; Sedex 42,90; acima do limite PAC zero/Sedex 18; cupom FREE_SHIPPING zera ambos. Produtos sem medidas continuam compráveis. A configuração OAuth não ativa o frete público.
+- POST /api/admin/integrations/melhor-envio/sandbox/quote exige autenticação ADMIN, rate limit, modo isolado e host Sandbox. Aceita apenas um pacote de simulação validado em memória; não grava produto, carrinho ou pedido. Reutiliza o cálculo/erros do serviço da feature e sua regra nova de PAC grátis/Sedex diferença.
+- POST /api/admin/integrations/melhor-envio/sandbox/refresh permite comprovar a renovação real somente nesse modo, sem devolver tokens. Status retorna apenas metadados e a indicação de isolamento. Callback continua público com state de uso único.
+- Card admin oferece simulação com CEP, cupom, limite e ausência de peso, além de renovação. Usar frontend da branch/preview para homologar; não é necessário substituir o frontend público.
+- Somente após medidas reais, homologação e decisão de ativação de produção, definir MELHOR_ENVIO_HOMOLOGATION_ONLY=false. Isso também desativa as rotas de simulação. Não ativar frete Sandbox no checkout público.
+- Rollback de código: redeploy do commit b216f28740be7ba5ba6f6f51396f8e0b440a1073 no Render; manter migrations aditivas. Deploy por SHA preserva branch main e o Render informa que desliga Auto-Deploy para evitar substituição acidental. Restauração de Auto-Deploy é uma decisão operacional posterior.
+- Isolamento verificado por HTTP com middleware real: anônimo 401, cliente 403, produção/mode off 404; requisições comuns/forjadas e pedidos sem medidas não chamam Melhor Envio; preços e cupom legado preservados. Gates após mudança: 312 testes aprovados, 11 ignorados, typecheck/build backend e typecheck/build frontend aprovados. Implantação e homologação real ainda pendentes.
+
+---
+
 ## Auditoria de preparação para produção — 22/10/2026
 
 - Branch auditada: feat/frete-melhor-envio. OAuth implementado em 9c92d70, com escopo shipping-calculate, tokens cifrados, state de uso único e refresh automático. As recomendações do spike abaixo são históricas; OAuth já não é uma etapa futura.

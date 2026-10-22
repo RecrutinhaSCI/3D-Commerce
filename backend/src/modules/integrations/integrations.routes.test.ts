@@ -192,3 +192,17 @@ describe('montagem no apiRouter real (ordem dos routers)', () => {
     }
   }, 30_000);
 });
+
+
+describe('renovação de homologação — proteção', () => {
+  it('exige ADMIN e bloqueia produção/modo público antes de renovar', async () => {
+    const endpoint = base+'/api/admin/integrations/melhor-envio/sandbox/refresh';
+    expect((await realFetch(endpoint,{method:'POST'})).status).toBe(401);
+    expect((await realFetch(endpoint,{method:'POST',headers:bearer('cliente-refresh')})).status).toBe(403);
+    env.MELHOR_ENVIO_HOMOLOGATION_ONLY='false';
+    expect((await realFetch(endpoint,{method:'POST',headers:bearer('admin-refresh')})).status).toBe(404);
+    env.MELHOR_ENVIO_HOMOLOGATION_ONLY='true';
+    env.MELHOR_ENVIO_BASE_URL='https://melhorenvio.com.br';
+    expect((await realFetch(endpoint,{method:'POST',headers:bearer('admin-refresh')})).status).toBe(404);
+  });
+});

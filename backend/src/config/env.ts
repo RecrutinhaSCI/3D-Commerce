@@ -92,6 +92,8 @@ const envSchema = z.object({
   // e lidas CRUAS: a validação fica em `resolveMelhorEnvioConfig`, que nunca
   // derruba o boot — valor inválido desliga a cotação e gera aviso.
   // O token nunca vai ao frontend nem aparece em log.
+  // Seguro por padrão: OAuth/simulações separados do checkout público.
+  MELHOR_ENVIO_HOMOLOGATION_ONLY: z.enum(['true', 'false']).default('true'),
   MELHOR_ENVIO_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
   // Sandbox por padrão; produção: https://melhorenvio.com.br
   MELHOR_ENVIO_BASE_URL: z.preprocess(emptyToUndefined, z.string().optional()),

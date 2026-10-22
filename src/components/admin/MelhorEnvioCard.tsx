@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Link2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import type { ApiShippingQuote } from '@/services/types';
 import { ApiError } from '@/services/api';
 import { integrationsService, type ApiMelhorEnvioStatus } from '@/services/integrationsService';
 
@@ -90,6 +91,7 @@ export function MelhorEnvioCard() {
         )}
       </div>
 
+      {status?.homologationOnly && <p className="text-sm">Homologação isolada: clientes continuam com o frete anterior.</p>}
       {loading ? (
         <p className="text-sm text-ink-mute">Carregando status…</p>
       ) : !status ? (
@@ -115,7 +117,7 @@ export function MelhorEnvioCard() {
           {status.needsReconnect && (
             <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
               O Melhor Envio recusou a renovação do acesso. Clique em <b>Reconectar</b> para autorizar de novo
-              {status.usingManualToken ? ' (enquanto isso, a cotação usa o token manual).' : ' — até lá o checkout oferece só retirada na loja.'}
+              {status.homologationOnly ? ' — o frete público permanece inalterado.' : status.usingManualToken ? ' (enquanto isso, a cotação usa o token manual).' : ' — até lá o checkout oferece só retirada na loja.'}
             </p>
           )}
           {!status.connected && !status.needsReconnect && status.usingManualToken && (
@@ -129,6 +131,36 @@ export function MelhorEnvioCard() {
           </div>
         </>
       )}
+      {status?.environment === 'sandbox' && status.homologationOnly && <SandboxChecks onRefresh={load} />}
     </div>
   );
+}
+
+function SandboxChecks({ onRefresh }: { onRefresh: () => Promise<void> }) {
+  const [cep, setCep] = useState('01310100');
+  const [free, setFree] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const [above, setAbove] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [quote, setQuote] = useState<ApiShippingQuote | null>(null);
+  const [error, setError] = useState('');
+  async function run(refresh = false) {
+    setBusy(true); setQuote(null); setError('');
+    try {
+      if (refresh) { await integrationsService.sandboxRefresh(); await onRefresh(); toast.success('Conexão Sandbox renovada.'); }
+      else setQuote(await integrationsService.sandboxQuote(cep, free, missing, above));
+    } catch (e) { setError(e instanceof ApiError ? e.message : 'Falha na simulação.'); }
+    finally { setBusy(false); }
+  }
+  return <section className="space-y-3 border-t border-ink-line pt-4" aria-label="Simulação Sandbox">
+    <h3 className="font-semibold">Simulação Sandbox</h3>
+    <p className="text-sm">Pacote de teste de 1 kg e 20 × 10 × 20 cm. Nenhum produto ou pedido será criado.</p>
+    <label className="block">CEP de destino <input className="input" value={cep} onChange={e => { setCep(e.target.value); setQuote(null); }} /></label>
+    <label className="block"><input type="checkbox" checked={free} onChange={e => {setFree(e.target.checked);setQuote(null);}} /> Cupom de frete grátis</label>
+    <label className="block"><input type="checkbox" checked={above} onChange={e => {setAbove(e.target.checked);setQuote(null);}} /> Valor acima do limite de frete grátis</label>
+    <label className="block"><input type="checkbox" checked={missing} onChange={e => {setMissing(e.target.checked);setQuote(null);}} /> Simular produto sem peso</label>
+    <div className="flex gap-2"><Button type="button" disabled={busy} onClick={() => void run()}>Cotar no Sandbox</Button><Button type="button" disabled={busy} variant="secondary" onClick={() => void run(true)}>Renovar conexão Sandbox</Button></div>
+    {error && <p role="alert">{error}</p>}
+    {quote && <div role="status"><p>{quote.status} {quote.message}</p><ul>{quote.options.map(o => <li key={o.method}>{o.label}: R$ {o.price.toFixed(2)} — {o.deadline}</li>)}</ul></div>}
+  </section>;
 }
