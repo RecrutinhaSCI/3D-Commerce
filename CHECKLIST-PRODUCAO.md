@@ -1,54 +1,66 @@
-# Checklist para produção — 3DCommerce
+# Checklist de produção — 3DCommerce
 
-Plano para deixar a loja pronta para vender de verdade (Vercel front + Render back + Neon + Mercado Pago).
-Baseado na auditoria de 06/10/2026. Configuração das contas do cliente: [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md).
+Estado da loja em produção (Vercel front + Render back + Neon + Vercel Blob + Mercado Pago Orders API).
+Revisado em 21/10/2026 contra o código da `main`. Configuração das contas: [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md) · deploy: [CHECKLIST-DEPLOY.md](CHECKLIST-DEPLOY.md).
 
-## Etapa 1 — Antes de qualquer venda
+---
 
-- [x] Uploads no **Vercel Blob** (produto, banner, logo, depoimento, orçamento) — código pronto; falta criar o Blob Store na Vercel e copiar o `BLOB_READ_WRITE_TOKEN` para o Render
-- [x] **Meus pedidos** buscando `/api/me/orders` (hoje fica vazio ao recarregar)
-- [x] **Desconto Pix** aplicado no backend (% do admin sobre os produtos, frete fora)
-- [x] **Preço** recalculado na criação do pedido e total exibido vindo da API
-- [x] **Frete** calculado no backend + modalidade (PAC/Sedex/retirada) salva no pedido
-- [x] Remover o texto "Ambiente de teste (sandbox)" da tela de sucesso
-- [x] Migration de backfill: `stock_applied = true` nos pedidos antigos (`20261006120000_checkout_hardening`)
-- [x] Imagens antigas (`/uploads/...`, perdidas no disco efêmero do servidor): script `npm run uploads:migrate` (migra para o Blob ou remove do banco; aviso no `check:config`) + placeholder na loja para imagem que não carrega
-- [ ] ⏳ **Você:** rodar `npm run uploads:migrate` em produção e reenviar pelo admin as imagens sem arquivo (Etapa 5 do [prompt de deploy](docs/PROMPT-DEPLOY-MAIN.md))
-- [ ] ⏳ **Você:** aplicar as migrations no **Neon** (branch de backup antes) — até 8 pendentes (confira com `prisma migrate status`), comandos na seção 4 do CONFIGURAR-CLIENTE.md
-- [ ] ⏳ **Você:** criar o Blob Store na Vercel e cadastrar no **Render** `BLOB_READ_WRITE_TOKEN`, `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `CRON_SECRET` e `SMTP_*` (antes do merge)
-- [ ] ⏳ **Você:** GitHub → Actions secrets `CRON_SECRET` e `BACKEND_URL` (cron diário)
+## Implementado (código na `main`)
 
-## Etapa 2 — Operação da loja
+**Vendas e pagamento**
+- [x] Checkout transparente Mercado Pago (Orders API): cartão, Pix e boleto
+- [x] Webhook assinado (evento *Order*) + reconciliação pelo cron e por `POST /api/admin/payments/reconcile`
+- [x] Estorno/cancelamento pelo admin com reposição de estoque e cupom
+- [x] Troca de forma de pagamento cancela a cobrança anterior; "Pagar agora" em Meus pedidos (`/pagar/:orderId`)
+- [x] Preço, desconto Pix e frete recalculados no backend; total exibido vem da API
+- [x] Estoque baixa só no pagamento aprovado; pedido sem estoque recebe `[REVISAR ESTOQUE]`
+- [x] Expiração de pedidos não pagos (48h; boleto 96h) via GitHub Actions
+- [x] Cupons (percentual, valor, frete grátis)
 
-- [x] Estorno / cancelamento pelo admin via API do Mercado Pago (com reposição de estoque)
-- [x] Cancelar a cobrança anterior ao trocar de forma de pagamento (evitar cobrança dupla)
-- [x] Expirar pedidos não pagos (48h; boleto 96h) via **GitHub Actions** (`.github/workflows/expire-orders.yml`) e devolver o cupom — falta `CRON_SECRET` no Render e os secrets no GitHub
-- [x] Botão "Pagar agora" em Meus pedidos (página /pagar/:orderId: cartão, novo Pix ou boleto)
-- [x] Timeout no envio de e-mail (SMTP)
-- [x] Admin marcar pedido como pago → baixa estoque; validar transições de status
-- [x] Corrigir criação de produto no admin (id real, campos de peso/dimensões)
-- [x] Admin de pedidos: mostrar "[REVISAR ESTOQUE]", erros reais, atualizar lista
+**Catálogo e conteúdo**
+- [x] Produtos com mídias (imagens/vídeo) no Vercel Blob, compressão no admin, importação/exportação Excel, exclusão em lote
+- [x] Categorias com imagem, flags de menu/home e categoria sazonal com cores próprias
+- [x] Hero em carrossel, banners, depoimentos, Instagram, YouTube, newsletter, bloco de confiança — tudo editável
+- [x] Blog com conteúdo e capas editáveis no admin (Markdown)
+- [x] Catálogo e imagens refeitos após a migração para o Blob (imagens antigas perdidas **não** são mais pendência)
 
-## Etapa 3 — Conversão e qualidade
+**Clientes**
+- [x] Cadastro com verificação de e-mail, consentimento LGPD (data + versão), recuperação de senha
+- [x] Carrinho de visitante, login com retorno (`?redirect=`), endereço salvo, CEP automático, CPF validado
+- [x] Meus pedidos com rastreio (SeuRastreio)
+- [x] E-mails transacionais (cadastro, pedido, pagamento, envio, senha) com timeout
 
-- [x] Carrinho de visitante + login voltando para a página de origem (`?redirect=`)
-- [x] Endereço do cliente salvo no backend (GET/PUT /api/me/address)
-- [x] CEP automático (ViaCEP) e CPF validado e salvo no pedido (migration `20261006150000_order_customer_cpf`)
-- [x] Consentimento LGPD gravado (data + versão) + reenvio do e-mail de verificação
-- [x] Dashboard com faturamento real (só pedidos pagos, mês corrente e últimos 7 dias)
-- [x] Parcelamento consistente (produto, "Como comprar" e Brick) — `site.installments`
-- [x] Newsletter e formulário de contato salvando no backend (+ página Mensagens no admin)
-- [x] SEO: sitemap dinâmico com produtos, imagem de compartilhamento PNG, analytics (GA4) só com consentimento
+**Admin e operação**
+- [x] Painel protegido (JWT + papel ADMIN), dashboard com faturamento real
+- [x] Pedidos: status com transições validadas, rastreio, estorno; Orçamentos, Mensagens, Scripts de WhatsApp
+- [x] `npm run check:config` e avisos de configuração no boot do backend
 
-## Go-live
+**SEO**
+- [x] Metas por página, Open Graph (PNG), `robots.txt`, sitemap estático + dinâmico da API, GA4 só com consentimento
 
-- [ ] `npm run check:config` sem erros
-- [ ] Compra real via Pix testada e estornada
-- [ ] Merge da branch `api-mercado-pago` na `main`
+---
 
-## Depois do merge da `api-mercado-pago`
+## Conferência periódica (operação)
 
-- [ ] Merge da branch `feat/compressao-upload-admin` (fotos reduzidas automaticamente; imagem removida não volta; F5 na edição de produto; excluir todos em lotes)
-- [ ] **Neon:** aplicar a migration `20261008120000_hero_carousel` (`npx prisma migrate deploy`, backup antes) — só adiciona colunas
-- [ ] Merge da branch `feat/hero-carrossel` (hero alternando entre banners, tempo no admin em Banners, selos do hero gravados por banner)
-- [ ] No admin → Banners: revisar os selos dos banners Hero (os textos de exemplo "PLA Preto 1kg / Bambu Lab A1" não aparecem mais quando há banner cadastrado)
+- [ ] `npm run check:config` com as envs de produção → 0 erros
+- [ ] Mercado Pago com credenciais de **produção** e webhook apontando para o domínio de produção do backend
+- [ ] Secrets do GitHub (`CRON_SECRET`, `BACKEND_URL`) válidos — conferir a última execução em **Actions → Expirar pedidos não pagos**
+- [ ] Novas migrations aplicadas no Neon (`npx prisma migrate status`) **antes** de publicar código que depende delas
+- [ ] Compra real de baixo valor testada e estornada após mudanças no checkout
+
+---
+
+## Pendências reais / limitações conhecidas
+
+| Item | Situação |
+|---|---|
+| **Frete por CEP** | Não implementado. Regra fixa PAC/Sedex/retirada. Estudo: [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md) |
+| **NF-e** | Não existe emissão automática; a nota é emitida fora do sistema |
+| **Render Free** | Dorme após ~15 min: primeiro webhook/cron pode atrasar (o Mercado Pago reenvia; o cron tenta 3x). Para movimento real, plano pago |
+| **SMTP no Render** | O plano Free bloqueia portas SMTP; com Google Workspace via SMTP é preciso plano pago, ou usar Brevo (API HTTPS) |
+| **Arquivos > 4 MB** | Limite de 4 MB por arquivo. STL grande no orçamento precisa ir pelo WhatsApp |
+| **Rate limit em memória** | Por instância; com várias instâncias fica mais frouxo (mover para Redis se houver abuso) |
+| **JWT em `localStorage`** | Aceitável para o MVP; cookies httpOnly seria endurecimento adicional |
+| **`VITE_SEURASTREIO_API_KEY`** | Vai para o bundle público; usar chave sem custo crítico ou mover a consulta para o backend |
+| **`npm audit` do front** | Alerta em `esbuild`/`vite` restrito ao dev server; corrigir exige upgrade com breaking changes |
+| **Módulo `pix-inter`** | Código Banco Inter/mock desligado (sem rotas). As tabelas `payments`/`payment_events` existem sem uso |

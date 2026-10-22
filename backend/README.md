@@ -1,22 +1,14 @@
 # 3D Commerce — Backend
 
-API REST do projeto 3D Commerce. Construída com **Express + TypeScript**, arquitetura modular por domínio.
+API REST do 3DCommerce: **Express 4 + TypeScript + Prisma 6 + PostgreSQL (Neon)**, arquitetura modular por domínio. Em produção roda no **Render** (Web Service, Root Directory `backend/`).
 
-> **Estado atual: R1 — Fundação.**
-> Só `GET /health` responde com dados. Os módulos estão estruturados mas vazios e serão preenchidos a partir da R2.
+Visão geral do projeto e estado atual: [../README.md](../README.md).
 
 ---
 
 ## Stack
 
-- Node 18+
-- Express 4
-- TypeScript 5
-- Zod (validação de env e payloads)
-- dotenv, cors
-- Prisma (R2)
-- bcrypt + JSON Web Token (R3)
-- Multer (R4/R6)
+Node 18+ · Express 4 · TypeScript 5 · Prisma 6 · Zod (env e payloads) · JWT + bcryptjs · Multer + **@vercel/blob** (uploads) · **mercadopago** (Orders API via `fetch`) · nodemailer (SMTP) / Brevo (API HTTP) · helmet · express-rate-limit · Vitest.
 
 ---
 
@@ -24,40 +16,24 @@ API REST do projeto 3D Commerce. Construída com **Express + TypeScript**, arqui
 
 ```
 backend/
-├── prisma/                  # Schema + migrations (R2)
-├── uploads/                 # Multer destino local
-│   ├── products/
-│   └── quotes/
-├── src/
-│   ├── app.ts               # Factory do Express
-│   ├── server.ts            # Bootstrap + graceful shutdown
-│   ├── config/
-│   │   └── env.ts           # Validação de env via Zod
-│   ├── lib/                 # Clientes (prisma, etc) — R2
-│   ├── middlewares/
-│   │   ├── errorHandler.ts
-│   │   ├── notFoundHandler.ts
-│   │   └── requestLogger.ts
-│   ├── modules/
-│   │   ├── auth/            # R3
-│   │   ├── users/           # R3+
-│   │   ├── categories/      # R4
-│   │   ├── products/        # R4
-│   │   ├── cart/            # R5
-│   │   ├── orders/          # R5
-│   │   ├── quotes/          # R6
-│   │   ├── settings/        # R8
-│   │   └── dashboard/       # R7
-│   ├── routes/
-│   │   ├── index.ts         # Router agregador
-│   │   └── health.routes.ts
-│   └── utils/
-│       ├── apiResponse.ts   # ok / created / fail / noContent
-│       ├── asyncHandler.ts
-│       └── httpError.ts
-├── package.json
-├── tsconfig.json
-└── .env.example
+├── prisma/
+│   ├── schema.prisma
+│   ├── migrations/          # 22 migrations (aplicar com migrate deploy em produção)
+│   └── seed.ts              # admin + configurações (não sobrescreve dados existentes)
+├── public/uploads/seed/     # SVGs do catálogo demo (só com SEED_DEMO_CATALOG=1)
+├── uploads/                 # destino de upload em DESENVOLVIMENTO (sem Blob)
+├── scripts/                 # check-config, check-blob, auditoria/migração de uploads, backup, smoke tests
+└── src/
+    ├── app.ts / server.ts   # Express + bootstrap (avisos de config de produção no boot)
+    ├── config/env.ts        # validação de env (Zod) — falha no boot se faltar algo essencial
+    ├── lib/                 # prisma, upload (Blob/disco), email + templates
+    ├── middlewares/         # auth, admin, rate limit, erros, logger
+    ├── modules/             # auth, users, categories, products, cart, orders, payments,
+    │                        # shipping, quotes, contact, seo, settings (inclui blog),
+    │                        # banners, testimonials, coupons, scripts, dashboard
+    │                        # pix-inter: DESLIGADO (sem rotas montadas) — ver o README do módulo
+    ├── routes/              # router raiz, /health, diagnóstico
+    └── utils/
 ```
 
 ---
@@ -66,21 +42,15 @@ backend/
 
 ```bash
 cd backend
-cp .env.example .env
-npm install
-npm run dev
+cp .env.example .env     # DATABASE_URL, JWT_SECRET e credenciais de TESTE do Mercado Pago
+npm install              # postinstall roda prisma generate
+npx prisma migrate dev   # só em banco de desenvolvimento
+npm run prisma:seed
+npm run dev              # http://localhost:3333
 ```
-
-Servidor sobe em `http://localhost:3333`.
-
-Teste o health check:
 
 ```bash
 curl http://localhost:3333/health
-# { "status": "ok", "service": "3D Commerce API" }
-
-curl http://localhost:3333/api/health
-# envelope completo com uptime + timestamp
 ```
 
 ---
@@ -89,55 +59,62 @@ curl http://localhost:3333/api/health
 
 | Script | O que faz |
 |---|---|
-| `npm run dev` | tsx watch — reinicia ao salvar |
-| `npm run build` | `tsc` para `dist/` |
-| `npm start` | `node dist/server.js` (precisa `build` antes) |
+| `npm run dev` | `tsx watch src/server.ts` |
+| `npm run build` | `tsc` → `dist/` |
+| `npm start` | `node dist/server.js` |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run prisma:generate` | placeholder até R2 |
-| `npm run prisma:migrate` | placeholder até R2 |
-| `npm run prisma:studio` | placeholder até R2 |
-| `npm run prisma:seed` | placeholder até R2 |
+| `npm test` | Vitest (testes de integração com banco exigem `TEST_DATABASE_URL`, ver abaixo) |
+| `npm run prisma:generate` / `prisma:studio` / `prisma:format` | Comandos do Prisma |
+| `npm run prisma:migrate` | `prisma migrate dev` — **só desenvolvimento** |
+| `npm run db:deploy` | `prisma migrate deploy` — produção |
+| `npm run prisma:seed` | Seed (admin + configurações; catálogo demo só com `SEED_DEMO_CATALOG=1`) |
+| `npm run check:config` | Confere banco, admin, loja, Mercado Pago, Blob, e-mail e cron (não altera nada) |
+| `npm run check:blob` | Envia e apaga um arquivo de teste no Vercel Blob (diagnóstico do token) |
+| `npm run uploads:audit` | Auditoria só leitura das URLs de imagem/arquivo do banco (origem e status HTTP) |
+| `npm run uploads:migrate` | Ferramenta de manutenção: migra URLs antigas `/uploads/...` para o Blob (simulação por padrão; `-- --apply`) |
+
+> `db:setup` e `prisma:migrate:reset` existem para desenvolvimento. **Nunca** rode `migrate dev`, `migrate reset` ou `db push` contra o Neon de produção.
+
+---
+
+## Integrações
+
+- **Mercado Pago — Orders API:** `POST /api/orders/:orderId/payments`, `GET /api/orders/:orderId/payments/status`, webhook `POST /api/payments/webhook` (evento *Order*, assinatura `x-signature` obrigatória em produção), cancelamento/estorno `POST /api/admin/orders/:orderId/cancel`, reconciliação `POST /api/admin/payments/reconcile`. Referência: [../docs/integracoes/mercadopago-orders-api.md](../docs/integracoes/mercadopago-orders-api.md).
+- **Uploads:** com `BLOB_READ_WRITE_TOKEN`, tudo vai para o Vercel Blob e o banco guarda a URL absoluta (`https://...blob.vercel-storage.com`). Sem token: disco em desenvolvimento, **upload recusado em produção**. Limite de 4 MB por imagem.
+- **E-mail:** `BREVO_API_KEY` tem prioridade; senão SMTP (`SMTP_*`). Sem nenhum, o envio só é logado.
+- **Frete:** tabela fixa em `modules/shipping/shipping.service.ts` (PAC R$ 24,90; Sedex = PAC + R$ 18; retirada grátis; frete grátis acima do valor configurado no admin).
+- **Cron:** `GET /api/cron/expire-orders` com `Authorization: Bearer <CRON_SECRET>`, chamado diariamente pelo GitHub Actions. O `backend/vercel.json` (Vercel Cron) não é usado no Render.
 
 ---
 
 ## Padrão de resposta
 
-**Sucesso**
-
 ```json
-{ "ok": true, "data": { /* ... */ } }
+{ "ok": true, "data": { } }
+{ "ok": false, "error": { "code": "VALIDATION_ERROR", "message": "...", "details": { } } }
 ```
 
-**Erro**
+Lance erros via `HttpError`; `ZodError`, JSON inválido e payload grande são tratados pelo middleware global.
 
-```json
-{ "ok": false, "error": { "code": "VALIDATION_ERROR", "message": "...", "details": { /* opcional */ } } }
-```
-
-Lance erros via `HttpError` para serem tratados pelo middleware global. `ZodError`, JSON inválido e payload grande já são reconhecidos automaticamente.
+---
 
 ## Backup, limpeza do catálogo e testes de integração
 
 ```bash
-# Backup completo dos DADOS (todas as tabelas) → ../backups/*.json + *.sql
-# (sem pg_dump; o .sql restaura com `psql "$DATABASE_URL" -f arquivo.sql`
-#  num banco migrado e vazio). A pasta backups/ está no .gitignore.
+# Backup dos DADOS (todas as tabelas) → ../backups/*.json + *.sql (pasta no .gitignore)
 node scripts/db-backup.cjs
 
-# Limpeza do catálogo (produtos + mídias). Preserva admin, settings, categorias,
-# banners, cupons e migrations. Aborta se houver produto ativo, carrinho ou
-# pedido vinculado. SÓ rode depois de um backup validado.
+# Limpeza do catálogo (produtos + mídias). Aborta se houver produto ativo,
+# carrinho ou pedido vinculado. SÓ rode depois de um backup validado.
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/cleanup-catalog.sql
 
-# Testes de integração com Postgres real (export → .xlsx → import, exclusão,
-# active). Exige banco LOCAL com nome terminando em "_test" — ele é zerado.
+# Testes de integração com Postgres real. Exige banco LOCAL com nome
+# terminando em "_test" — ele é zerado.
 TEST_DATABASE_URL=postgresql://postgres:senha@localhost:55432/app_test npx vitest run
 ```
 
 Regras do catálogo:
 
-- **Excluir** apaga o produto e as fotos de vez (pedidos antigos guardam nome/SKU/preço).
-  Para só tirar da loja, desmarque **Ativo** — inativos somem da loja mas continuam no admin e no export.
-- **Importar Excel**: célula vazia ou coluna ausente = não altera; `0` e `não` são valores.
-  Linhas sem diferença real caem em "Sem alteração" e não reescrevem nada.
-- O seed **não** cria produtos demo (use `SEED_DEMO_CATALOG=1`) e **não** troca a senha de um admin existente.
+- **Excluir** apaga o produto e as fotos (pedidos antigos guardam nome/SKU/preço). Para só tirar da loja, desmarque **Ativo**.
+- **Importar Excel**: célula vazia ou coluna ausente = não altera; `0` e `não` são valores. Linhas sem diferença caem em "Sem alteração".
+- O seed **não** troca a senha de um admin existente.

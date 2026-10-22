@@ -1,9 +1,11 @@
 # Mercado Pago — Orders API (`/v1/orders`) — Notas de Referência
 
-Spike T9 · projeto 3D-Commerce · React/Vite (front) + Express/Prisma (back) · ambiente: **sandbox**.
+Spike T9 · projeto 3D-Commerce · React/Vite (front) + Express/Prisma (back).
+
+> **Status (out/2026):** integração **em produção** — implementada em `backend/src/modules/payments/payments.service.ts` e `src/components/checkout/PaymentBrick.tsx`. Este arquivo é referência técnica do spike; em caso de divergência, o código vence. Configuração das credenciais: [CONFIGURAR-CLIENTE.md](../../CONFIGURAR-CLIENTE.md#32-mercado-pago-conta-do-cliente).
 Modelo: **Checkout Transparente via Orders API** + **Payment Brick** no front. Métodos: cartão, Pix, boleto.
 
-> **Por que migrar:** a MP marcou a Payments API (`/v1/payments`) como "será descontinuada em breve" e recomenda a **Orders API** (`/v1/orders`) para novas integrações de Checkout Transparente. A Payments API antiga está em `mercadopago-payments-api.md` (T1) — só referência histórica; o código usa a Orders API desde a T10.
+> **Por que migrar:** a MP marcou a Payments API (`/v1/payments`) como "será descontinuada em breve" e recomenda a **Orders API** (`/v1/orders`) para novas integrações de Checkout Transparente. As notas da Payments API antiga (T1) foram removidas; o código usa a Orders API desde a T10.
 >
 > Fontes oficiais no fim. **SDK/doc mudam rápido — reconfira antes de fixar.** Onde a doc está ambígua, marquei com [DUVIDA].
 
