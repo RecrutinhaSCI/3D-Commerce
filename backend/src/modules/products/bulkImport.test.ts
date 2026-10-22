@@ -372,4 +372,36 @@ describe('productsService.bulkImport (R19-A)', () => {
     });
     expect(db.deletionCalls).toBe(0);
   });
+
+  it('MEDIDAS — planilha antiga cria SEM medidas, mas avisa (missingPhysical); nada é inventado', async () => {
+    const report = await productsService.bulkImport({
+      rows: [
+        { line: 2, name: 'Sem Medidas', sku: 'SM-1', categoryName: 'Filamentos', price: 50 },
+        { line: 3, name: 'Com Medidas', sku: 'CM-1', categoryName: 'Filamentos', price: 50, weight: 1.25, width: 21, height: 8, depth: 21 },
+        { line: 4, name: 'Parcial', sku: 'PA-1', categoryName: 'Filamentos', price: 50, weight: 1 },
+      ],
+    });
+    expect(report.summary).toMatchObject({ created: 3, missingPhysical: 2 });
+    expect(report.missingPhysical.map((m) => m.line)).toEqual([2, 4]);
+    const createCalls = mockPrisma.product.create.mock.calls.map((c: any[]) => c[0].data);
+    const semMedidas = createCalls.find((d: any) => d.sku === 'SM-1');
+    expect(semMedidas.weight).toBeUndefined();
+    expect(semMedidas.width).toBeUndefined();
+    expect(createCalls.find((d: any) => d.sku === 'CM-1')).toMatchObject({ weight: 1.25, width: 21, height: 8, depth: 21 });
+  });
+
+  it('MEDIDAS — reimportar as mesmas medidas não gera alteração; medida nova atualiza só ela', async () => {
+    db.products.push({
+      id: 'prod_m', name: 'Com Medidas', slug: 'com-medidas', sku: 'CM-2', price: 50, promotionalPrice: null,
+      stock: 1, shortDescription: null, description: null, brand: null, material: null, active: true,
+      featured: false, categoryId: 'cat_fila', weight: 1.25, width: 21, height: 8, depth: 21,
+    } as FakeProduct);
+    const same = await productsService.bulkImport({ rows: [{ line: 2, sku: 'CM-2', weight: 1.25, width: 21, height: 8, depth: 21 }] });
+    expect(same.summary).toMatchObject({ updated: 0, unchanged: 1 });
+
+    mockPrisma.product.update.mockClear();
+    const changed = await productsService.bulkImport({ rows: [{ line: 2, sku: 'CM-2', weight: 1.3 }] });
+    expect(changed.summary).toMatchObject({ updated: 1 });
+    expect(mockPrisma.product.update.mock.calls[0][0].data).toEqual({ weight: 1.3 });
+  });
 });

@@ -13,6 +13,7 @@ import { ProductImportModal } from '@/components/admin/ProductImportModal';
 import { ApiError } from '@/services/api';
 import { productService } from '@/services/productService';
 import { editOnDoubleClick } from '@/utils/rowEdit';
+import { hasAllPhysical } from '@/shared/physicalLimits';
 
 /** R19-E — dd/MM/aaaa HH:mm em pt-BR; `null` → traço. */
 function formatDateTime(iso: string | null | undefined): string {
@@ -52,10 +53,12 @@ export default function Products() {
     else next.delete(key);
     setParams(next, { replace: true });
   }
-  const hasFilters = ['busca', 'categoria', 'marca', 'status', 'filter'].some((k) => params.has(k));
+  // Sem peso/medidas completos = não cota frete pelo Melhor Envio.
+  const missingOnly = params.get('medidas') === 'faltando';
+  const hasFilters = ['busca', 'categoria', 'marca', 'status', 'filter', 'medidas'].some((k) => params.has(k));
   function clearFilters() {
     const next = new URLSearchParams(params);
-    ['busca', 'categoria', 'marca', 'status', 'filter'].forEach((k) => next.delete(k));
+    ['busca', 'categoria', 'marca', 'status', 'filter', 'medidas'].forEach((k) => next.delete(k));
     setParams(next, { replace: true });
   }
   // Marcas REAIS do catálogo (nada fixo), com contagem, em ordem alfabética.
@@ -80,6 +83,8 @@ export default function Products() {
     setLowStockOnly(params.get('filter') === 'low-stock');
   }, [params]);
 
+  const missingCount = useMemo(() => products.filter((p) => !hasAllPhysical(p)).length, [products]);
+
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (cat !== 'all' && !p.categoryIds.includes(cat)) return false;
@@ -87,10 +92,11 @@ export default function Products() {
       if (status === 'active' && !p.active) return false;
       if (status === 'inactive' && p.active) return false;
       if (lowStockOnly && p.stock > 5) return false;
+      if (missingOnly && hasAllPhysical(p)) return false;
       if (q && !`${p.name} ${p.brand}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
     });
-  }, [products, cat, brand, q, lowStockOnly, status]);
+  }, [products, cat, brand, q, lowStockOnly, missingOnly, status]);
 
   // R19-E — Ao trocar filtros, remove da seleção quaisquer IDs que saíram
   // da lista visível — evita deletar produto que o admin não vê mais.
@@ -277,6 +283,18 @@ export default function Products() {
           <option value="ativos">Somente ativos</option>
           <option value="inativos">Somente inativos</option>
         </Select>
+        <label
+          className="flex items-center gap-2 text-xs text-ink-soft"
+          title="Produtos sem peso e medidas da embalagem não têm frete calculado por CEP"
+        >
+          <input
+            type="checkbox"
+            checked={missingOnly}
+            onChange={(e) => setFilter('medidas', e.target.checked ? 'faltando' : '')}
+            className="accent-ink"
+          />
+          Sem medidas ({missingCount})
+        </label>
         {hasFilters && (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
             Limpar filtros
@@ -368,6 +386,14 @@ export default function Products() {
                         className="mt-0.5 inline-block whitespace-nowrap rounded-full bg-ink/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-mute"
                       >
                         Inativo
+                      </span>
+                    )}
+                    {!hasAllPhysical(p) && (
+                      <span
+                        title="Sem peso/medidas da embalagem — não tem frete calculado por CEP. Edite o produto para completar."
+                        className="ml-1 mt-0.5 inline-block whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                      >
+                        Sem medidas
                       </span>
                     )}
                   </div>

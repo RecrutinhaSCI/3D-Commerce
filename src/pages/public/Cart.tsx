@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
-import { useCartStore, getCartDiscount, getCartShipping, getCartSubtotal } from '@/store/useCartStore';
+import { useCartStore, getCartDiscount, getCartSubtotal } from '@/store/useCartStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -23,8 +23,8 @@ export default function Cart() {
 
   const subtotal = getCartSubtotal(items, products);
   const discount = getCartDiscount(subtotal, appliedCoupon);
-  const shipping = getCartShipping(subtotal, appliedCoupon, freeShippingThreshold);
-  const total = subtotal - discount + shipping;
+  // Frete NÃO entra aqui: o valor real (CEP + medidas) é cotado no checkout.
+  const total = subtotal - discount;
 
   // Revalida o cupom sempre que o subtotal mudar (remove se ficar inválido).
   useEffect(() => {
@@ -144,10 +144,10 @@ export default function Cart() {
             ) : null}
             <div className="flex justify-between">
               <dt className="text-ink-mute">Frete</dt>
-              <dd>{shipping === 0 ? 'Grátis' : formatBRL(shipping)}</dd>
+              <dd className="text-ink-mute">Calculado no checkout</dd>
             </div>
             <div className="mt-2 flex justify-between border-t border-ink-line pt-3 text-lg font-bold">
-              <dt>Total</dt>
+              <dt>Total <span className="text-xs font-normal text-ink-mute">(sem frete)</span></dt>
               <dd>{formatBRL(total)}</dd>
             </div>
           </dl>

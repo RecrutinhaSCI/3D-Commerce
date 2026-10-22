@@ -1,4 +1,5 @@
 import { Prisma, ProductPurchaseMode, type Category, type Product, type ProductImage } from '@prisma/client';
+import { PHYSICAL_FIELDS, roundPhysical } from '../../shared/physicalLimits';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { generateUniqueSlug, slugify } from '../../utils/slug';
@@ -112,15 +113,11 @@ const includeRelations = {
   images: true,
 } as const;
 
-/** Peso (kg, 3 casas) e dimensões (cm, 2 casas) — base da cotação de frete. */
-export const PHYSICAL_FIELDS = ['weight', 'width', 'height', 'depth'] as const;
-type PhysicalField = (typeof PHYSICAL_FIELDS)[number];
-
-/** Arredonda à precisão da coluna (`Decimal(10,3)` peso, `Decimal(10,2)` medidas). */
-export function roundPhysical(key: PhysicalField, value: number | undefined): number | undefined {
-  if (value === undefined) return undefined;
-  return Number(value.toFixed(key === 'weight' ? 3 : 2));
-}
+/** Produto sem alguma das 4 medidas (nula ou ≤ 0) — não cota frete real. */
+const missingPhysicalOr: Prisma.ProductWhereInput[] = PHYSICAL_FIELDS.flatMap((f) => [
+  { [f]: null },
+  { [f]: { lte: 0 } },
+]);
 
 /**
  * R19-C — Validação SINTÁTICA de URL de imagem para o bulk import.
@@ -371,6 +368,7 @@ export const productsService = {
     if (query.featured !== undefined) where.featured = query.featured;
     if (query.purchaseMode) where.purchaseMode = query.purchaseMode;
     if (query.lowStock) where.stock = { lte: 5 };
+    if (query.missingPhysical) where.OR = missingPhysicalOr;
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
       where.price = {};
       if (query.minPrice !== undefined) (where.price as Prisma.DecimalFilter).gte = query.minPrice;
@@ -631,6 +629,8 @@ export const productsService = {
     const unchanged: ReportItem[] = [];
     const skipped: ReportItem[] = [];
     const conflicts: ReportItem[] = [];
+    // AVISO (não bloqueia): produtos CRIADOS sem peso/medidas completos.
+    const missingPhysical: ReportItem[] = [];
 
     // ---------------------------------------------------------------------
     // Fase 0 — Pré-scan: detectar identificadores duplicados dentro do
@@ -859,8 +859,10 @@ export const productsService = {
           // Peso/dimensões: compara já arredondado à precisão da coluna, para
           // reimportar a mesma planilha não contar como alteração.
           for (const key of PHYSICAL_FIELDS) {
-            const value = roundPhysical(key, row[key]);
-            if (value !== undefined && value !== decimalToNumber(existing[key])) patch[key] = value;
+            const v = row[key];
+            if (v === undefined) continue;
+            const value = roundPhysical(key, v);
+            if (value !== decimalToNumber(existing[key])) patch[key] = value;
           }
           if (resolvedCategoryId && resolvedCategoryId !== existing.categoryId) {
             patch.category = { connect: { id: resolvedCategoryId } };
@@ -1058,10 +1060,13 @@ export const productsService = {
         // R19-B — brand e material independentes na criação também.
         if (row.brand !== undefined) createData.brand = row.brand;
         if (row.material !== undefined) createData.material = row.material;
+        // Planilha antiga pode criar SEM medidas (compatibilidade) — nunca
+        // inventamos valores; o produto entra no aviso `missingPhysical`.
         for (const key of PHYSICAL_FIELDS) {
-          const value = roundPhysical(key, row[key]);
-          if (value !== undefined) createData[key] = value;
+          const v = row[key];
+          if (v !== undefined) createData[key] = roundPhysical(key, v);
         }
+        const lacksPhysical = PHYSICAL_FIELDS.some((key) => row[key] === undefined);
 
         // R19-C — Create + associação da imagem principal numa única transação.
         const result = await prisma.$transaction(async (tx) => {
@@ -1082,6 +1087,15 @@ export const productsService = {
           sku: row.sku,
           imageUpdated: result.imageUpdated || undefined,
         });
+        if (lacksPhysical) {
+          missingPhysical.push({
+            line: row.line,
+            id: result.saved.id,
+            name: result.saved.name,
+            sku: row.sku,
+            reason: 'Criado sem peso/medidas — não terá frete por CEP até completar o cadastro.',
+          });
+        }
       } catch (err) {
         // Um erro isolado não deve derrubar as demais linhas.
         const msg = err instanceof HttpError ? err.message : (err as Error)?.message ?? 'Erro inesperado.';
@@ -1096,6 +1110,7 @@ export const productsService = {
       skipped,
       conflicts,
       legacyImagesIgnored,
+      missingPhysical,
       summary: {
         total: input.rows.length,
         created: created.length,
@@ -1104,6 +1119,7 @@ export const productsService = {
         skipped: skipped.length,
         conflicts: conflicts.length,
         legacyImagesIgnored: legacyImagesIgnored.length,
+        missingPhysical: missingPhysical.length,
       },
     };
   },

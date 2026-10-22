@@ -142,16 +142,47 @@ describe('quoteMelhorEnvio', () => {
     });
     await expect(quoteMelhorEnvio('01310100', [item()], { fetchImpl: offline })).rejects.toMatchObject({ code: 'HTTP_ERROR' });
 
-    setEnv({ ...BASE_ENV, MELHOR_ENVIO_TIMEOUT_MS: 20 });
     const slow = vi.fn(
       (_url: string, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
         }),
     );
-    await expect(quoteMelhorEnvio('01310100', [item()], { fetchImpl: slow as unknown as typeof fetch })).rejects.toMatchObject({
-      code: 'TIMEOUT',
+    await expect(
+      quoteMelhorEnvio('01310100', [item()], { fetchImpl: slow as unknown as typeof fetch, timeoutMs: 20 }),
+    ).rejects.toMatchObject({ code: 'TIMEOUT' });
+  });
+
+  it('corpo lento depois dos headers também respeita o timeout', async () => {
+    const slowBody = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () => controller.error(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        },
+      });
+      return new Response(body, { status: 200 });
     });
+    await expect(
+      quoteMelhorEnvio('01310100', [item()], { fetchImpl: slowBody as unknown as typeof fetch, timeoutMs: 20 }),
+    ).rejects.toMatchObject({ code: 'TIMEOUT' });
+  });
+
+  it('chamadas simultâneas iguais fazem UMA ida à API', async () => {
+    const fetchImpl = okFetch();
+    const [a, b] = await Promise.all([
+      quoteMelhorEnvio('01310100', [item()], { fetchImpl }),
+      quoteMelhorEnvio('01310-100', [item()], { fetchImpl }),
+    ]);
+    expect(a).toEqual(b);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('configuração inválida (CEP de origem) desliga a cotação sem chamar a API', async () => {
+    setEnv({ ...BASE_ENV, SHIPPING_ORIGIN_CEP: '9570000' });
+    expect(isMelhorEnvioConfigured()).toBe(false);
+    const fetchImpl = okFetch();
+    await expect(quoteMelhorEnvio('01310100', [item()], { fetchImpl })).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('usa o cache por 10 min para o mesmo CEP + carrinho', async () => {

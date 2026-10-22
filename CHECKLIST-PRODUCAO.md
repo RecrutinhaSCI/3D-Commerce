@@ -54,7 +54,7 @@ Revisado em 21/10/2026 contra o código da `main`. Configuração das contas: [C
 
 | Item | Situação |
 |---|---|
-| **Frete por CEP** | Não implementado. Regra fixa PAC/Sedex/retirada. Estudo: [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md) |
+| **Frete por CEP** | Implementado (Melhor Envio, só cotação). Para ligar: `MELHOR_ENVIO_*` + `SHIPPING_ORIGIN_CEP` no Render, migration `20261022150000_order_shipping_quote` aplicada e produtos com medidas. Ver [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md) |
 | **NF-e** | Não existe emissão automática; a nota é emitida fora do sistema |
 | **Render Free** | Dorme após ~15 min: primeiro webhook/cron pode atrasar (o Mercado Pago reenvia; o cron tenta 3x). Para movimento real, plano pago |
 | **SMTP no Render** | O plano Free bloqueia portas SMTP; com Google Workspace via SMTP é preciso plano pago, ou usar Brevo (API HTTPS) |

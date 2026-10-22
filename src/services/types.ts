@@ -23,10 +23,31 @@ export interface ApiShippingOption {
   price: number;
 }
 
-/** GET /api/public/shipping/options */
-export interface ApiShippingOptions {
-  options: ApiShippingOption[];
+/** Opção da cotação do carrinho (POST /api/shipping/quote). */
+export interface ApiShippingQuoteOption extends ApiShippingOption {
+  /** Preço antes do frete grátis (igual a `price` sem benefício). */
+  basePrice: number;
+  /** Prazo do serviço de entrega em dias úteis (só na cotação real). */
+  deadlineDays: number | null;
+  carrier: string | null;
+  serviceId: number | null;
+  serviceName: string;
+  source: 'melhor_envio' | 'fixed' | 'store';
+}
+
+/**
+ * POST /api/shipping/quote — cotação do carrinho do usuário logado.
+ *   ok          cotação real (Correios PAC/Sedex) + retirada;
+ *   fixed       Melhor Envio desligado → tabela fixa + retirada;
+ *   unavailable sem cotação agora → só retirada (`message` explica).
+ */
+export interface ApiShippingQuote {
+  status: 'ok' | 'fixed' | 'unavailable';
+  message: string | null;
+  retryable: boolean;
   freeShippingThreshold: number;
+  freeShippingApplied: boolean;
+  options: ApiShippingQuoteOption[];
 }
 export type ApiPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELED';
 /** Status bruto do pagamento no Mercado Pago (retornado pelo backend). */
@@ -251,6 +272,12 @@ export interface ApiOrder {
   shippingValue: number;
   /** Modalidade de entrega (null em pedidos antigos). */
   shippingMethod: ApiShippingMethod | null;
+  /** Detalhes da cotação usada (null/ausente em pedidos antigos). */
+  shippingServiceName?: string | null;
+  shippingCarrier?: string | null;
+  /** Prazo do serviço de entrega, em dias úteis. */
+  shippingDeadlineDays?: number | null;
+  shippingQuoteSource?: 'melhor_envio' | 'fixed' | 'store' | null;
   discountValue: number;
   /** Desconto da forma de pagamento (ex.: Pix), já abatido de `total`. */
   paymentDiscount: number;

@@ -55,4 +55,17 @@ describe('planilha — peso e dimensões', () => {
     expect(rows.map((r) => r.errors.length)).toEqual([1, 1, 1, 1]);
     expect(rows.every((r) => r.data.weight === undefined && r.data.width === undefined && r.data.height === undefined)).toBe(true);
   });
+
+  it('aceita o cabeçalho com unidade entre parênteses ("Peso (kg)")', () => {
+    const { rows } = parseWorkbook(workbookFrom([{ sku: 'PLA-1', 'Peso (kg)': 1.1, 'Largura (cm)': 20, 'Comprimento (cm)': 30 }]));
+    expect(rows[0].errors).toEqual([]);
+    expect(rows[0].data).toMatchObject({ weight: 1.1, width: 20, depth: 30 });
+  });
+
+  it('arredonda à precisão do banco e recusa valor que vira zero', () => {
+    const { rows } = parseWorkbook(workbookFrom([{ sku: 'A', largura_cm: 20.456, peso_kg: 1.23456 }, { sku: 'B', largura_cm: 0.004 }]));
+    expect(rows[0].data).toMatchObject({ width: 20.46, weight: 1.235 });
+    expect(rows[1].errors).toHaveLength(1);
+    expect(rows[1].data.width).toBeUndefined();
+  });
 });

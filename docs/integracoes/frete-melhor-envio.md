@@ -3,7 +3,15 @@
 Objetivo: substituir o frete fixo do checkout por cotacao real por CEP + peso/dimensoes.
 Loja: Bento Goncalves/RS, envia pra todo o Brasil.
 
-> **Status (21/10/2026):** cliente de cotação em `backend/src/modules/shipping/melhorEnvio.ts` (só Correios PAC/Sedex, serviços 1 e 2) e rota `POST /api/shipping/quote` (`{ cep, couponCode? }`, carrinho do usuário logado, fallback para a tabela fixa). Ainda **não ligado** ao checkout, e a criação do pedido ainda cobra pela tabela fixa. Variáveis: `MELHOR_ENVIO_*` e `SHIPPING_ORIGIN_CEP` em `backend/.env.example`.
+> **Status (22/10/2026) — implementado (só cotação; etiqueta e rastreio fora):**
+> - Cliente: `backend/src/modules/shipping/melhorEnvio.ts` (Correios PAC/Sedex, serviços 1 e 2; cache 10 min; timeout cobre a requisição inteira). Config: `melhorEnvioConfig.ts` — valor inválido desliga a cotação com aviso, nunca derruba o boot.
+> - Regra única: `shipping.service.ts` → `quoteForItems`, usada pela rota `POST /api/shipping/quote` (checkout, usuário logado) **e** por `ordersService.createFromCart`. O pedido cobra a mesma cotação, pelo CEP do endereço do pedido; `expectedShippingValue` do front é só conferência (diferença > R$ 0,01 → `409 SHIPPING_CHANGED` com as opções novas).
+> - Resposta pública: `status` `ok` (cotação real) · `fixed` (Melhor Envio desligado → tabela fixa) · `unavailable` (ligado mas sem cotação → só retirada, com mensagem e "tentar de novo"). Códigos internos só no log.
+> - Frete grátis (limite do admin ou cupom FREE_SHIPPING): PAC grátis; Sedex com desconto do valor do PAC da mesma cotação (paga só a diferença, nunca negativo).
+> - Prazo exibido = prazo do serviço de entrega (sem prazo de preparação).
+> - Pedido grava `shippingServiceId/Name`, `shippingCarrier`, `shippingDeadlineDays`, `shippingQuoteSource` (migration `20261022150000_order_shipping_quote`, colunas opcionais).
+> - Produtos: peso/medidas obrigatórios no cadastro (formulário/API), regra em `backend/src/shared/physicalLimits.ts`; planilha antiga ainda cria sem medidas, com aviso e filtro "Sem medidas" no admin.
+> - Melhorias futuras: teto de subsídio do frete grátis; prazo de preparação; etiqueta/rastreio pelo Melhor Envio.
 >
 > Fontes oficiais consultadas em 2026-09-15. Endpoints e campos podem mudar — reconfirmar na doc antes de codar.
 

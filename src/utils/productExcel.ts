@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { ApiProduct } from '@/services/types';
 import { normalizeMaterial } from './materials';
+import { PHYSICAL_LIMITS, physicalError, roundPhysical, type PhysicalField } from '../shared/physicalLimits';
 
 /**
  * Utilitários de Excel para produtos (R16).
@@ -70,6 +71,12 @@ const COLUMN_ALIASES: Record<string, string> = {
   profundidade: HEADERS.profundidade,
   comprimento: HEADERS.profundidade,
   comprimento_cm: HEADERS.profundidade,
+  // Com a unidade entre parênteses, como se escreve à mão: "Peso (kg)".
+  'peso_(kg)': HEADERS.peso,
+  'largura_(cm)': HEADERS.largura,
+  'altura_(cm)': HEADERS.altura,
+  'profundidade_(cm)': HEADERS.profundidade,
+  'comprimento_(cm)': HEADERS.profundidade,
 };
 
 /** URL da mídia principal exatamente como está no banco (menor position). */
@@ -481,24 +488,23 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
       else stock = stockRaw; // `0` explícito é preservado como número.
     }
 
-    // Peso/dimensões: opcionais; quando informados, > 0 e dentro de um limite
-    // plausível (evita "1250" digitado em gramas virar 1.250 kg).
-    const physical = (header: string, label: string, max: number): number | undefined => {
+    // Peso/dimensões: opcionais; quando informados, MESMA regra do backend e
+    // do formulário (shared/physicalLimits) — o limite evita "1250" digitado
+    // em gramas virar 1.250 kg. Texto inválido é erro, nunca vazio silencioso.
+    const physical = (header: string, field: PhysicalField): number | undefined => {
       const v = optNumber(row[header]);
-      if (v === null) {
-        errors.push(`${label} inválido.`);
+      if (v === undefined) return undefined;
+      const error = v === null ? `${PHYSICAL_LIMITS[field].label} inválido.` : physicalError(field, v);
+      if (error) {
+        errors.push(error);
         return undefined;
       }
-      if (v !== undefined && (v <= 0 || v > max)) {
-        errors.push(`${label} deve ser maior que zero e no máximo ${max}.`);
-        return undefined;
-      }
-      return v;
+      return roundPhysical(field, v as number);
     };
-    const weight = physical(HEADERS.peso, 'Peso (kg)', 100);
-    const width = physical(HEADERS.largura, 'Largura (cm)', 300);
-    const height = physical(HEADERS.altura, 'Altura (cm)', 300);
-    const depth = physical(HEADERS.profundidade, 'Profundidade (cm)', 300);
+    const weight = physical(HEADERS.peso, 'weight');
+    const width = physical(HEADERS.largura, 'width');
+    const height = physical(HEADERS.altura, 'height');
+    const depth = physical(HEADERS.profundidade, 'depth');
 
     // Booleanos.
     const active = optBool(row[HEADERS.ativo]);

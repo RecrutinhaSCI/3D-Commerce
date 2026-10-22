@@ -39,6 +39,10 @@ export const createOrderSchema = z.object({
     .default(ShippingMethod.PAC),
   // Mantido por compat, porém IGNORADO: o frete nunca vem do cliente.
   shippingValue: z.coerce.number().min(0).optional(),
+  // Valor de frete que o cliente VIU — só CONFERÊNCIA. Se o recalculado
+  // diferir mais de R$ 0,01, o pedido não é criado (409 SHIPPING_CHANGED).
+  // Nunca é usado como valor cobrado.
+  expectedShippingValue: z.coerce.number().min(0).max(100000).optional(),
   // Cupom (opcional). O DESCONTO é sempre recalculado no backend a partir do
   // cupom — o cliente não define o valor do desconto.
   couponCode: z

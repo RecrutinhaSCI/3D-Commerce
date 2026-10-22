@@ -16,7 +16,7 @@ Projeto desenvolvido pela **G-Rec Company**. Domínio oficial: **https://www.3dc
 | Uploads | **Vercel Blob** (público). O disco do Render é efêmero: em produção, sem `BLOB_READ_WRITE_TOKEN` o upload é recusado |
 | Pagamentos | **Mercado Pago — Orders API** (`/v1/orders`): cartão, Pix e boleto via Payment Brick, webhook assinado, estorno pelo admin |
 | E-mail | SMTP (em uso: **Google Workspace**) ou Brevo (API HTTP) — cadastro, pedido, pagamento, envio, senha |
-| Frete | **Tabela fixa** no backend: PAC, Sedex e retirada na loja (frete grátis acima do valor do admin). Sem cotação por CEP |
+| Frete | Cotação real por CEP (Correios PAC/Sedex via Melhor Envio) quando configurado; sem configuração, tabela fixa. Retirada na loja sempre disponível. Frete grátis acima do valor do admin (PAC grátis; Sedex paga a diferença) |
 | Cron | GitHub Actions diário (`.github/workflows/expire-orders.yml`) → expira pedidos não pagos e reconcilia pagamentos |
 | NF-e | **Não existe** emissão automática de nota fiscal |
 
@@ -117,7 +117,7 @@ Resumo: frontend na Vercel (raiz, `vercel.json` com rewrite de SPA), backend no 
 | [INSTRUCOES-ADMIN.md](INSTRUCOES-ADMIN.md) | Manual do painel administrativo |
 | [backend/README.md](backend/README.md) | Estrutura, scripts e rotinas do backend |
 | [docs/integracoes/mercadopago-orders-api.md](docs/integracoes/mercadopago-orders-api.md) | Referência técnica da integração Mercado Pago |
-| [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md) | Estudo para frete real por CEP (não implementado) |
+| [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md) | Frete por CEP (Melhor Envio): estado atual, regras e referência da API |
 
 ---
 

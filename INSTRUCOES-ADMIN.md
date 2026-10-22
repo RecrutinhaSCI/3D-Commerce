@@ -77,7 +77,7 @@ Guia rápido para operar a loja. Tudo o que você altera no painel é salvo no b
 
 ## O que o painel não faz
 
-- **Frete**: valores fixos de PAC/Sedex/retirada (sem cotação por CEP). O valor do frete grátis é configurável.
+- **Frete**: com o Melhor Envio configurado, PAC e Sedex são cotados por CEP usando o **peso e as medidas da embalagem** de cada produto (obrigatórios no cadastro). Produto sem medidas aparece com a etiqueta **Sem medidas** (filtro na lista de produtos) e, no carrinho, deixa só a retirada disponível. Frete grátis (valor configurável ou cupom): PAC grátis e, no Sedex, o cliente paga só a diferença. Sem Melhor Envio, valem os valores fixos de PAC/Sedex/retirada.
 - **Nota fiscal**: não há emissão automática de NF-e.
 
 ---

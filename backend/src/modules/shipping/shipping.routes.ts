@@ -21,7 +21,8 @@ const querySchema = z.object({
 });
 
 const quoteSchema = z.object({
-  cep: z.string().trim().min(8, 'CEP inválido.').max(9, 'CEP inválido.'),
+  // Formato validado no service (sempre 400 "CEP inválido.").
+  cep: z.string().trim().max(20, 'CEP inválido.'),
   couponCode: z.string().trim().max(40).optional().nullable(),
 });
 
@@ -43,8 +44,9 @@ shippingRouter.get(
  * Cotação para o carrinho do usuário logado (checkout).
  *   POST /api/shipping/quote  { cep, couponCode? }
  * Itens, preços e medidas vêm do CARRINHO no banco — nunca do cliente.
- * Responde sempre com opções (cotação real ou tabela fixa + retirada); o valor
- * cobrado continua sendo recalculado na criação do pedido.
+ * Resposta: { status: 'ok' | 'fixed' | 'unavailable', message, retryable,
+ * freeShippingThreshold, freeShippingApplied, options } — sem códigos internos.
+ * A criação do pedido recalcula com a MESMA regra (`quoteForItems`).
  */
 shippingRouter.post(
   '/shipping/quote',

@@ -1,15 +1,13 @@
 import { api } from './api';
-import type { ApiShippingOptions } from './types';
+import type { ApiShippingQuote } from './types';
 
 /**
- * Opções de entrega calculadas no backend (fonte única da regra de frete).
- * Só exibição — o valor cobrado é recalculado na criação do pedido.
+ * Frete calculado no backend (fonte única da regra). A cotação usa o carrinho
+ * do usuário logado no servidor + o CEP; a criação do pedido recalcula com a
+ * MESMA regra e recusa (409 SHIPPING_CHANGED) se o valor mudou.
  */
 export const shippingService = {
-  getOptions(subtotal: number, freeShipping = false) {
-    return api.get<ApiShippingOptions>('/api/public/shipping/options', {
-      anonymous: true,
-      query: { subtotal: Number(subtotal.toFixed(2)), freeShipping },
-    });
+  quote(cep: string, couponCode?: string | null) {
+    return api.post<ApiShippingQuote>('/api/shipping/quote', { cep, couponCode: couponCode ?? null });
   },
 };

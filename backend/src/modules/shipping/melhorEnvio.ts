@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ShippingMethod } from '@prisma/client';
 import { env } from '../../config/env';
+import { resolveMelhorEnvioConfig, type MelhorEnvioConfig } from './melhorEnvioConfig';
 
 /**
  * Melhor Envio — cliente de COTAÇÃO de frete (só cotação; etiqueta e rastreio
@@ -69,9 +70,14 @@ export class MelhorEnvioError extends Error {
   }
 }
 
-/** Cotação real ligada? Precisa do token e do CEP de origem. */
+/** Configuração resolvida (valores inválidos já desligam a cotação). */
+export function melhorEnvioConfig(): MelhorEnvioConfig {
+  return resolveMelhorEnvioConfig(env);
+}
+
+/** Cotação real ligada? Precisa de token, CEP de origem e URL válidos. */
 export function isMelhorEnvioConfigured(): boolean {
-  return Boolean(env.MELHOR_ENVIO_TOKEN && env.SHIPPING_ORIGIN_CEP);
+  return melhorEnvioConfig().enabled;
 }
 
 export function normalizeCep(raw: string): string | null {
@@ -87,12 +93,14 @@ const hasPhysicalData = (i: QuoteItem) =>
 // -----------------------------------------------------------------------------
 
 const cache = new Map<string, { expiresAt: number; options: QuotedOption[] }>();
+/** Cotações em andamento: chamadas simultâneas iguais compartilham a mesma ida à API. */
+const inFlight = new Map<string, Promise<QuotedOption[]>>();
 
-function cacheKey(toCep: string, items: QuoteItem[]): string {
+function cacheKey(originCep: string, toCep: string, items: QuoteItem[]): string {
   const normalized = [...items]
     .sort((a, b) => a.productId.localeCompare(b.productId))
     .map((i) => [i.productId, i.quantity, i.unitPrice, i.weight, i.width, i.height, i.depth].join(':'));
-  return createHash('sha256').update(`${env.SHIPPING_ORIGIN_CEP}|${toCep}|${normalized.join('|')}`).digest('hex');
+  return createHash('sha256').update(`${originCep}|${toCep}|${normalized.join('|')}`).digest('hex');
 }
 
 function cacheGet(key: string, now: number): QuotedOption[] | undefined {
@@ -117,6 +125,7 @@ function cacheSet(key: string, options: QuotedOption[], now: number) {
 /** Só para testes. */
 export function clearQuoteCache() {
   cache.clear();
+  inFlight.clear();
 }
 
 // -----------------------------------------------------------------------------
@@ -166,6 +175,8 @@ export function parseQuoteResponse(body: unknown): QuotedOption[] {
 export interface QuoteDeps {
   fetchImpl?: typeof fetch;
   now?: () => number;
+  /** Só para testes: sobrescreve o timeout da configuração. */
+  timeoutMs?: number;
 }
 
 /**
@@ -177,10 +188,10 @@ export async function quoteMelhorEnvio(
   items: QuoteItem[],
   deps: QuoteDeps = {},
 ): Promise<QuotedOption[]> {
-  const fetchImpl = deps.fetchImpl ?? fetch;
   const now = deps.now ?? Date.now;
+  const config = melhorEnvioConfig();
 
-  if (!isMelhorEnvioConfigured()) {
+  if (!config.enabled || !config.token || !config.originCep) {
     throw new MelhorEnvioError('NOT_CONFIGURED', 'Cotação do Melhor Envio não configurada.');
   }
   const toCep = normalizeCep(toCepRaw);
@@ -195,12 +206,33 @@ export async function quoteMelhorEnvio(
     );
   }
 
-  const key = cacheKey(toCep, items);
+  const key = cacheKey(config.originCep, toCep, items);
   const cached = cacheGet(key, now());
   if (cached) return cached;
 
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+
+  const request = requestQuote(config, toCep, items, deps)
+    .then((options) => {
+      // Só guarda cotação com resultado: CEP sem atendimento pode ser instabilidade.
+      if (options.length > 0) cacheSet(key, options, now());
+      return options;
+    })
+    .finally(() => inFlight.delete(key));
+  inFlight.set(key, request);
+  return request;
+}
+
+async function requestQuote(
+  config: MelhorEnvioConfig,
+  toCep: string,
+  items: QuoteItem[],
+  deps: QuoteDeps,
+): Promise<QuotedOption[]> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
   const payload = {
-    from: { postal_code: env.SHIPPING_ORIGIN_CEP },
+    from: { postal_code: config.originCep },
     to: { postal_code: toCep },
     products: items.map((i) => ({
       id: i.productId,
@@ -216,46 +248,48 @@ export async function quoteMelhorEnvio(
     services: Object.keys(CORREIOS_SERVICES).join(','),
   };
 
+  // O timeout cobre a requisição INTEIRA (headers + leitura do corpo).
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), env.MELHOR_ENVIO_TIMEOUT_MS);
-  let res: Response;
+  const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? config.timeoutMs);
   try {
-    res = await fetchImpl(`${env.MELHOR_ENVIO_BASE_URL.replace(/\/+$/, '')}/api/v2/me/shipment/calculate`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.MELHOR_ENVIO_TOKEN}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'User-Agent': env.MELHOR_ENVIO_USER_AGENT || '3DCommerce',
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if ((err as Error)?.name === 'AbortError') {
-      throw new MelhorEnvioError('TIMEOUT', 'O Melhor Envio demorou para responder.');
+    let res: Response;
+    try {
+      res = await fetchImpl(`${config.baseUrl}/api/v2/me/shipment/calculate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': config.userAgent,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (controller.signal.aborted || (err as Error)?.name === 'AbortError') {
+        throw new MelhorEnvioError('TIMEOUT', 'O Melhor Envio demorou para responder.');
+      }
+      throw new MelhorEnvioError('HTTP_ERROR', 'Não foi possível falar com o Melhor Envio.');
     }
-    throw new MelhorEnvioError('HTTP_ERROR', 'Não foi possível falar com o Melhor Envio.');
+
+    if (res.status === 401 || res.status === 403) {
+      throw new MelhorEnvioError('UNAUTHORIZED', 'Token do Melhor Envio inválido ou sem permissão.');
+    }
+    if (!res.ok) {
+      throw new MelhorEnvioError('HTTP_ERROR', `Melhor Envio respondeu ${res.status}.`);
+    }
+
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      if (controller.signal.aborted) {
+        throw new MelhorEnvioError('TIMEOUT', 'O Melhor Envio demorou para responder.');
+      }
+      throw new MelhorEnvioError('BAD_RESPONSE', 'Resposta inválida do Melhor Envio.');
+    }
+    return parseQuoteResponse(body);
   } finally {
     clearTimeout(timer);
   }
-
-  if (res.status === 401 || res.status === 403) {
-    throw new MelhorEnvioError('UNAUTHORIZED', 'Token do Melhor Envio inválido ou sem permissão.');
-  }
-  if (!res.ok) {
-    throw new MelhorEnvioError('HTTP_ERROR', `Melhor Envio respondeu ${res.status}.`);
-  }
-
-  let body: unknown;
-  try {
-    body = await res.json();
-  } catch {
-    throw new MelhorEnvioError('BAD_RESPONSE', 'Resposta inválida do Melhor Envio.');
-  }
-
-  const options = parseQuoteResponse(body);
-  // Só guarda cotação com resultado: CEP sem atendimento pode ser instabilidade.
-  if (options.length > 0) cacheSet(key, options, now());
-  return options;
 }
