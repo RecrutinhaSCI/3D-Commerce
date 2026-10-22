@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ProductPurchaseMode } from '@prisma/client';
+import { PHYSICAL_LIMITS, physicalError, roundPhysical, type PhysicalField } from '../../shared/physicalLimits';
 
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const skuRegex = /^[A-Za-z0-9._-]+$/;
@@ -10,6 +11,26 @@ const nullableNumber = () =>
     const n = typeof v === 'number' ? v : Number(v);
     return Number.isFinite(n) ? n : null;
   }).nullable().optional();
+
+/**
+ * Peso/medida da embalagem (regra única em shared/physicalLimits). Aceita
+ * número ou texto numérico (vírgula decimal ok); texto inválido é ERRO —
+ * nunca vira `null` em silêncio. Sai arredondado à precisão da coluna.
+ */
+const physicalValue = (field: PhysicalField) =>
+  z
+    .union([z.number(), z.string()], {
+      errorMap: () => ({ message: `${PHYSICAL_LIMITS[field].label} é obrigatório para calcular o frete.` }),
+    })
+    .transform((v, ctx) => {
+      const n = typeof v === 'number' ? v : v.trim() === '' ? NaN : Number(v.trim().replace(',', '.'));
+      const error = physicalError(field, n);
+      if (error) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+        return z.NEVER;
+      }
+      return roundPhysical(field, n);
+    });
 
 const positiveNumber = () =>
   z.union([z.number(), z.string()]).transform((v) => {
@@ -38,10 +59,12 @@ export const createProductSchema = z.object({
   stock: nonNegativeInt().optional(),
   active: z.boolean().optional(),
   featured: z.boolean().optional(),
-  weight: nullableNumber(),
-  width: nullableNumber(),
-  height: nullableNumber(),
-  depth: nullableNumber(),
+  // Peso (kg) e medidas (cm) da embalagem: OBRIGATÓRIOS na criação (base da
+  // cotação de frete). A planilha continua podendo criar sem — ver import.
+  weight: physicalValue('weight'),
+  width: physicalValue('width'),
+  height: physicalValue('height'),
+  depth: physicalValue('depth'),
   // R19-B — brand (fabricante) e material são independentes.
   brand: z.string().trim().max(80).optional().nullable(),
   material: z.string().trim().max(80).optional().nullable(),
@@ -51,6 +74,8 @@ export const createProductSchema = z.object({
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
+// Edição: tudo opcional — ausente preserva (produto antigo sem medidas segue
+// editável). Se vier, precisa ser válido; `null` não apaga medida.
 export const updateProductSchema = createProductSchema.partial();
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
@@ -80,6 +105,8 @@ export type FeaturedQuery = z.infer<typeof featuredQuerySchema>;
 export const adminListQuerySchema = publicListQuerySchema.extend({
   active: parseBool,
   lowStock: parseBool,
+  // Produtos sem peso/medidas completos (não cotam frete pelo Melhor Envio).
+  missingPhysical: parseBool,
   // R19-A: admin precisa listar o catálogo inteiro para operações em massa
   // (importar/exportar). O cap do público (100) fica só na parte pública.
   limit: z.coerce.number().int().min(1).max(500).default(20),
@@ -114,6 +141,12 @@ const importRowSchema = z.object({
   // R19-B — brand e material são independentes no bulk import também.
   brand: z.string().trim().max(80).optional(),
   material: z.string().trim().max(80).optional(),
+  // Peso (kg) e dimensões (cm) da embalagem — base da cotação de frete.
+  // Mesma regra do cadastro (shared/physicalLimits); ausente = preservar.
+  weight: physicalValue('weight').optional(),
+  width: physicalValue('width').optional(),
+  height: physicalValue('height').optional(),
+  depth: physicalValue('depth').optional(),
 
   // R19-C — URL da imagem principal. Validação sintática detalhada acontece
   // POR LINHA dentro do service (`isSafeImageUrl`), NÃO aqui, para que uma

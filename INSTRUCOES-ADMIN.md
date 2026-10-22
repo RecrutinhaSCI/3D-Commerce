@@ -1,205 +1,87 @@
 # Manual do Painel Administrativo — 3DCommerce
 
-Guia rápido para o cliente operar o painel.
+Guia rápido para operar a loja. Tudo o que você altera no painel é salvo no banco de dados e aparece no site imediatamente, em qualquer computador.
 
 ---
 
 ## Acesso
 
-URL: `https://[seu-dominio]/admin/login`
-
-**Credenciais demo:**
-
-```
-E-mail: admin@3dcommerce.com
-Senha:  3dcommerce2026
-```
-
-> ⚠️ Troque essa senha antes de colocar em produção. Veja a seção **Trocar senha** abaixo.
+- Endereço: **https://www.3dcommerce.com.br/admin/login**
+- Login: o e-mail e a senha de administrador entregues pela G-Rec (por canal seguro).
+- Esqueceu a senha? Use **Esqueci minha senha** em `/esqueci-senha` com o e-mail do admin — o link chega por e-mail.
 
 ---
 
-## Estrutura do painel
+## Seções do painel
 
 | Seção | Para que serve |
 |---|---|
-| **Dashboard** | Visão geral: pedidos, faturamento, produtos ativos, estoque baixo |
-| **Produtos** | Cadastrar, editar, ativar/desativar produtos |
-| **Categorias** | Criar e organizar categorias da loja |
-| **Categoria Sazonal** | Campanha especial editável (Copa, Black Friday, Natal, etc.) |
-| **Banners** | Banners da home e seções |
-| **Pedidos** | Lista de pedidos, mudança de status |
-| **Configurações** | Dados da loja, contato, frete, Pix |
+| **Dashboard** | Faturamento (só pedidos pagos), pedidos recentes, estoque baixo |
+| **Produtos** | Cadastrar, editar, ativar/desativar, fotos e vídeo, importar/exportar Excel |
+| **Categorias** | Criar categorias, imagem do card na home, mostrar no menu / na home |
+| **Categoria Sazonal** | Campanha especial (Black Friday, Natal...): banner, textos e cores |
+| **Banners** | Banners do carrossel principal (hero) e promocionais |
+| **Pedidos** | Status, código de rastreio, cancelamento e estorno |
+| **Orçamentos** | Pedidos de orçamento enviados pelo site (com arquivos) |
+| **Mensagens** | Formulário de contato e inscritos na newsletter |
+| **Cupons** | Desconto percentual, valor fixo ou frete grátis |
+| **Depoimentos** | Avaliações exibidas na home |
+| **Scripts** | Mensagens prontas para atendimento no WhatsApp |
+| **Blog** | Texto (Markdown) e capa de cada artigo |
+| **Configurações** | Dados da loja, logo, textos da home e Sobre, SEO, redes sociais, Instagram, YouTube, newsletter, bloco de confiança, rodapé, frete grátis e desconto Pix |
 
 ---
 
 ## Tarefas comuns
 
-### Upload mockado de imagens
+### Imagens
+- Envie arquivos **PNG, JPG ou WEBP de até 4 MB** (o painel reduz fotos grandes automaticamente).
+- Produtos aceitam várias imagens (a primeira é a principal) e vídeo.
+- As imagens ficam no armazenamento em nuvem da loja (Vercel Blob).
 
-Em **Produtos**, **Banners**, **Categoria Sazonal** e **Configurações**:
+### Produtos
+1. **Produtos → Novo produto**: nome, marca, descrição, preço normal e promocional, estoque, categoria, material, peso/dimensões.
+2. **Modo de compra**: compra direta, só orçamento (WhatsApp) ou ambos.
+3. Marque **Destaque** para aparecer na vitrine da home e **Ativo** para aparecer na loja.
+4. Para tirar da loja sem apagar, desmarque **Ativo**. **Excluir** apaga o produto e as fotos de vez (pedidos antigos continuam com nome e preço).
+5. **Exportar/Importar Excel**: edite em planilha e reimporte. Célula vazia não altera o produto.
 
-- Clique em **Enviar imagem** → escolha do computador (PNG, JPG, WEBP ou SVG, **até 1MB**).
-- Ou clique em **Usar URL** → cole o link de uma imagem.
-- Para produtos, adicione até 6 imagens; a primeira é a principal.
-- Passe o mouse sobre uma imagem e clique no **X** para remover.
+### Categorias e campanha sazonal
+- **Categorias**: nome, descrição, imagem do card e se aparece no menu e/ou na home.
+- **Categoria Sazonal**: ative a campanha, preencha título, descrição, banner e as cores do banner (início, fim e texto). Desative quando a campanha acabar.
 
-> Upload demonstrativo — imagens ficam salvas no navegador (localStorage). Em produção troca por Supabase Storage / S3.
+### Banners
+- Posição **Hero** (carrossel do topo) ou **Promo**. O tempo de troca do carrossel é ajustado na própria tela de Banners.
 
-### Cadastrar um novo produto
-
-1. Acesse **Produtos** → **Novo produto**.
-2. Preencha:
-   - Nome (obrigatório)
-   - Marca
-   - Descrição curta e completa
-   - Preço normal e promocional
-   - Estoque
-   - Categoria
-   - Material (PLA, PETG, ABS, Resina ou —)
-   - **Modo de compra**:
-     - `direct` → cliente compra direto
-     - `quote` → só orçamento pelo WhatsApp
-     - `both` → cliente escolhe
-   - Flags: destaque na home, lançamento, oferta, mais vendido, frete grátis, ativo
-3. Clique em **Salvar produto**.
-
-> A imagem é gerada automaticamente com base no nome. Na Fase 2 vai dar para subir foto real.
-
-### Editar um produto
-
-- **Produtos** → clique no ícone de lápis ao lado do produto.
-- Faça as mudanças e salve.
-
-### Ativar / desativar produto
-
-- Use o toggle direto na lista, sem precisar editar.
-
-### Remover produto
-
-- Ícone de lixeira → confirma no modal.
-
-### Criar categoria
-
-1. **Categorias** → **Nova categoria**.
-2. Preencha nome, descrição.
-3. Marque **Mostrar no menu** e/ou **Mostrar na home**.
-4. Salvar.
-
-### Configurar campanha sazonal
-
-1. **Categoria Sazonal**.
-2. Ative o toggle **Ativar campanha sazonal**.
-3. Preencha nome (ex.: "Black Friday"), descrição e texto do banner.
-4. Marque os produtos da campanha em **Produtos associados**.
-5. Decida se aparece no menu, na home ou em ambos.
-6. **Salvar campanha**.
-
-> O preview aparece à direita em tempo real.
-
-### Criar banner
-
-1. **Banners** → **Novo banner**.
-2. Preencha título, subtítulo, CTA, link.
-3. Escolha a posição (Hero, Filamentos, Impressoras, Sazonal).
-4. Ajuste as cores do gradiente.
-5. Marque como **Ativo**.
-6. Salvar.
-
-### Gerenciar pedidos
-
-1. **Pedidos** → filtre por status.
-2. Clique em **Detalhes →** em qualquer pedido.
-3. No drawer, mude o status pelo dropdown:
-   - **Novo** → pedido acabou de chegar
-   - **Aguardando pagamento** → ex.: boleto
-   - **Pago** → confirmou
-   - **Em separação** → equipe está montando
-   - **Enviado** → saiu para entrega
-   - **Concluído** → cliente recebeu
-   - **Cancelado** → pedido cancelado
-
-### Atualizar dados da loja
-
-1. **Configurações**.
-2. Edite o que precisar (nome, WhatsApp, e-mail, endereço, CNPJ, sobre, frete grátis, desconto Pix).
-3. **Salvar configurações**.
-
-> As mudanças aparecem **imediatamente** no site público (header, footer, página de contato, etc.).
-
-### Restaurar dados de exemplo
-
-- Botão **Restaurar dados** no topo do painel.
-- Apaga tudo que você editou e volta para o estado inicial.
-- Útil em demonstrações.
-
----
-
-## Trocar a senha do admin
-
-A senha está em `src/config/site.ts`:
-
-```ts
-admin: {
-  email: 'admin@3dcommerce.com',
-  password: '3dcommerce2026',
-}
-```
-
-Para trocar:
-1. Edite o arquivo.
-2. Faça commit no GitHub.
-3. Vercel/Netlify faz redeploy automático.
-
-> Na **Fase 2** (Supabase Auth) a senha vai ser trocada por uma interface no próprio admin, sem mexer no código.
-
----
-
-## Como o site público reage às mudanças do admin
-
-| Mudança | Reflexo no site |
+### Pedidos
+| Status | Significado |
 |---|---|
-| Criar/editar produto | Aparece em `/loja` e nas categorias correspondentes |
-| Desativar produto | Some do site público |
-| Marcar produto como **Destaque** | Aparece na vitrine "Os produtos do momento" da home |
-| Marcar como **Oferta** | Entra no banner de ofertas e no filtro |
-| Marcar como **Mais vendido** | Entra na vitrine de mais vendidos |
-| Marcar como **Lançamento** | Recebe selo "Lançamento" |
-| Criar/editar categoria | Aparece no mega menu (se marcada como menu) |
-| Criar/editar campanha sazonal | Aparece como banner verde na home |
-| Editar configurações | Atualiza header, footer, contato |
-| Mudar status do pedido | Hoje atualiza só no admin. Na Fase 2 avisa o cliente por e-mail/WhatsApp |
+| Novo | Pedido criado, aguardando pagamento |
+| Pago | Pagamento aprovado (o Mercado Pago confirma sozinho) |
+| Em separação | Pedido sendo preparado |
+| Enviado | Saiu para entrega — informe o **código de rastreio** |
+| Concluído | Cliente recebeu |
+| Cancelado | Cancelado (pedidos não pagos expiram em 48h; boleto em 96h) |
+
+- **Estornar e cancelar** devolve o dinheiro pelo Mercado Pago e repõe o estoque.
+- O estoque só baixa quando o pagamento é aprovado. Se aparecer **[REVISAR ESTOQUE]**, o pedido foi pago sem estoque suficiente.
+- O cliente recebe e-mail quando o pedido é criado, pago, enviado ou cancelado.
+
+### Blog
+- Edite o texto de cada artigo em Markdown (títulos `##`, listas, **negrito**, links) e troque a capa. **Restaurar texto padrão** volta ao texto original.
+
+### Configurações
+- Nome, WhatsApp (só dígitos, `55` + DDD + número), e-mail, endereço, CNPJ, logo, textos e SEO. A Política de Privacidade usa esses dados automaticamente.
 
 ---
 
-## Dúvidas frequentes do cliente
+## O que o painel não faz
 
-**"O cliente final pode ver o painel?"**
-Não. O `/admin` é protegido por login. Apenas quem tem a senha entra.
-
-**"E se eu esquecer a senha?"**
-Hoje a senha é fixa em código. Entre em contato com a G-Rec ou abra o arquivo `src/config/site.ts`. Na Fase 2 isso vira interface gráfica.
-
-**"E se eu apagar tudo por engano?"**
-Botão **Restaurar dados** volta ao estado original. Como hoje tudo fica no navegador, restaurar não afeta outros computadores.
-
-**"Posso usar o painel em vários computadores ao mesmo tempo?"**
-Hoje cada navegador tem sua própria cópia. Para sincronizar entre máquinas, precisa da Fase 2 com Supabase.
-
-**"O pedido que o cliente fez vai para onde?"**
-Aparece em **Pedidos** do admin, no topo da lista, com o status inicial correto. Hoje fica salvo no navegador. Na Fase 2 vai para banco central.
-
-**"Como eu testo se está tudo funcionando?"**
-1. Adicione produtos ao carrinho como cliente.
-2. Finalize o checkout com dados fictícios.
-3. Entre no admin e veja o pedido aparecer.
-4. Mude o status dele.
-5. Edite configurações e veja refletir no site.
+- **Frete**: com o Melhor Envio configurado, PAC e Sedex são cotados por CEP usando o **peso e as medidas da embalagem** de cada produto (obrigatórios no cadastro). Produto sem medidas aparece com a etiqueta **Sem medidas** (filtro na lista de produtos) e, no carrinho, deixa só a retirada disponível. Frete grátis (valor configurável ou cupom): PAC grátis e, no Sedex, o cliente paga só a diferença. Sem Melhor Envio, valem os valores fixos de PAC/Sedex/retirada.
+- **Nota fiscal**: não há emissão automática de NF-e.
 
 ---
 
 ## Apoio técnico
 
-Em caso de dúvida durante uso real, entre em contato com a G-Rec Company.
-
-**Boas vendas! 🚀**
+Dúvidas ou problemas: fale com a **G-Rec Company**.

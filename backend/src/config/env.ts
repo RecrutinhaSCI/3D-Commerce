@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { resolveMelhorEnvioConfig, resolveMelhorEnvioOAuthConfig } from '../modules/shipping/melhorEnvioConfig';
 
 /**
  * Schema único de variáveis de ambiente.
@@ -86,6 +87,28 @@ const envSchema = z.object({
 
   // Base do frontend, usada para montar links (reset de senha, verificação).
   APP_URL: z.string().default('http://localhost:5173'),
+
+  // Melhor Envio — SÓ cotação de frete (Correios PAC/Sedex). TODAS opcionais
+  // e lidas CRUAS: a validação fica em `resolveMelhorEnvioConfig`, que nunca
+  // derruba o boot — valor inválido desliga a cotação e gera aviso.
+  // O token nunca vai ao frontend nem aparece em log.
+  // Seguro por padrão: OAuth/simulações separados do checkout público.
+  MELHOR_ENVIO_HOMOLOGATION_ONLY: z.enum(['true', 'false']).default('true'),
+  MELHOR_ENVIO_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Sandbox por padrão; produção: https://melhorenvio.com.br
+  MELHOR_ENVIO_BASE_URL: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Exigido pela API: "Nome do app (email de contato)".
+  MELHOR_ENVIO_USER_AGENT: z.preprocess(emptyToUndefined, z.string().optional()),
+  MELHOR_ENVIO_TIMEOUT_MS: z.preprocess(emptyToUndefined, z.string().optional()),
+  // CEP de onde sai a mercadoria (loja de Bento Gonçalves).
+  SHIPPING_ORIGIN_CEP: z.preprocess(emptyToUndefined, z.string().optional()),
+  // OAuth do aplicativo Melhor Envio (opcional). Sem eles vale o
+  // MELHOR_ENVIO_TOKEN manual. Validados em `resolveMelhorEnvioOAuthConfig`.
+  MELHOR_ENVIO_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  MELHOR_ENVIO_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+  MELHOR_ENVIO_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().optional()),
+  // 32 bytes em hex (64 caracteres) ou base64 — cifra os tokens no banco.
+  MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // --- Pix Banco Inter / mock (R19) — módulo modules/pix-inter, SEM rotas ativas ---
   // A integração de pagamento em uso é o Mercado Pago (acima).
@@ -178,6 +201,14 @@ export const paymentWebhookSecret =
  * produção. Não derruba o servidor (cada item tem fallback funcional), mas é
  * logado no boot e listado por `npm run check:config`.
  */
+/**
+ * Avisos da configuração do Melhor Envio — em QUALQUER ambiente (inclusive
+ * dev), porque um valor inválido desliga a cotação sem derrubar o servidor.
+ */
+export function melhorEnvioConfigWarnings(): string[] {
+  return [...resolveMelhorEnvioConfig(env).issues, ...resolveMelhorEnvioOAuthConfig(env).issues];
+}
+
 export function productionConfigWarnings(): string[] {
   if (env.NODE_ENV !== 'production') return [];
   const warnings: string[] = [];

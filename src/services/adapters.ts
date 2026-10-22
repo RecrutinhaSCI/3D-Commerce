@@ -292,9 +292,16 @@ export function apiOrderToInternal(o: ApiOrder): Order {
       unitPrice: it.unitPrice,
     })),
     shipping: {
-      method: o.shippingMethod ? SHIPPING_LABELS[o.shippingMethod] : 'Frete',
+      method: o.shippingMethod
+        ? `${SHIPPING_LABELS[o.shippingMethod]}${o.shippingCarrier ? ` · ${o.shippingCarrier}` : ''}`
+        : 'Frete',
       price: o.shippingValue,
-      deadline: '',
+      // Prazo do serviço de entrega na cotação (pedidos antigos: vazio).
+      deadline: o.shippingDeadlineDays
+        ? o.shippingDeadlineDays === 1
+          ? 'até 1 dia útil'
+          : `até ${o.shippingDeadlineDays} dias úteis`
+        : '',
       trackingCode: o.trackingCode ?? undefined,
     },
     payment: {

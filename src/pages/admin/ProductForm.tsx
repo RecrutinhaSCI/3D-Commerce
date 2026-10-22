@@ -18,6 +18,7 @@ import { ApiError } from '@/services/api';
 import { apiProductToInternal } from '@/services/adapters';
 import type { ApiProduct } from '@/services/types';
 import { PRODUCT_MATERIALS, materialFromCategoryName } from '@/utils/materials';
+import { PHYSICAL_FIELDS, PHYSICAL_LIMITS, physicalError, type PhysicalField } from '@/shared/physicalLimits';
 
 // Inputs numéricos vazios chegam como "" e z.coerce.number() os transforma em 0.
 // Isso fazia o "Preço promo" virar 0 e a vitrine exibir "R$ 0,00".
@@ -25,6 +26,18 @@ import { PRODUCT_MATERIALS, materialFromCategoryName } from '@/utils/materials';
 const emptyToUndefined = (v: unknown) => (v === '' || v === null ? undefined : v);
 const optionalPositive = (msg: string) =>
   z.preprocess(emptyToUndefined, z.coerce.number().positive(msg).optional());
+// Peso/medidas: MESMA regra do backend e da planilha (shared/physicalLimits).
+const optionalPhysical = (field: PhysicalField) =>
+  z.preprocess(
+    emptyToUndefined,
+    z.coerce
+      .number({ invalid_type_error: `${PHYSICAL_LIMITS[field].label} inválido` })
+      .superRefine((v, ctx) => {
+        const error = physicalError(field, v);
+        if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+      })
+      .optional(),
+  );
 
 // Só campos que o backend PERSISTE. (Variações, especificações livres e
 // flags como "lançamento"/"frete grátis" não existem no banco — foram removidos
@@ -49,14 +62,25 @@ const schema = z.object({
     .regex(/^[A-Za-z0-9._-]*$/, 'Use letras, números, ponto, hífen ou _')
     .optional(),
   color: z.string().trim().max(80).optional(),
-  weight: optionalPositive('Peso deve ser maior que zero'),
-  width: optionalPositive('Medida deve ser maior que zero'),
-  height: optionalPositive('Medida deve ser maior que zero'),
-  depth: optionalPositive('Medida deve ser maior que zero'),
+  weight: optionalPhysical('weight'),
+  width: optionalPhysical('width'),
+  height: optionalPhysical('height'),
+  depth: optionalPhysical('depth'),
   isHighlight: z.boolean().optional(),
   active: z.boolean().optional(),
 });
 type FormData = z.infer<typeof schema>;
+
+// Produto NOVO precisa de peso e medidas da embalagem: sem eles a cotação de
+// frete não funciona. Na edição continuam opcionais, para não travar ajustes
+// de preço/estoque nos produtos antigos que ainda não têm esses dados.
+const newProductSchema = schema.superRefine((d, ctx) => {
+  for (const key of PHYSICAL_FIELDS) {
+    if (d[key] === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: 'Obrigatório para calcular o frete' });
+    }
+  }
+});
 
 /**
  * Remonta o formulário ao trocar de produto (ex.: "novo" → recém-criado).
@@ -97,7 +121,7 @@ function ProductForm() {
   const [saving, setSaving] = useState(false);
 
   const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<FormData>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(isEdit ? schema : newProductSchema),
     defaultValues: existing
       ? {
           name: existing.name,
@@ -368,7 +392,7 @@ function ProductForm() {
             <h2 className="text-base font-bold">Ficha técnica e envio</h2>
             <p className="mt-1 text-xs text-ink-mute">
               Material, cor e peso aparecem na ficha técnica da loja. Peso e medidas da embalagem
-              serão usados no cálculo de frete por CEP.
+              pronta para envio são usados no cálculo de frete por CEP{isEdit ? '' : ' (obrigatórios no cadastro)'}.
             </p>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
@@ -383,19 +407,19 @@ function ProductForm() {
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div>
                 <Label>Peso (kg)</Label>
-                <Input type="number" step="0.001" {...register('weight')} error={errors.weight?.message} />
+                <Input type="number" step={PHYSICAL_LIMITS.weight.step} {...register('weight')} error={errors.weight?.message} />
               </div>
               <div>
                 <Label>Largura (cm)</Label>
-                <Input type="number" step="0.1" {...register('width')} error={errors.width?.message} />
+                <Input type="number" step={PHYSICAL_LIMITS.width.step} {...register('width')} error={errors.width?.message} />
               </div>
               <div>
                 <Label>Altura (cm)</Label>
-                <Input type="number" step="0.1" {...register('height')} error={errors.height?.message} />
+                <Input type="number" step={PHYSICAL_LIMITS.height.step} {...register('height')} error={errors.height?.message} />
               </div>
               <div>
                 <Label>Profundidade (cm)</Label>
-                <Input type="number" step="0.1" {...register('depth')} error={errors.depth?.message} />
+                <Input type="number" step={PHYSICAL_LIMITS.depth.step} {...register('depth')} error={errors.depth?.message} />
               </div>
             </div>
           </section>

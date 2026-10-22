@@ -71,6 +71,20 @@ export const orderRateLimiter = rateLimit({
   keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? ''),
 });
 
+/**
+ * Cotação de frete (checkout) — 30 / min por usuário. Cada chamada pode ir ao
+ * Melhor Envio; o limite protege a cota da conta contra loop/abuso. O cache de
+ * 10 min do cliente já absorve as repetições normais do checkout.
+ */
+export const shippingQuoteRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? ''),
+});
+
 /** Formulário de contato e newsletter (públicos) — 10 / hora por IP. */
 export const contactRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -143,6 +157,28 @@ export const webhookRateLimiter = rateLimit({
 /** Validação pública de cupom — 30 tentativas / 10 min por IP (evita brute force de códigos). */
 export const couponValidateRateLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+});
+
+/**
+ * OAuth de integrações (Melhor Envio).
+ *   - Início (admin): 10 / 15 min por admin — cada chamada grava um state.
+ *   - Callback (público): 30 / 15 min por IP — barra força bruta de state.
+ */
+export const integrationAuthorizeRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  keyGenerator: (req) => (req.user?.id ? `admin:${req.user.id}` : `ip:${ipKeyGenerator(req.ip ?? '')}`),
+});
+
+export const integrationCallbackRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,

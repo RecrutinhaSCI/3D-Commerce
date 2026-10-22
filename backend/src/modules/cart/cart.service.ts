@@ -122,6 +122,32 @@ export function effectivePrice(product: Pick<Product, 'price' | 'promotionalPric
   return product.promotionalPrice ?? product.price;
 }
 
+/**
+ * Revalida os itens do carrinho antes de cotar frete ou criar o pedido:
+ * existência, ativo, modo de compra e estoque. Mesma regra nos dois pontos —
+ * a cotação nunca responde para um carrinho que o pedido recusaria.
+ */
+export function assertCartPurchasable(
+  items: Array<{ quantity: number; product: Pick<Product, 'name' | 'active' | 'purchaseMode' | 'stock'> | null }>,
+): void {
+  for (const item of items) {
+    if (!item.product) {
+      throw HttpError.badRequest('Um dos produtos do carrinho não existe mais.');
+    }
+    if (!item.product.active) {
+      throw HttpError.badRequest(`Produto "${item.product.name}" não está mais disponível.`);
+    }
+    if (item.product.purchaseMode === ProductPurchaseMode.QUOTE) {
+      throw HttpError.badRequest(`Produto "${item.product.name}" é apenas via orçamento.`);
+    }
+    if (item.quantity > item.product.stock) {
+      throw HttpError.badRequest(
+        `Estoque insuficiente para "${item.product.name}" (pediu ${item.quantity}, disponível ${item.product.stock}).`,
+      );
+    }
+  }
+}
+
 export const cartService = {
   async get(userId: string): Promise<CartDTO> {
     const cart = await ensureCart(userId);

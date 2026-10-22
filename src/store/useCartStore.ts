@@ -11,7 +11,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CartItem, Product } from '@/types';
-import { site } from '@/config/site';
 import { getEffectivePrice } from '@/utils/price';
 import { cartService } from '@/services/cartService';
 import { couponService } from '@/services/couponService';
@@ -335,19 +334,4 @@ export function getCartDiscount(subtotal: number, coupon?: AppliedCoupon | null)
   if (coupon.freeShipping) return 0; // frete grátis não desconta no subtotal
   // Clampa ao subtotal para nunca exibir total negativo.
   return Number(Math.min(coupon.discountAmount, subtotal).toFixed(2));
-}
-
-/**
- * ESTIMATIVA de frete (PAC) para o carrinho/drawer. O valor real vem do
- * backend (/api/public/shipping/options) no checkout e é recalculado na
- * criação do pedido. `threshold` = "frete grátis acima de" do admin.
- */
-export function getCartShipping(
-  subtotal: number,
-  coupon?: AppliedCoupon | null,
-  threshold: number = site.freeShippingThreshold,
-): number {
-  if (coupon?.freeShipping) return 0;
-  if (threshold > 0 && subtotal >= threshold) return 0;
-  return 24.9;
 }

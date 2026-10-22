@@ -20,8 +20,8 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 1. Mercado Pago (conta da loja): acesso para criarmos a aplicação OU, se preferir,
    a Public Key e o Access Token de PRODUÇÃO (Suas integrações > Credenciais de produção).
 2. E-mail que vai enviar as mensagens da loja (cadastro, pedido, pagamento, senha):
-   de preferência um e-mail do domínio da loja (ex.: contato@sualoja.com.br) e acesso
-   ao DNS do domínio, para autenticarmos o envio no Brevo.
+   de preferência um e-mail do domínio da loja no Google Workspace
+   (ex.: contato@sualoja.com.br) e uma senha de app dessa conta.
 3. Domínio do site (ex.: www.sualoja.com.br) e acesso ao painel onde ele foi registrado.
 4. E-mail que será o login do painel administrativo.
 5. Conferir: nome da loja, WhatsApp, e-mail de contato, endereço, CNPJ, Instagram e logo.
@@ -41,7 +41,7 @@ Olá! Para colocar a loja no ar com pagamento real, preciso de:
 | Public Key do Mercado Pago | Cliente (conta MP) | Vercel (front) → `VITE_MP_PUBLIC_KEY` | Sim |
 | Access Token do Mercado Pago | Cliente (conta MP) | Render (back) → `MP_ACCESS_TOKEN` | Sim |
 | Segredo do webhook MP | Gerado no painel MP | Render (back) → `MP_WEBHOOK_SECRET` | Sim |
-| E-mail: chave do Brevo + remetente (ou SMTP) | G-Rec (conta Brevo) / Cliente (remetente) | Render (back) → `BREVO_API_KEY` e `SMTP_FROM` (ou `SMTP_*`) | Sim em produção* |
+| E-mail: SMTP do Google Workspace (ou chave do Brevo) | Cliente (conta do domínio) | Render (back) → `SMTP_*` (ou `BREVO_API_KEY` + `SMTP_FROM`) | Sim em produção* |
 | Domínio da loja | Cliente | Vercel (front) → `VITE_SITE_URL` · Render (back) → `APP_URL` e `CORS_ORIGINS` | Sim |
 | E-mail e senha do admin | Cliente / G-Rec | `.env` local na hora de rodar o seed (`ADMIN_EMAIL`, `ADMIN_PASSWORD`) | Sim |
 | Banco de produção | G-Rec (Neon) | Render (back) → `DATABASE_URL` | Sim |
@@ -95,8 +95,24 @@ Observações:
 - Rede de segurança para webhooks perdidos: `POST /api/admin/payments/reconcile` com o token de admin.
 - Detalhes técnicos da integração: [docs/integracoes/mercadopago-orders-api.md](docs/integracoes/mercadopago-orders-api.md).
 
-### 3.3 E-mail (Brevo ou SMTP)
-**Recomendado: Brevo pela API.** O Render Free bloqueia as portas SMTP (25/465/587), então SMTP só funciona em plano pago. A API do Brevo usa HTTPS, tem 300 e-mails/dia grátis e mostra no painel se cada e-mail foi entregue.
+### 3.3 E-mail (Google Workspace SMTP ou Brevo)
+**Em uso: SMTP do Google Workspace** com o e-mail do domínio da loja.
+1. Na conta do Google Workspace que vai enviar, ativar a verificação em 2 etapas.
+2. Gerar uma senha de app em https://myaccount.google.com/apppasswords.
+3. Render (back), aba Environment:
+   ```env
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=465
+   SMTP_SECURE=true
+   SMTP_USER=contato@sualoja.com.br
+   SMTP_PASS=<senha de app de 16 dígitos>
+   SMTP_FROM="3DCommerce <contato@sualoja.com.br>"
+   ```
+   Porta 587 → `SMTP_SECURE=false` (STARTTLS).
+
+> **Atenção:** o Render **Free** bloqueia as portas SMTP (25/465/587). SMTP só funciona em plano pago do Render. No plano Free, use o Brevo (API HTTPS), abaixo.
+
+Alternativa, **Brevo pela API** (300 e-mails/dia grátis, painel de entrega):
 1. Criar a conta em https://www.brevo.com.
 2. **Senders, Domains & Dedicated IPs → Domains**: autenticar o domínio da loja (registros DKIM/DMARC no DNS). Sem domínio próprio, cadastrar ao menos o remetente em **Senders** e confirmar pelo e-mail recebido (Gmail como remetente tende a cair em spam).
 3. **SMTP & API → API Keys**: gerar uma chave (`xkeysib-...`).
@@ -105,22 +121,9 @@ Observações:
    BREVO_API_KEY=xkeysib-...
    SMTP_FROM="3DCommerce <contato@sualoja.com.br>"
    ```
-   O remetente do `SMTP_FROM` precisa ser um sender verificado (ou do domínio autenticado) no Brevo. Com `BREVO_API_KEY` definida, as demais `SMTP_*` são ignoradas.
+   O remetente do `SMTP_FROM` precisa ser um sender verificado (ou do domínio autenticado) no Brevo. Com `BREVO_API_KEY` definida, ela tem prioridade e as demais `SMTP_*` são ignoradas.
 
-Alternativa, **SMTP** (só em plano pago do Render). Exemplo com o **Gmail da loja**:
-1. Ativar verificação em 2 etapas na conta.
-2. Gerar uma senha de app em https://myaccount.google.com/apppasswords.
-3. Render (back), aba Environment:
-   ```env
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=465
-   SMTP_SECURE=true
-   SMTP_USER=loja@gmail.com
-   SMTP_PASS=<senha de app de 16 dígitos>
-   SMTP_FROM="3DCommerce <loja@gmail.com>"
-   ```
-Se for o e-mail do domínio (Hostinger, Zoho, Locaweb...), usar host e porta do provedor: 587 → `SMTP_SECURE=false`.
-`npm run check:config` valida a chave do Brevo (ou o login no SMTP) sem enviar nada.
+`npm run check:config` valida o login no SMTP (ou a chave do Brevo) sem enviar nada.
 
 ### 3.4 Admin
 - O seed roda **na sua máquina**, apontando para o Neon de produção (seção 4). Definir `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mínimo 8) nesse `.env` antes de rodar. Com `NODE_ENV=production`, o seed recusa **criar** o admin sem `ADMIN_PASSWORD`.
@@ -146,15 +149,14 @@ Antes de qualquer migration em produção, criar uma **branch de backup** no Neo
 
 ## 4. Migrations e seed no Neon (rodar da sua máquina)
 
-Em relação ao `main` de RecrutinhaSCI, esta branch adiciona **até 8 migrations**: `order_tracking_code` (rastreio — pode já existir no Neon), campos do Mercado Pago no pedido, `stock_applied`, verificação de e-mail e reset de senha, `checkout_hardening` (frete, desconto Pix e backfill de estoque), `customer_cpf`, `user_privacy_consent` e `newsletter_subscribers`. **Elas precisam estar aplicadas no Neon antes de o código novo chegar em produção.** Sem elas, até o login quebra, porque o Prisma lê colunas que ainda não existem.
-
-Todas só **adicionam** colunas ou tabelas, com valor padrão ou permitindo nulo, e foram testadas aplicando por cima do estado do `main` (banco final idêntico ao schema). Por isso é seguro aplicá-las antes do merge: o código antigo que está no ar continua funcionando.
+O repositório tem **22 migrations** em `backend/prisma/migrations/` (a mais recente: `20261021194007_blog_content`). Toda migration nova precisa estar aplicada no Neon **antes** de o código que depende dela chegar em produção — sem ela, o Prisma lê colunas que não existem e a API quebra (até o login). As migrations atuais só **adicionam** colunas/tabelas, então aplicá-las antes do deploy não afeta o código que já está no ar.
 
 ```bash
 cd backend
 # 1) Backup: criar uma branch no painel do Neon (seção 3.5).
-# 2) Aplicar as migrations com a URL DIRETA (sem -pooler):
-DATABASE_URL="postgresql://...@ep-xxxx.sa-east-1.aws.neon.tech/neondb?sslmode=require" npx prisma migrate deploy
+# 2) Conferir o que está pendente (só leitura) e aplicar, com a URL DIRETA (sem -pooler):
+DATABASE_URL="<url-direta-do-neon>" npx prisma migrate status
+DATABASE_URL="<url-direta-do-neon>" npx prisma migrate deploy
 # 3) Só na primeira subida (cria o admin; nunca troca a senha de um admin existente):
 NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..." npm run prisma:seed
 ```
@@ -164,15 +166,17 @@ NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..
 
 ---
 
-## 5. Ordem para colocar no ar
+## 5. Ordem para colocar no ar (primeira subida ou novo ambiente)
+
+> A loja oficial já está no ar com essa infraestrutura. Use esta ordem para recriar o ambiente ou trocar contas; para deploys do dia a dia, veja [CHECKLIST-DEPLOY.md](CHECKLIST-DEPLOY.md).
 
 1. **Neon**: branch de backup → `npx prisma migrate deploy` (seção 4).
 2. **Vercel**: criar o **Blob Store** (Storage → Create → Blob) e copiar o `BLOB_READ_WRITE_TOKEN`.
-   **Render (back)**: cadastrar as variáveis da seção 2 com `NODE_ENV=production` e o token do Blob. O backend **não sobe** sem `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET`: cadastre tudo **antes** do merge (o Auto-Deploy publica a `main`).
+   **Render (back)**: cadastrar as variáveis da seção 2 com `NODE_ENV=production` e o token do Blob. O backend **não sobe** sem `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET`.
    **GitHub**: Actions secrets `CRON_SECRET` e `BACKEND_URL` (cron diário).
 3. **Seed**, só na primeira subida, para criar o admin (seção 4).
 4. **Vercel (front)**: `VITE_API_URL`, `VITE_MP_PUBLIC_KEY`, `VITE_SITE_URL`, depois redeploy.
-5. **Merge na `main`**: dispara o deploy de produção do front (Vercel) e do backend (Render, Auto-Deploy).
+5. **Deploy da `main`**: front (Vercel) e backend (Render, Auto-Deploy).
 6. **Domínio**: conectar e ajustar `APP_URL`/`CORS_ORIGINS` (seção 3.6).
 7. **Mercado Pago**: cadastrar o webhook com o domínio de produção do backend, colar o segredo e fazer redeploy do backend.
 8. **Conferência**: `npm run check:config` com o `.env` de produção, **0 erros**.
@@ -183,7 +187,7 @@ NODE_ENV=production DATABASE_URL="<direta>" ADMIN_EMAIL="..." ADMIN_PASSWORD="..
 
 ## 6. Pontos de atenção antes de entregar
 
-- **Uploads usam o Vercel Blob em produção**, mesmo com o backend no Render: o SDK usa o token explícito e funciona fora da Vercel. Na Vercel: **Storage → Create → Blob**; copie o `BLOB_READ_WRITE_TOKEN` para o Render (lá ele não é injetado sozinho). Sem o token, o upload grava no disco do Render, que é **apagado a cada deploy/reinício**; o `check:config` acusa. **Primeiro teste após configurar:** subir uma imagem de produto no admin e conferir que a URL salva começa com `https://...blob.vercel-storage.com`.
+- **Uploads usam o Vercel Blob em produção**, mesmo com o backend no Render: o SDK usa o token explícito e funciona fora da Vercel. Na Vercel: **Storage → Create → Blob**; copie o `BLOB_READ_WRITE_TOKEN` para o Render (lá ele não é injetado sozinho). Sem o token, em produção o upload é **recusado** (o disco do Render é apagado a cada deploy/reinício); o `check:config` e o log de boot acusam. **Primeiro teste após configurar:** subir uma imagem de produto no admin e conferir que a URL salva começa com `https://...blob.vercel-storage.com`.
 - **Limite de 4 MB por arquivo** (herdado do limite de 4,5 MB da Vercel; no Render poderia ser maior, melhoria futura). O admin envia uma imagem por requisição. No orçamento, arquivos STL maiores que 4 MB precisam ir pelo WhatsApp; aceitar arquivos grandes exige upload direto do navegador para o Blob (melhoria futura).
 - **Prisma Client no build**: o backend roda `prisma generate` no `postinstall`. O host pode reaproveitar o `node_modules` entre deploys, e sem isso um schema novo subiria com o client antigo.
 - **Rate limit** (login, pedidos) fica na memória de cada instância. Com mais de uma instância, cada uma conta separado, então o limite real fica mais frouxo. Aceitável para começar; se houver abuso, mover para Redis/Upstash.

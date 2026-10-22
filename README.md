@@ -1,242 +1,125 @@
 # 3DCommerce
 
-E-commerce premium e painel administrativo da **3DCommerce** — loja especializada em impressão 3D (filamentos, resinas, impressoras e acessórios), com loja física em **Bento Gonçalves/RS** e envio para todo o Brasil.
+E-commerce e painel administrativo da **3DCommerce** — loja especializada em impressão 3D (filamentos, resinas, impressoras e acessórios), com loja física em **Bento Gonçalves/RS** e envio para todo o Brasil.
 
-Projeto desenvolvido pela **G-Rec Company**.
-
-> **Frase institucional**
-> *Tudo para impressão 3D em um só lugar: impressoras, filamentos, resinas e suporte especializado.*
+Projeto desenvolvido pela **G-Rec Company**. Domínio oficial: **https://www.3dcommerce.com.br**
 
 ---
 
-## Visão geral
+## Estado atual do projeto
 
-Aplicação **frontend-only** (React + Vite + TypeScript) com dados mockados persistidos em `localStorage`. Toda a arquitetura está preparada para receber backend real (Supabase ou API própria) e gateway de pagamento na **Fase 2**, sem refazer a UI.
+| Item | Situação |
+|---|---|
+| Frontend | React 18 + Vite 5 + TypeScript (raiz do repositório) — deploy na **Vercel** |
+| Backend | Node + Express + TypeScript + Prisma (`backend/`) — deploy no **Render** |
+| Banco | PostgreSQL no **Neon** (22 migrations em `backend/prisma/migrations/`) |
+| Uploads | **Vercel Blob** (público). O disco do Render é efêmero: em produção, sem `BLOB_READ_WRITE_TOKEN` o upload é recusado |
+| Pagamentos | **Mercado Pago — Orders API** (`/v1/orders`): cartão, Pix e boleto via Payment Brick, webhook assinado, estorno pelo admin |
+| E-mail | SMTP (em uso: **Google Workspace**) ou Brevo (API HTTP) — cadastro, pedido, pagamento, envio, senha |
+| Frete | Cotação real por CEP (Correios PAC/Sedex via Melhor Envio) quando configurado; sem configuração, tabela fixa. Retirada na loja sempre disponível. Frete grátis acima do valor do admin (PAC grátis; Sedex paga a diferença) |
+| Cron | GitHub Actions diário (`.github/workflows/expire-orders.yml`) → expira pedidos não pagos e reconcilia pagamentos |
+| NF-e | **Não existe** emissão automática de nota fiscal |
 
-- 16 páginas públicas
-- 10 páginas administrativas
-- Carrinho persistido
-- Checkout demonstrativo de 4 passos
-- Pedido fechado pelo cliente aparece automaticamente no painel admin
-- Categoria sazonal totalmente editável (ativar/desativar, banner, produtos associados)
-- Sistema de banners, categorias e produtos editáveis
-- Modo de compra por produto: **direct**, **quote** ou **both**
-- WhatsApp em todas as páginas
-- SEO básico, Open Graph e Twitter Cards
-- Responsivo mobile-first
+Pendências reais: [CHECKLIST-PRODUCAO.md](CHECKLIST-PRODUCAO.md).
 
 ---
 
-## Stack
+## Funcionalidades
 
-- **React 18** + **Vite 5** + **TypeScript** (strict)
-- **Tailwind CSS** com tokens próprios (off-white, branco, cinza, preto, grafite, acento ciano)
-- **Framer Motion** — animações suaves
-- **Zustand** — carrinho, UI, admin auth e admin data (com `persist` em localStorage)
-- **React Router v6** com rotas aninhadas, `ScrollRestoration` e code-splitting via `React.lazy`
-- **React Hook Form + Zod** — formulários validados
-- **Lucide React** — ícones
-- **react-hot-toast** — feedback
-- **clsx + tailwind-merge** — utilitário `cn()`
-- **slugify** — geração de slugs no admin
+### Loja pública
+- Home editável: hero em carrossel, vitrines, cards de categoria com imagem, banner sazonal com cores próprias, depoimentos, Instagram, YouTube, newsletter e bloco de confiança.
+- Catálogo com filtros, ordenação e busca; página de categoria; página de produto com galeria (imagens e vídeo), preço Pix e parcelamento.
+- Modo de compra por produto: **direto**, **orçamento** (WhatsApp) ou **ambos**.
+- Carrinho (visitante e logado), cupons, checkout com CEP automático (ViaCEP), CPF validado, frete calculado no backend e pagamento transparente do Mercado Pago.
+- Área do cliente: cadastro com verificação de e-mail e consentimento LGPD, login, recuperação de senha, endereço salvo, **Meus pedidos** com rastreio e botão "Pagar agora" (`/pagar/:orderId`).
+- Orçamento com envio de arquivos, contato e newsletter salvos no backend.
+- **Blog** com conteúdo e capas editáveis no admin (Markdown com GFM).
+- Páginas institucionais (Sobre, Materiais, FAQ, Como comprar, Trocas e devoluções, Privacidade).
+- SEO: metas por página, Open Graph, `robots.txt`, sitemap estático + sitemap dinâmico da API (`/api/public/sitemap.xml`), GA4 opcional só com consentimento de cookies.
 
-Sem backend, sem banco de dados, sem dependências pesadas.
+### Painel admin (`/admin`)
+Dashboard (faturamento real de pedidos pagos), Produtos (CRUD, mídias, importação/exportação Excel, exclusão em lote), Categorias (imagem, flags de menu/home), Categoria Sazonal (banner, textos e cores), Banners, Pedidos (status, rastreio, estorno/cancelamento), Orçamentos, Mensagens, Cupons, Depoimentos, Scripts de WhatsApp, Blog e Configurações (dados da loja, textos, SEO, redes sociais, frete grátis, desconto Pix). Manual: [INSTRUCOES-ADMIN.md](INSTRUCOES-ADMIN.md).
 
 ---
 
 ## Como rodar localmente
 
-Pré-requisitos: **Node 18+** e **npm**.
+Pré-requisitos: **Node 18+**, npm e um PostgreSQL (Neon ou local).
 
 ```bash
-# 1. Instalar dependências
-npm install
-
-# 2. Rodar em modo desenvolvimento
+# Backend (porta 3333)
+cd backend
+cp .env.example .env        # preencha DATABASE_URL, JWT_SECRET e credenciais de TESTE do Mercado Pago
+npm install                 # roda prisma generate no postinstall
+npx prisma migrate dev      # aplica as migrations no banco de desenvolvimento
+npm run prisma:seed         # cria o admin (dev: admin@3dcommerce.com / admin123) e configurações
 npm run dev
 
-# 3. Build de produção
-npm run build
-
-# 4. Preview da build
-npm run preview
+# Frontend (porta 5173), em outro terminal, na raiz
+cp .env.example .env        # VITE_API_URL=http://localhost:3333 e VITE_MP_PUBLIC_KEY de teste
+npm install
+npm run dev
 ```
 
-O Vite abrirá em `http://localhost:5173` por padrão.
+> O backend **não sobe** sem `DATABASE_URL`, `JWT_SECRET` (16+ caracteres), `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET` (os valores de exemplo do `.env.example` são recusados). Em desenvolvimento, sem `BLOB_READ_WRITE_TOKEN` os uploads vão para `backend/uploads/`.
 
 ---
 
-## Funcionalidades públicas
+## Scripts
 
-- **Home** com Hero animado, faixa de marcas, vitrines (destaques / ofertas / mais vendidos), banner sazonal, materiais educativos, blocos de confiança, loja física, Instagram e newsletter.
-- **Catálogo** com filtros (material, marca, preço, em estoque, ofertas), 6 ordenações e busca por palavra-chave via querystring.
-- **Página de produto** com galeria, variações (cor/material/peso/diâmetro/voltagem/modelo), preço normal + Pix + parcelamento, badges, modos `direct`/`quote`/`both` e produtos relacionados.
-- **Carrinho** persistido + drawer lateral + cupons demonstrativos.
-- **Checkout demonstrativo** em 4 passos (cliente → endereço → entrega → pagamento → revisão), com Zod, tela de confirmação e **persistência do pedido no admin**.
-- **Orçamento via WhatsApp** dedicado (`/orcamento`) com seleção de produtos de interesse.
-- **Blog**, **FAQ**, **Como comprar**, **Trocas e devoluções**, **Política de privacidade**, **Sobre**, **Materiais**, **Contato** (formulário dispara WhatsApp).
-- **Botão flutuante de WhatsApp** em todas as páginas.
+**Frontend (raiz)**
 
----
-
-## Área do cliente demonstrativa
-
-Cliente final tem fluxo próprio (separado do login admin):
-
-- `/login` — entrar
-- `/criar-conta` — cadastrar
-- `/minha-conta` — dados pessoais e endereço padrão
-- `/meus-pedidos` — histórico de pedidos do próprio cliente
-
-Quando o cliente faz checkout **logado**, o pedido recebe `customerId` e aparece tanto no admin quanto em `/meus-pedidos`. Sem login, o pedido continua salvo no admin (sem `customerId`).
-
-> **Demonstração apenas.** Cadastro e senhas ficam no `localStorage` em texto puro. Trocar por Supabase Auth na Fase 2.
-
----
-
-## Upload mockado de imagens (admin)
-
-Disponível em **Produtos**, **Banners**, **Categoria Sazonal** e **Configurações (logo)**.
-
-- Aceita PNG, JPG, WEBP e SVG.
-- Limite de 1MB por imagem (evita estourar `localStorage`).
-- Conversão via `FileReader` para Base64.
-- Também aceita URL externa.
-- Produtos: até 6 imagens, primeira é a principal.
-
-> **Demonstração apenas.** As imagens ficam no navegador. Em produção, trocar por Supabase Storage / S3.
-
----
-
-## Funcionalidades administrativas
-
-Acesse `/admin/login`.
-
-**Credenciais demo:**
-
-```
-E-mail: admin@3dcommerce.com
-Senha:  3dcommerce2026
-```
-
-**Recursos:**
-
-- **Dashboard** com cards de estatísticas, sparklines e tabela de últimos pedidos.
-- **Produtos**: lista com busca/filtro, criar/editar com seções de informações, preços, classificação e flags.
-- **Categorias**: CRUD com toggles `mostrar no menu` e `mostrar na home`.
-- **Categoria Sazonal**: ativar/desativar, editar nome, slug, descrição, banner e produtos associados — com preview ao vivo.
-- **Banners**: CRUD com preview do gradiente.
-- **Pedidos**: lista filtrável por status com drawer de detalhes + mudança de status.
-- **Configurações da loja**: nome, contatos, endereço, CNPJ, texto institucional, frete grátis e desconto Pix — reflete imediatamente no site público.
-- Botão **"Restaurar dados de exemplo"** no header do admin.
-
-Toda a operação do admin é persistida em `localStorage`.
-
----
-
-## Como demonstrar o fluxo completo de pedido
-
-1. Adicione produtos ao carrinho.
-2. Vá em `/checkout` e finalize com qualquer dado fictício.
-3. Faça login em `/admin/login`.
-4. Acesse `/admin/pedidos` — seu pedido aparece no topo da lista.
-5. Mude o status (novo → em separação → enviado).
-
----
-
-## Como demonstrar a categoria sazonal
-
-1. Acesse `/admin/categoria-sazonal`.
-2. Desative a campanha "Copa do Mundo 3D".
-3. Volte para `/` — a categoria some do menu e da home.
-4. Reative, edite o nome ("Black Friday", "Natal", etc.) e veja a mudança em tempo real.
-
----
-
-## Como trocar logo, dados da loja e WhatsApp
-
-### Logo
-Em `src/components/ui/Logo.tsx`. Substitua o `<svg>` interno por `<img src="..." />` ou ajuste o SVG. A logo aparece em header, footer, sidebar admin e tela de login.
-
-### Dados da loja e WhatsApp
-Duas formas:
-
-1. **Editável pelo cliente em runtime**: `/admin/configuracoes` — altera nome, WhatsApp, e-mail, endereço, CNPJ, texto institucional, frete grátis e desconto Pix.
-2. **Padrão técnico**: `src/config/site.ts` define defaults, credenciais de admin demo e cupons.
-
-O número de WhatsApp do `admin/configuracoes` é usado em todos os links do site (botão flutuante, cards, página de produto, orçamento e contato).
-
----
-
-## Modos de compra (direct / quote / both)
-
-Cada produto possui a propriedade `purchaseMode`:
-
-- **`direct`** — botão "Adicionar ao carrinho" + "Comprar agora".
-- **`quote`** — apenas "Solicitar orçamento via WhatsApp" (não entra no carrinho).
-- **`both`** — ambos: compra direta + botão secundário de WhatsApp.
-
-Editável por produto no admin.
-
----
-
-## Cupons demonstrativos
-
-| Código | Tipo | Efeito |
-|---|---|---|
-| `BEMVINDO10` | Percentual | 10% off |
-| `PIX5` | Percentual | 5% off extra |
-| `FRETE3D` | Frete | Frete grátis |
-
-Configuráveis em `src/config/site.ts`.
-
----
-
-## Build de produção
-
-```bash
-npm run build
-# saída em dist/
-```
-
-Bundle splitado em ~26 chunks (admin é code-split, visitante público não baixa).
-
-Pronto para deploy estático em **Vercel**, **Netlify**, **Render**, **Cloudflare Pages**, **S3** ou qualquer host estático.
-
-Consulte `CHECKLIST-DEPLOY.md` para o passo a passo.
-
----
-
-## Próximos passos para integração real
-
-Detalhamento completo em `ROADMAP-FASE-2.md`. Resumo:
-
-| Componente | Onde plugar |
+| Script | O que faz |
 |---|---|
-| Banco de dados (Supabase, Postgres) | Substituir `data/*.ts` e métodos do `useAdminDataStore` por chamadas em `src/services/` |
-| Auth real | Substituir `useAdminAuthStore` por Supabase Auth / Auth0 / JWT próprio |
-| Gateway de pagamento | Implementar em `pages/public/Checkout.tsx` no `onConfirm` do `ReviewStep` |
-| Frete real | Substituir `getCartShipping` por API dos Correios / Melhor Envio |
-| Upload de imagens | Substituir geração SVG por upload (Supabase Storage / S3) |
-| ERP / Estoque | Sincronizar `stock` via webhook ou polling |
-| E-mail transacional | Plugar em confirmação de checkout e contato |
-| Newsletter | Persistir em base ou serviço externo (Mailchimp, RD) |
+| `npm run dev` | Vite em modo desenvolvimento |
+| `npm run build` | `tsc -b && vite build` → `dist/` |
+| `npm run preview` | Serve o build localmente |
+
+**Backend (`backend/`)** — lista completa em [backend/README.md](backend/README.md)
+
+| Script | O que faz |
+|---|---|
+| `npm run dev` / `build` / `start` | Desenvolvimento, compilação e execução |
+| `npm test` | Testes (Vitest) |
+| `npm run db:deploy` | `prisma migrate deploy` (único comando de migration para produção) |
+| `npm run prisma:seed` | Seed (admin + configurações; não sobrescreve dados existentes) |
+| `npm run check:config` | Confere banco, admin, Mercado Pago, Blob, e-mail e cron sem alterar nada |
 
 ---
 
-## Documentos do projeto
+## Variáveis de ambiente
+
+Modelos comentados: [.env.example](.env.example) (frontend, Vercel) e [backend/.env.example](backend/.env.example) (backend, Render). Onde obter cada valor: [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md).
+
+- **Frontend (Vercel):** `VITE_API_URL`, `VITE_SITE_URL`, `VITE_MP_PUBLIC_KEY`, `VITE_GA_MEASUREMENT_ID` (opcional), `VITE_SEURASTREIO_API_KEY` (opcional).
+- **Backend (Render):** `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `CORS_ORIGINS`, `APP_URL`, `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, `SMTP_*` ou `BREVO_API_KEY` + `SMTP_FROM`.
+- **GitHub Actions:** secrets `CRON_SECRET` e `BACKEND_URL`.
+
+Nunca versione `.env` nem cole valores reais em documentação.
+
+---
+
+## Deploy
+
+Resumo: frontend na Vercel (raiz, `vercel.json` com rewrite de SPA), backend no Render (Root Directory `backend/`, build `npm ci --include=dev && npm run build`, start `npm start`, health check `/health`), banco no Neon. Passo a passo e checklist pós-deploy: [CHECKLIST-DEPLOY.md](CHECKLIST-DEPLOY.md).
+
+---
+
+## Documentação
 
 | Arquivo | Para que serve |
 |---|---|
-| `README.md` | Este arquivo — visão geral |
-| `CHECKLIST-ENTREGA.md` | Checklist pré-entrega do projeto |
-| `CHECKLIST-DEPLOY.md` | Passo a passo de deploy estático |
-| `ROTEIRO-DEMO.md` | Roteiro de apresentação 5-7 min |
-| `RESUMO-COMERCIAL.md` | Argumentos comerciais e valor percebido |
-| `ROADMAP-FASE-2.md` | Caminho de evolução para backend real |
-| `INSTRUCOES-ADMIN.md` | Manual rápido do painel admin |
+| [README.md](README.md) | Visão geral e estado atual (este arquivo) |
+| [CONFIGURAR-CLIENTE.md](CONFIGURAR-CLIENTE.md) | Contas e dados do cliente: Mercado Pago, e-mail, domínio, admin, Neon, Blob |
+| [CHECKLIST-DEPLOY.md](CHECKLIST-DEPLOY.md) | Deploy (Vercel + Render + Neon), migrations e verificação pós-deploy |
+| [CHECKLIST-PRODUCAO.md](CHECKLIST-PRODUCAO.md) | O que já está pronto e o que ainda falta para operar |
+| [CHECKLIST-ENTREGA.md](CHECKLIST-ENTREGA.md) | Checklist de entrega ao cliente |
+| [INSTRUCOES-ADMIN.md](INSTRUCOES-ADMIN.md) | Manual do painel administrativo |
+| [backend/README.md](backend/README.md) | Estrutura, scripts e rotinas do backend |
+| [docs/integracoes/mercadopago-orders-api.md](docs/integracoes/mercadopago-orders-api.md) | Referência técnica da integração Mercado Pago |
+| [docs/integracoes/frete-melhor-envio.md](docs/integracoes/frete-melhor-envio.md) | Frete por CEP (Melhor Envio): estado atual, regras e referência da API |
 
 ---
 
 **3DCommerce** — Tudo para impressão 3D em um só lugar.
-Desenvolvido com cuidado pela **G-Rec Company**.
+Desenvolvido pela **G-Rec Company**.

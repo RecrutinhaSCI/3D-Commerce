@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { loginUrl } from '@/utils/redirect';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
-import { ChevronRight, Check, Copy, ExternalLink, Clock } from 'lucide-react';
-import { useCartStore, getCartDiscount, getCartShipping, getCartSubtotal } from '@/store/useCartStore';
+import { ChevronRight, Check, Copy, ExternalLink, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { useCartStore, getCartDiscount, getCartSubtotal } from '@/store/useCartStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { Button } from '@/components/ui/Button';
 import { Input, Label } from '@/components/ui/Input';
@@ -21,6 +21,8 @@ import { paymentService } from '@/services/paymentService';
 import { shippingService } from '@/services/shippingService';
 import { ApiError } from '@/services/api';
 import { apiOrderToInternal } from '@/services/adapters';
+import { whatsappContact } from '@/utils/whatsapp';
+import { effectiveShippingMethod, isCompleteCep, shippingQuoteKey } from '@/utils/checkoutShipping';
 import { CardPaymentBrick, type PaymentBrickSubmit } from '@/components/checkout/PaymentBrick';
 import type {
   ApiOrder,
@@ -28,6 +30,8 @@ import type {
   ApiPixPaymentResult,
   ApiBoletoPaymentResult,
   ApiShippingMethod,
+  ApiShippingQuote,
+  ApiShippingQuoteOption,
 } from '@/services/types';
 
 const customerSchema = z.object({
@@ -42,7 +46,8 @@ const customerSchema = z.object({
     .refine((v) => isValidCpf(v), 'CPF inválido — confira os números'),
 });
 const addressSchema = z.object({
-  cep: z.string().min(8, 'CEP inválido'),
+  // Exatamente 8 dígitos (a máscara conta o hífen: "12345-67" tem 8 caracteres).
+  cep: z.string().refine(isCompleteCep, 'CEP inválido'),
   street: z.string().min(3, 'Endereço inválido'),
   number: z.string().min(1, 'Informe o número'),
   complement: z.string().optional(),
@@ -56,7 +61,7 @@ export type CheckoutAddress = z.infer<typeof addressSchema>;
 type Address = CheckoutAddress;
 
 type ShippingMethod = ApiShippingMethod;
-type ShippingPrices = Record<ShippingMethod, { price: number; label: string; deadline: string }>;
+type ShippingQuoteState = 'idle' | 'loading' | 'error';
 
 // O método de pagamento (cartão/Pix/boleto) é escolhido por abas na fase de
 // pagamento (PaymentPhase), após criar o pedido — por isso não há passo
@@ -95,18 +100,26 @@ export default function Checkout() {
         }
       : null,
   );
-  const [shipping, setShipping] = useState<ShippingMethod>('PAC');
-  // Opções de frete calculadas no backend (fonte única da regra).
-  const [remoteShipping, setRemoteShipping] = useState<ShippingPrices | null>(null);
+  // Modalidade que o CLIENTE escolheu. A efetiva (`shipping`, abaixo) cai na
+  // primeira disponível só enquanto a preferida não existe na cotação — assim
+  // a retirada forçada por indisponibilidade não "gruda" quando a cotação volta.
+  const [preferredShipping, setPreferredShipping] = useState<ShippingMethod>('PAC');
+  // Cotação do backend (fonte única da regra): carrinho do servidor + CEP do
+  // endereço. Sem estimativa local — o valor exibido é o que o pedido cobra.
+  // `quote.key` = CEP + carrinho + cupom para os quais ela foi calculada: uma
+  // cotação de outra combinação nunca é exibida nem enviada como conferência.
+  const [quote, setQuote] = useState<(ApiShippingQuote & { key: string }) | null>(null);
+  const [quoteState, setQuoteState] = useState<ShippingQuoteState>('idle');
+  const [quoteNonce, setQuoteNonce] = useState(0);
+  // Mensagem do backend quando a cotação é recusada (ex.: produto sem estoque).
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   // Pedido criado (PENDING) aguardando pagamento pelo Payment Brick.
   const [createdOrder, setCreatedOrder] = useState<ApiOrder | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
-  const freeShippingThreshold = useAdminDataStore((s) => s.settings.freeShippingThreshold);
   const subtotal = getCartSubtotal(items, products);
   const discount = getCartDiscount(subtotal, appliedCoupon);
-  const cartShipping = getCartShipping(subtotal, appliedCoupon, freeShippingThreshold);
 
   // Revalida o cupom sempre que o subtotal mudar (remove se inválido).
   useEffect(() => {
@@ -120,34 +133,75 @@ export default function Checkout() {
     if (okApplied) toast.success('Cupom aplicado!');
     setCouponCode('');
   }
-  const freeShip = !!appliedCoupon?.freeShipping;
-
+  // Recota quando muda o CEP do endereço, o carrinho (itens/quantidades) ou o
+  // cupom. O backend lê o carrinho do servidor — nada de preço vai daqui.
+  const cep = address?.cep.replace(/\D/g, '') ?? '';
+  const cartKey = useMemo(() => items.map((i) => `${i.productId}:${i.qty}`).sort().join('|'), [items]);
+  const couponForQuote = appliedCoupon?.code ?? null;
+  const isLogged = !!loggedCustomer;
+  const quoteKey = shippingQuoteKey(cep, items, couponForQuote);
   useEffect(() => {
-    if (subtotal <= 0) return;
+    if (!isLogged || !isCompleteCep(cep) || !cartKey) {
+      // Sem CEP válido (ou carrinho vazio): nada de cotação antiga na tela.
+      setQuote(null);
+      setQuoteError(null);
+      setQuoteState('idle');
+      return;
+    }
     let cancelled = false;
+    setQuoteState('loading');
     shippingService
-      .getOptions(subtotal, freeShip)
-      .then(({ options }) => {
+      .quote(cep, couponForQuote)
+      .then((q) => {
         if (cancelled) return;
-        const map = {} as ShippingPrices;
-        for (const o of options) map[o.method] = { price: o.price, label: o.label, deadline: o.deadline };
-        setRemoteShipping(map);
+        setQuote({ ...q, key: quoteKey });
+        setQuoteError(null);
+        setQuoteState('idle');
       })
-      .catch(() => {
-        if (!cancelled) setRemoteShipping(null); // cai na estimativa local abaixo
+      .catch((err) => {
+        if (cancelled) return;
+        setQuote(null);
+        setQuoteError(err instanceof ApiError && err.status === 400 ? err.message : null);
+        setQuoteState('error');
       });
     return () => {
       cancelled = true;
     };
-  }, [subtotal, freeShip]);
+    // quoteKey deriva de cep/cartKey/couponForQuote (já nas dependências).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cep, cartKey, couponForQuote, quoteNonce, isLogged]);
 
-  // Estimativa local só como fallback de exibição; o backend recalcula no pedido.
-  const shippingPrices: ShippingPrices = remoteShipping ?? {
-    PAC: { price: cartShipping, label: 'PAC', deadline: '5 a 8 dias úteis' },
-    SEDEX: { price: freeShip ? 0 : cartShipping + 18, label: 'Sedex', deadline: '2 a 4 dias úteis' },
-    PICKUP: { price: 0, label: 'Retirada na loja', deadline: 'Em até 1 dia útil' },
-  };
-  const finalShipping = shippingPrices[shipping].price;
+  // Só vale a cotação da combinação ATUAL de CEP + carrinho + cupom.
+  const currentQuote = quoteState === 'idle' && quote?.key === quoteKey ? quote : null;
+
+  // Preferida indisponível na cotação atual (ex.: só retirada) → primeira opção.
+  const shipping: ShippingMethod = effectiveShippingMethod(preferredShipping, currentQuote);
+
+  const selectedShipping: ApiShippingQuoteOption | null =
+    currentQuote?.options.find((o) => o.method === shipping) ?? null;
+  // Na revisão sem frete válido (recotando, ou a opção sumiu) → volta a
+  // mostrar a escolha da entrega em vez de um resumo sem frete.
+  const shownStep = step === 3 && !selectedShipping && !createdOrder ? 2 : step;
+  // O resumo só mostra frete a partir da etapa de entrega: antes disso o
+  // endereço pode mudar e a modalidade ainda não foi escolhida.
+  const shippingShown = (shownStep >= 2 || !!createdOrder) && !!selectedShipping;
+
+  // Troca de etapa (inclusive a volta para a entrega após 409): leva ao topo —
+  // no celular o resumo fica abaixo e o cliente não veria a etapa nova.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [shownStep]);
+
+  // Ao ENTRAR na etapa de entrega, uma falha temporária anterior (provedor
+  // fora, timeout, rede) é recotada sozinha — não mostra indisponibilidade velha.
+  const lastQuoteFailedTemporarily =
+    quoteState === 'error' || (quoteState === 'idle' && !!currentQuote && currentQuote.status === 'unavailable' && currentQuote.retryable);
+  useEffect(() => {
+    if (shownStep === 2 && lastQuoteFailedTemporarily) setQuoteNonce((n) => n + 1);
+    // Só na entrada da etapa: o botão "Tentar novamente" cobre o resto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownStep]);
+  const finalShipping = shippingShown ? selectedShipping!.price : 0;
   const total = subtotal - discount + finalShipping;
 
   // Visitante com carrinho: entra (ou cria conta) e volta direto para cá — o
@@ -219,6 +273,8 @@ export default function Checkout() {
           country: 'Brasil',
         },
         shippingMethod: shipping,
+        // Só conferência: o backend recalcula e recusa (409) se mudou.
+        expectedShippingValue: selectedShipping?.price,
         couponCode: appliedCoupon?.code ?? null,
         // Placeholder: o método real é definido no Payment Brick e o backend
         // atualiza order.paymentMethod ao criar o pagamento (createPayment).
@@ -234,6 +290,21 @@ export default function Checkout() {
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && err.code === 'SHIPPING_CHANGED') {
+        // Frete mudou entre a tela e o pedido: nada foi criado nem cobrado.
+        // Mostra as opções novas e volta para a escolha da entrega.
+        const fresh = (err.details as { quote?: ApiShippingQuote } | undefined)?.quote;
+        if (fresh) {
+          // Calculada pelo backend para o CEP deste pedido = combinação atual.
+          setQuote({ ...fresh, key: quoteKey });
+          setQuoteState('idle');
+        } else {
+          setQuoteNonce((n) => n + 1);
+        }
+        setStep(2);
+        toast.error(err.message);
+        return;
+      }
       const msg = err instanceof ApiError ? err.message : 'Erro ao criar pedido.';
       toast.error(msg);
     } finally {
@@ -308,20 +379,23 @@ export default function Checkout() {
               }}
             />
           )}
-          {step === 2 && (
+          {shownStep === 2 && (
             <ShippingStep
-              prices={shippingPrices}
+              quote={currentQuote}
+              state={quoteState}
+              error={quoteError}
+              onRetry={() => setQuoteNonce((n) => n + 1)}
               value={shipping}
-              setValue={setShipping}
+              setValue={setPreferredShipping}
               onBack={() => setStep(1)}
               onNext={() => setStep(3)}
             />
           )}
-          {step === 3 && customer && address && !createdOrder && (
+          {shownStep === 3 && customer && address && !createdOrder && selectedShipping && (
             <ReviewStep
               customer={customer}
               address={address}
-              shipping={shippingPrices[shipping]}
+              shipping={selectedShipping}
               total={total}
               creating={creatingOrder}
               onBack={() => setStep(2)}
@@ -364,20 +438,31 @@ export default function Checkout() {
               <dd>{formatBRL(subtotal)}</dd>
             </div>
             {appliedCoupon && (
-              <div className="flex justify-between text-emerald-600">
+              <div className="flex justify-between gap-2 text-emerald-600">
                 <dt>
                   Cupom {appliedCoupon.code}{' '}
                   <button onClick={removeCoupon} className="text-xs underline">remover</button>
                 </dt>
-                <dd>{appliedCoupon.freeShipping ? 'Frete grátis' : `-${formatBRL(discount)}`}</dd>
+                <dd className="shrink-0 whitespace-nowrap text-right">{appliedCoupon.freeShipping ? 'Frete grátis no PAC' : `-${formatBRL(discount)}`}</dd>
               </div>
             )}
-            <div className="flex justify-between">
-              <dt className="text-ink-mute">Frete</dt>
-              <dd>{finalShipping === 0 ? 'Grátis' : formatBRL(finalShipping)}</dd>
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-mute">Frete{shippingShown ? ` (${selectedShipping!.label})` : ''}</dt>
+              <dd className={shippingShown ? '' : 'text-ink-mute'}>
+                {shippingShown
+                  ? finalShipping === 0
+                    ? 'Grátis'
+                    : formatBRL(finalShipping)
+                  : shownStep >= 2 && quoteState === 'loading'
+                    ? 'Calculando…'
+                    : 'Na etapa de entrega'}
+              </dd>
             </div>
             <div className="mt-1 flex justify-between border-t border-ink-line pt-2 text-base font-bold">
-              <dt>Total</dt>
+              <dt>
+                Total
+                {!shippingShown && <span className="text-xs font-normal text-ink-mute"> (sem frete)</span>}
+              </dt>
               <dd>{formatBRL(total)}</dd>
             </div>
           </dl>
@@ -557,40 +642,96 @@ function AddressStep({ defaults, onBack, onNext }: { defaults?: Address; onBack:
 }
 
 function ShippingStep({
-  prices, value, setValue, onBack, onNext,
+  quote, state, error, onRetry, value, setValue, onBack, onNext,
 }: {
-  prices: ShippingPrices;
+  quote: ApiShippingQuote | null;
+  state: ShippingQuoteState;
+  error: string | null;
+  onRetry: () => void;
   value: ShippingMethod;
   setValue: (v: ShippingMethod) => void;
   onBack: () => void;
   onNext: () => void;
 }) {
+  const options = state === 'idle' ? quote?.options ?? [] : [];
+  const canContinue = options.some((o) => o.method === value);
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold">Forma de entrega</h2>
+
+      {state === 'idle' && !quote && (
+        <p className="rounded-xl border border-ink-line p-4 text-sm text-ink-mute">
+          Informe um CEP válido no endereço para calcular o frete.
+        </p>
+      )}
+
+      {state === 'loading' && (
+        <p className="rounded-xl border border-ink-line p-4 text-sm text-ink-mute">Calculando o frete para o seu CEP…</p>
+      )}
+
+      {state === 'error' && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          <p>{error ?? 'Não foi possível calcular o frete agora. Verifique sua conexão e tente novamente.'}</p>
+          <Button variant="secondary" size="sm" className="mt-3" onClick={onRetry}>
+            <RefreshCw className="h-4 w-4" /> Tentar novamente
+          </Button>
+        </div>
+      )}
+
+      {state === 'idle' && quote?.status === 'unavailable' && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <p className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{quote.message ?? 'Não conseguimos calcular a entrega agora. Você pode retirar na loja.'}</span>
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {quote.retryable && (
+              <Button variant="secondary" size="sm" onClick={onRetry}>
+                <RefreshCw className="h-4 w-4" /> Tentar novamente
+              </Button>
+            )}
+            <a href={whatsappContact()} target="_blank" rel="noopener noreferrer" className="btn-secondary !py-1.5 text-xs">
+              Falar no WhatsApp
+            </a>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
-        {(Object.keys(prices) as ShippingMethod[]).map((k) => {
-          const p = prices[k];
+        {options.map((o) => {
+          const discounted = o.price < o.basePrice;
           return (
             <label
-              key={k}
+              key={o.method}
               className={`flex cursor-pointer items-center justify-between rounded-xl border p-4 ${
-                value === k ? 'border-ink bg-bg-soft' : 'border-ink-line'
+                value === o.method ? 'border-ink bg-bg-soft' : 'border-ink-line'
               }`}
             >
               <div className="flex items-center gap-3">
                 <input
                   type="radio"
-                  checked={value === k}
-                  onChange={() => setValue(k)}
+                  name="shipping-method"
+                  value={o.method}
+                  aria-label={`${o.label}, ${o.price === 0 ? 'grátis' : formatBRL(o.price)}`}
+                  checked={value === o.method}
+                  onChange={() => setValue(o.method)}
                   className="accent-ink"
                 />
                 <div>
-                  <p className="font-semibold">{p.label}</p>
-                  <p className="text-xs text-ink-mute">{p.deadline}</p>
+                  <p className="font-semibold">{o.label}</p>
+                  <p className="text-xs text-ink-mute">
+                    {o.carrier ? `${o.carrier} · ` : ''}
+                    {o.deadline}
+                  </p>
+                  {discounted && o.price > 0 && (
+                    <p className="text-[11px] text-emerald-700">Frete grátis no PAC: no Sedex você paga só a diferença.</p>
+                  )}
                 </div>
               </div>
-              <span className="font-bold">{p.price === 0 ? 'Grátis' : formatBRL(p.price)}</span>
+              <span className="text-right font-bold">
+                {discounted && <span className="block text-[11px] font-normal text-ink-mute line-through">{formatBRL(o.basePrice)}</span>}
+                {o.price === 0 ? 'Grátis' : formatBRL(o.price)}
+              </span>
             </label>
           );
         })}
@@ -599,7 +740,7 @@ function ShippingStep({
         <Button variant="secondary" onClick={onBack}>
           Voltar
         </Button>
-        <Button onClick={onNext}>Continuar para pagamento</Button>
+        <Button onClick={onNext} disabled={!canContinue}>Continuar para pagamento</Button>
       </div>
     </div>
   );
@@ -610,7 +751,7 @@ function ReviewStep({
 }: {
   customer: Customer;
   address: Address;
-  shipping: { label: string; price: number; deadline: string };
+  shipping: { label: string; price: number; deadline: string; carrier?: string | null };
   total: number;
   creating: boolean;
   onBack: () => void;
@@ -637,8 +778,14 @@ function ReviewStep({
         </div>
         <div className="rounded-xl border border-ink-line p-4">
           <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Entrega</p>
-          <p className="mt-1 text-sm font-semibold">{shipping.label}</p>
-          <p className="text-xs text-ink-mute">{shipping.deadline}</p>
+          <p className="mt-1 flex justify-between gap-2 text-sm font-semibold">
+            <span>{shipping.label}</span>
+            <span>{shipping.price === 0 ? 'Grátis' : formatBRL(shipping.price)}</span>
+          </p>
+          <p className="text-xs text-ink-mute">
+            {shipping.carrier ? `${shipping.carrier} · ` : ''}
+            {shipping.deadline}
+          </p>
         </div>
         <div className="rounded-xl border border-ink-line p-4">
           <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Pagamento</p>

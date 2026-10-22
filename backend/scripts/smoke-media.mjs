@@ -59,6 +59,11 @@ let r = await fetch(`${API}/api/admin/products`, {
     price: 10,
     stock: 5,
     purchaseMode: 'DIRECT',
+    // Peso (kg) e medidas (cm) da embalagem: obrigatórios na criação.
+    weight: 0.5,
+    width: 10,
+    height: 10,
+    depth: 10,
   }),
 });
 let j = await r.json();

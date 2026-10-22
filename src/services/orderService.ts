@@ -18,6 +18,11 @@ export interface CreateOrderPayload {
   address: ApiOrderAddress;
   /** Modalidade escolhida; o valor do frete é calculado no backend. */
   shippingMethod: ApiShippingMethod;
+  /**
+   * Valor de frete que o cliente VIU — só conferência. Se o backend recalcular
+   * outro valor, responde 409 SHIPPING_CHANGED com as opções novas.
+   */
+  expectedShippingValue?: number;
   /** Código do cupom. O desconto é recalculado no backend. */
   couponCode?: string | null;
   paymentMethod: ApiPaymentMethod;

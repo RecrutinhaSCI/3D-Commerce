@@ -5,6 +5,7 @@ import { created, ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
 import { env } from '../../config/env';
 import { paymentsService } from './payments.service';
+import { runMelhorEnvioTokenMaintenance } from '../integrations/melhorEnvioOAuth';
 import { createPaymentSchema } from './payments.schemas';
 
 const orderIdParam = z.object({ orderId: z.string().min(1) });
@@ -114,7 +115,12 @@ export const paymentsController = {
     const result = await paymentsService.expireUnpaidOrders();
     // eslint-disable-next-line no-console
     console.log(`[cron] expire-orders: ${JSON.stringify(result)}`);
-    return ok(res, result);
+    // Job SEPARADO: renovação preventiva do token OAuth do Melhor Envio. Nunca
+    // lança nem atrapalha a expiração de pedidos; o resultado não tem segredo.
+    const melhorEnvioToken = await runMelhorEnvioTokenMaintenance();
+    // eslint-disable-next-line no-console
+    console.log(`[cron] melhor-envio-token: ${JSON.stringify(melhorEnvioToken)}`);
+    return ok(res, { ...result, melhorEnvioToken });
   },
 
   async reconcile(_req: Request, res: Response) {

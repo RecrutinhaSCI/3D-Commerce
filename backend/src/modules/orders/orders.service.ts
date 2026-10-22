@@ -3,7 +3,6 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
-  ProductPurchaseMode,
   type ShippingMethod,
   type CouponDiscountType,
   type Order,
@@ -22,8 +21,8 @@ import {
   type EmailContent,
 } from '../../lib/emailTemplates';
 import { couponsService } from '../coupons/coupons.service';
-import { effectivePrice } from '../cart/cart.service';
-import { shippingService } from '../shipping/shipping.service';
+import { assertCartPurchasable, effectivePrice } from '../cart/cart.service';
+import { shippingService, toQuoteItems, type CartQuote } from '../shipping/shipping.service';
 import type {
   AdminOrdersQuery,
   CreateOrderInput,
@@ -31,6 +30,15 @@ import type {
   UpdateOrderStatusInput,
   UpdateOrderTrackingInput,
 } from './orders.schemas';
+
+/**
+ * 409 SHIPPING_CHANGED — o frete mudou entre a tela e a criação do pedido.
+ * Devolve a cotação pública atual (sem códigos internos) para o front
+ * atualizar a seleção. Nada foi criado nem cobrado.
+ */
+function shippingChanged(quote: CartQuote, message: string): HttpError {
+  return new HttpError(409, 'SHIPPING_CHANGED', message, { quote });
+}
 
 type OrderWithRelations = Order & {
   items: OrderItem[];
@@ -51,6 +59,13 @@ export interface OrderDTO {
   shippingValue: number;
   /** Modalidade de entrega (null em pedidos antigos). */
   shippingMethod: ShippingMethod | null;
+  /** Detalhes da cotação usada (todos null em pedidos antigos). */
+  shippingServiceId: number | null;
+  shippingServiceName: string | null;
+  shippingCarrier: string | null;
+  /** Prazo do serviço de entrega, em dias úteis. */
+  shippingDeadlineDays: number | null;
+  shippingQuoteSource: string | null;
   discountValue: number;
   /** Desconto da forma de pagamento (ex.: Pix), já abatido de `total`. */
   paymentDiscount: number;
@@ -93,6 +108,11 @@ function toOrderDTO(order: OrderWithRelations): OrderDTO {
     subtotal: decimalToNumber(order.subtotal) ?? 0,
     shippingValue: decimalToNumber(order.shippingValue) ?? 0,
     shippingMethod: order.shippingMethod,
+    shippingServiceId: order.shippingServiceId ?? null,
+    shippingServiceName: order.shippingServiceName ?? null,
+    shippingCarrier: order.shippingCarrier ?? null,
+    shippingDeadlineDays: order.shippingDeadlineDays ?? null,
+    shippingQuoteSource: order.shippingQuoteSource ?? null,
     discountValue: decimalToNumber(order.discountValue) ?? 0,
     paymentDiscount: decimalToNumber(order.paymentDiscount) ?? 0,
     totalBeforeDiscount:
@@ -167,25 +187,9 @@ export const ordersService = {
       throw HttpError.badRequest('Carrinho vazio.');
     }
 
-    // Revalidação de cada item antes da transação: existência, ativo, modo, estoque.
-    for (const item of cart.items) {
-      if (!item.product) {
-        throw HttpError.badRequest('Um dos produtos do carrinho não existe mais.');
-      }
-      if (!item.product.active) {
-        throw HttpError.badRequest(`Produto "${item.product.name}" não está mais disponível.`);
-      }
-      if (item.product.purchaseMode === ProductPurchaseMode.QUOTE) {
-        throw HttpError.badRequest(
-          `Produto "${item.product.name}" é apenas via orçamento.`,
-        );
-      }
-      if (item.quantity > item.product.stock) {
-        throw HttpError.badRequest(
-          `Estoque insuficiente para "${item.product.name}" (pediu ${item.quantity}, disponível ${item.product.stock}).`,
-        );
-      }
-    }
+    // Revalidação de cada item antes da transação: existência, ativo, modo,
+    // estoque (mesma regra da cotação de frete).
+    assertCartPurchasable(cart.items);
 
     // Cálculos monetários usando Prisma.Decimal para não perder precisão.
     // Preço = o ATUAL do produto (promoção vigente), nunca o congelado no carrinho.
@@ -205,12 +209,31 @@ export const ordersService = {
       ? await couponsService.resolveForOrder(input.couponCode, subtotalNum, userId)
       : null;
 
-    // Frete SEMPRE calculado aqui a partir da modalidade (o valor enviado pelo
-    // cliente é ignorado). Limite de frete grátis vem do /admin/configuracoes.
-    const freeShipping = resolved?.freeShipping ?? false;
-    const shipping = new Prisma.Decimal(
-      await shippingService.priceFor(input.shippingMethod, subtotalNum, freeShipping),
-    );
+    // Frete SEMPRE calculado aqui, com a MESMA cotação do checkout
+    // (`quoteForItems`): carrinho do banco + CEP do ENDEREÇO DESTE PEDIDO +
+    // cupom já resolvido. `shippingValue`/`expectedShippingValue` do cliente
+    // nunca viram valor cobrado. A cotação real usa o cache de 10 min do
+    // Melhor Envio e recota quando expirou.
+    const quote = await shippingService.quoteForItems({
+      cep: input.address.zipCode,
+      items: toQuoteItems(cart.items).items,
+      subtotal: subtotalNum,
+      couponFreeShipping: resolved?.freeShipping ?? false,
+    });
+    const chosen = quote.options.find((o) => o.method === input.shippingMethod);
+    if (!chosen) {
+      // Modalidade que o cliente viu não existe mais (ex.: Melhor Envio caiu
+      // e só sobrou a retirada) → nada é criado; o front reexibe as opções.
+      throw shippingChanged(quote, 'A forma de entrega escolhida não está mais disponível. Confira as opções atualizadas.');
+    }
+    if (
+      input.expectedShippingValue !== undefined &&
+      // Em centavos: evita 23,50 − 23,49 = 0,0100000001 (ponto flutuante).
+      Math.abs(Math.round(chosen.price * 100) - Math.round(input.expectedShippingValue * 100)) > 1
+    ) {
+      throw shippingChanged(quote, 'O valor do frete foi atualizado. Confira antes de continuar.');
+    }
+    const shipping = new Prisma.Decimal(chosen.price);
     const discount = new Prisma.Decimal(resolved ? resolved.discountAmount : 0);
     let total = subtotal.add(shipping).sub(discount);
     if (total.lt(0)) total = new Prisma.Decimal(0); // nunca negativo
@@ -246,6 +269,11 @@ export const ordersService = {
           subtotal,
           shippingValue: shipping,
           shippingMethod: input.shippingMethod,
+          shippingServiceId: chosen.serviceId,
+          shippingServiceName: chosen.serviceName,
+          shippingCarrier: chosen.carrier,
+          shippingDeadlineDays: chosen.deadlineDays,
+          shippingQuoteSource: chosen.source,
           discountValue: discount,
           total,
           status: OrderStatus.PENDING,

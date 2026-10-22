@@ -6,7 +6,7 @@ import { Drawer } from '@/components/ui/Drawer';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { useUIStore } from '@/store/useUIStore';
-import { getCartDiscount, getCartShipping, getCartSubtotal, useCartStore } from '@/store/useCartStore';
+import { getCartDiscount, getCartSubtotal, useCartStore } from '@/store/useCartStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { formatBRL } from '@/utils/price';
 
@@ -20,8 +20,8 @@ export function CartDrawer() {
 
   const subtotal = getCartSubtotal(items, products);
   const discount = getCartDiscount(subtotal, appliedCoupon);
-  const shipping = getCartShipping(subtotal, appliedCoupon, freeShippingThreshold);
-  const total = subtotal - discount + shipping;
+  // Frete NÃO entra aqui: o valor real (CEP + medidas) é cotado no checkout.
+  const total = subtotal - discount;
 
   // Revalida o cupom quando o subtotal muda (mesma regra do Cart/Checkout).
   useEffect(() => {
@@ -125,17 +125,17 @@ export function CartDrawer() {
                 <dd>{formatBRL(subtotal)}</dd>
               </div>
               {appliedCoupon && (discount > 0 || appliedCoupon.freeShipping) && (
-                <div className="flex justify-between text-emerald-600">
+                <div className="flex justify-between gap-2 text-emerald-600">
                   <dt>Cupom ({appliedCoupon.code})</dt>
-                  <dd>{appliedCoupon.freeShipping ? 'Frete grátis' : `-${formatBRL(discount)}`}</dd>
+                  <dd className="shrink-0 whitespace-nowrap text-right">{appliedCoupon.freeShipping ? 'Frete grátis no PAC' : `-${formatBRL(discount)}`}</dd>
                 </div>
               )}
               <div className="flex justify-between">
                 <dt className="text-ink-mute">Frete</dt>
-                <dd>{shipping === 0 ? 'Grátis' : formatBRL(shipping)}</dd>
+                <dd className="text-ink-mute">Calculado no checkout</dd>
               </div>
               <div className="mt-2 flex justify-between border-t border-ink-line pt-2 text-base font-bold">
-                <dt>Total</dt>
+                <dt>Total <span className="text-xs font-normal text-ink-mute">(sem frete)</span></dt>
                 <dd>{formatBRL(total)}</dd>
               </div>
             </dl>

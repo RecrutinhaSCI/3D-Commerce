@@ -127,6 +127,11 @@ export interface BulkImportRow {
   material?: string;
   // R19-C — imagem principal por URL (opcional). Bloqueia protocolos inseguros no backend.
   imageUrl?: string;
+  // Peso (kg) e dimensões (cm) da embalagem.
+  weight?: number;
+  width?: number;
+  height?: number;
+  depth?: number;
 }
 
 export interface BulkImportItem {
@@ -150,5 +155,7 @@ export interface BulkImportReport {
   conflicts: BulkImportItem[];
   /** Imagens `/uploads/...` antigas da planilha ignoradas (arquivo já não existe). Backend antigo não manda. */
   legacyImagesIgnored?: BulkImportItem[];
-  summary: { total: number; created: number; updated: number; unchanged: number; skipped: number; conflicts: number; legacyImagesIgnored?: number };
+  /** AVISO: produtos criados sem peso/medidas completos (não cotam frete). Backend antigo não manda. */
+  missingPhysical?: BulkImportItem[];
+  summary: { total: number; created: number; updated: number; unchanged: number; skipped: number; conflicts: number; legacyImagesIgnored?: number; missingPhysical?: number };
 }

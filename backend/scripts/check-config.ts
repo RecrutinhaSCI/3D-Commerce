@@ -16,7 +16,8 @@
 // DOTENV_CONFIG_PATH (ex.: .env.production.local). Se o @prisma/client vier
 // antes, ele carrega o backend/.env de desenvolvimento e o NODE_ENV/variáveis
 // de lá prevalecem (o dotenv não sobrescreve o que já existe).
-import { env, corsOrigins, productionConfigWarnings } from '../src/config/env';
+import { env, corsOrigins, melhorEnvioConfigWarnings, productionConfigWarnings } from '../src/config/env';
+import { resolveMelhorEnvioConfig } from '../src/modules/shipping/melhorEnvioConfig';
 import fs from 'node:fs';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
@@ -177,6 +178,17 @@ function checkCron() {
   }
 }
 
+function checkShipping() {
+  // Opcional: sem token o frete fica na tabela fixa (comportamento legado).
+  const me = resolveMelhorEnvioConfig(env);
+  if (me.enabled) {
+    add('ok', 'Frete', `Melhor Envio ligado (origem ${me.originCep}, ${me.baseUrl.includes('sandbox') ? 'SANDBOX' : 'produção'}).`);
+  } else if (!me.token) {
+    add('ok', 'Frete', 'Melhor Envio desligado — frete pela tabela fixa (PAC/Sedex/retirada).');
+  }
+  for (const w of melhorEnvioConfigWarnings()) add('warn', 'Frete', w);
+}
+
 function checkUploads() {
   if (env.BLOB_READ_WRITE_TOKEN) {
     add('ok', 'Uploads', 'Vercel Blob configurado (BLOB_READ_WRITE_TOKEN).');
@@ -213,6 +225,7 @@ async function main() {
   await checkMercadoPago();
   await checkSmtp();
   checkCron();
+  checkShipping();
   checkUploads();
   checkUrls();
 

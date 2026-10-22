@@ -244,6 +244,16 @@ export function ProductImportModal({ open, onClose, onDone }: Props) {
               ) : null;
             })()}
 
+            {(report.missingPhysical?.length ?? 0) > 0 && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  <b>{report.missingPhysical!.length} produto(s) criado(s) sem peso/medidas</b> — não terão frete
+                  calculado por CEP até você completar o cadastro. Use o filtro <b>Sem medidas</b> na lista de produtos.
+                </span>
+              </div>
+            )}
+
             {imageReport && (
               <p className="text-xs text-ink-mute">
                 Fotos da planilha: <b>{imageReport.sent}</b> enviada(s)
@@ -252,7 +262,7 @@ export function ProductImportModal({ open, onClose, onDone }: Props) {
               </p>
             )}
 
-            {(report.conflicts.length > 0 || report.skipped.length > 0 || (imageReport?.failed.length ?? 0) > 0 || (report.legacyImagesIgnored?.length ?? 0) > 0) && (
+            {(report.conflicts.length > 0 || report.skipped.length > 0 || (imageReport?.failed.length ?? 0) > 0 || (report.legacyImagesIgnored?.length ?? 0) > 0 || (report.missingPhysical?.length ?? 0) > 0) && (
               <div className="max-h-52 overflow-y-auto rounded-lg border border-ink-line text-xs">
                 {report.conflicts.map((c, i) => (
                   <div key={`c${i}`} className="flex items-start gap-2 border-b border-ink-line/50 bg-amber-50/40 px-3 py-2 last:border-0">
@@ -276,6 +286,14 @@ export function ProductImportModal({ open, onClose, onDone }: Props) {
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-mute" />
                     <span>
                       <b>Linha {l.line}</b>{l.name ? ` (${l.name})` : ''} — {l.reason}
+                    </span>
+                  </div>
+                ))}
+                {report.missingPhysical?.map((m, i) => (
+                  <div key={`m${i}`} className="flex items-start gap-2 border-b border-ink-line/50 bg-amber-50/40 px-3 py-2 last:border-0">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span>
+                      <b>Linha {m.line}</b>{m.name ? ` (${m.name})` : ''} — <b>Sem medidas:</b> {m.reason}
                     </span>
                   </div>
                 ))}

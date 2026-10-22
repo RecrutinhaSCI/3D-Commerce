@@ -308,7 +308,7 @@ export default function Orders() {
             <div className="space-y-1 border-t border-ink-line pt-3 text-sm">
               <div className="flex justify-between"><span className="text-ink-mute">Subtotal</span><span>{formatBRL(active.subtotal)}</span></div>
               {active.coupon && <div className="flex justify-between text-emerald-600"><span>Cupom {active.coupon.code}</span><span>-{formatBRL(active.coupon.discount)}</span></div>}
-              <div className="flex justify-between"><span className="text-ink-mute">Frete ({active.shipping.method})</span><span>{active.shipping.price === 0 ? 'Grátis' : formatBRL(active.shipping.price)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-mute">Frete ({active.shipping.method}{active.shipping.deadline ? `, ${active.shipping.deadline}` : ''})</span><span>{active.shipping.price === 0 ? 'Grátis' : formatBRL(active.shipping.price)}</span></div>
               {!!active.paymentDiscount && (
                 <div className="flex justify-between text-emerald-600"><span>Desconto Pix</span><span>-{formatBRL(active.paymentDiscount)}</span></div>
               )}
