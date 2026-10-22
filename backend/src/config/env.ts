@@ -87,6 +87,27 @@ const envSchema = z.object({
   // Base do frontend, usada para montar links (reset de senha, verificação).
   APP_URL: z.string().default('http://localhost:5173'),
 
+  // Melhor Envio — SÓ cotação de frete (Correios PAC/Sedex). TODAS opcionais:
+  // sem token (ou sem CEP de origem) o frete continua na tabela fixa.
+  // O token nunca vai ao frontend nem aparece em log.
+  MELHOR_ENVIO_TOKEN: z.preprocess(
+    (v) => emptyToUndefined(typeof v === 'string' ? v.trim().replace(/^["']|["']$/g, '') : v),
+    z.string().optional(),
+  ),
+  // Sandbox por padrão; produção: https://melhorenvio.com.br
+  MELHOR_ENVIO_BASE_URL: z.preprocess(
+    emptyToUndefined,
+    z.string().url('MELHOR_ENVIO_BASE_URL precisa ser uma URL.').default('https://sandbox.melhorenvio.com.br'),
+  ),
+  // Exigido pela API: "Nome do app (email de contato)".
+  MELHOR_ENVIO_USER_AGENT: z.preprocess(emptyToUndefined, z.string().optional()),
+  MELHOR_ENVIO_TIMEOUT_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(8000)),
+  // CEP de onde sai a mercadoria (loja de Bento Gonçalves). Só dígitos.
+  SHIPPING_ORIGIN_CEP: z.preprocess(
+    (v) => emptyToUndefined(typeof v === 'string' ? v.replace(/\D/g, '') : v),
+    z.string().regex(/^\d{8}$/, 'SHIPPING_ORIGIN_CEP precisa ter 8 dígitos.').optional(),
+  ),
+
   // --- Pix Banco Inter / mock (R19) — módulo modules/pix-inter, SEM rotas ativas ---
   // A integração de pagamento em uso é o Mercado Pago (acima).
   // Provider ativo: "mock" (simulado, para dev/testes) ou "inter" (Banco Inter,
@@ -195,6 +216,12 @@ export function productionConfigWarnings(): string[] {
   }
   if (!env.BLOB_READ_WRITE_TOKEN) {
     warnings.push('BLOB_READ_WRITE_TOKEN ausente — uploads serão recusados (o disco do Render/Vercel é efêmero).');
+  }
+  if (env.MELHOR_ENVIO_TOKEN && !env.SHIPPING_ORIGIN_CEP) {
+    warnings.push('MELHOR_ENVIO_TOKEN definido sem SHIPPING_ORIGIN_CEP — a cotação real fica desligada (frete na tabela fixa).');
+  }
+  if (env.MELHOR_ENVIO_TOKEN && env.MELHOR_ENVIO_BASE_URL.includes('sandbox')) {
+    warnings.push('Melhor Envio apontando para o SANDBOX — os preços de frete não são reais.');
   }
   if ((!env.BREVO_API_KEY && !env.SMTP_HOST) || !env.SMTP_FROM) {
     warnings.push('E-mail não configurado (BREVO_API_KEY ou SMTP_HOST, + SMTP_FROM) — nenhum e-mail será enviado (cadastro, pedido, pagamento, senha).');

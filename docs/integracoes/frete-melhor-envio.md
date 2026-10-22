@@ -3,6 +3,8 @@
 Objetivo: substituir o frete fixo do checkout por cotacao real por CEP + peso/dimensoes.
 Loja: Bento Goncalves/RS, envia pra todo o Brasil.
 
+> **Status (21/10/2026):** cliente de cotação implementado em `backend/src/modules/shipping/melhorEnvio.ts` (só Correios PAC/Sedex, serviços 1 e 2), ainda **não ligado** ao checkout. Variáveis: `MELHOR_ENVIO_*` e `SHIPPING_ORIGIN_CEP` em `backend/.env.example`.
+>
 > Fontes oficiais consultadas em 2026-09-15. Endpoints e campos podem mudar — reconfirmar na doc antes de codar.
 
 ---
@@ -26,7 +28,7 @@ Uma unica API cobre Correios + Jadlog + Loggi + outras transportadoras, tem sand
 Authorization: Bearer <TOKEN>
 Accept: application/json
 Content-Type: application/json
-User-Agent: 3D-Commerce (gabriel.flores@ludfor.com.br)
+User-Agent: <MELHOR_ENVIO_USER_AGENT>   (ex.: 3DCommerce (contato@sualoja.com.br))
 ```
 > O User-Agent com nome do app + email de contato e exigido; sem ele a API pode recusar.
 

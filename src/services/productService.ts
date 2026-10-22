@@ -127,6 +127,11 @@ export interface BulkImportRow {
   material?: string;
   // R19-C — imagem principal por URL (opcional). Bloqueia protocolos inseguros no backend.
   imageUrl?: string;
+  // Peso (kg) e dimensões (cm) da embalagem.
+  weight?: number;
+  width?: number;
+  height?: number;
+  depth?: number;
 }
 
 export interface BulkImportItem {

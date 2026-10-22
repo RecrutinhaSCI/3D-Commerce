@@ -114,6 +114,11 @@ const importRowSchema = z.object({
   // R19-B — brand e material são independentes no bulk import também.
   brand: z.string().trim().max(80).optional(),
   material: z.string().trim().max(80).optional(),
+  // Peso (kg) e dimensões (cm) da embalagem — base da cotação de frete.
+  weight: z.number().positive().max(100).optional(),
+  width: z.number().positive().max(300).optional(),
+  height: z.number().positive().max(300).optional(),
+  depth: z.number().positive().max(300).optional(),
 
   // R19-C — URL da imagem principal. Validação sintática detalhada acontece
   // POR LINHA dentro do service (`isSafeImageUrl`), NÃO aqui, para que uma

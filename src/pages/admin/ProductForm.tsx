@@ -58,6 +58,18 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
+// Produto NOVO precisa de peso e medidas da embalagem: sem eles a cotação de
+// frete não funciona. Na edição continuam opcionais, para não travar ajustes
+// de preço/estoque nos produtos antigos que ainda não têm esses dados.
+const PHYSICAL_KEYS = ['weight', 'width', 'height', 'depth'] as const;
+const newProductSchema = schema.superRefine((d, ctx) => {
+  for (const key of PHYSICAL_KEYS) {
+    if (d[key] === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: 'Obrigatório para calcular o frete' });
+    }
+  }
+});
+
 /**
  * Remonta o formulário ao trocar de produto (ex.: "novo" → recém-criado).
  *
@@ -97,7 +109,7 @@ function ProductForm() {
   const [saving, setSaving] = useState(false);
 
   const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<FormData>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(isEdit ? schema : newProductSchema),
     defaultValues: existing
       ? {
           name: existing.name,
@@ -368,7 +380,7 @@ function ProductForm() {
             <h2 className="text-base font-bold">Ficha técnica e envio</h2>
             <p className="mt-1 text-xs text-ink-mute">
               Material, cor e peso aparecem na ficha técnica da loja. Peso e medidas da embalagem
-              serão usados no cálculo de frete por CEP.
+              pronta para envio são usados no cálculo de frete por CEP{isEdit ? '' : ' (obrigatórios no cadastro)'}.
             </p>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>

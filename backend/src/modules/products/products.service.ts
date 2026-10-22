@@ -112,6 +112,16 @@ const includeRelations = {
   images: true,
 } as const;
 
+/** Peso (kg, 3 casas) e dimensões (cm, 2 casas) — base da cotação de frete. */
+export const PHYSICAL_FIELDS = ['weight', 'width', 'height', 'depth'] as const;
+type PhysicalField = (typeof PHYSICAL_FIELDS)[number];
+
+/** Arredonda à precisão da coluna (`Decimal(10,3)` peso, `Decimal(10,2)` medidas). */
+export function roundPhysical(key: PhysicalField, value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  return Number(value.toFixed(key === 'weight' ? 3 : 2));
+}
+
 /**
  * R19-C — Validação SINTÁTICA de URL de imagem para o bulk import.
  * Aceita: `https://…`, `http://…`, e paths relativos servidos pelo próprio
@@ -846,6 +856,12 @@ export const productsService = {
           // patch quando veio DEFINIDO na linha; nunca um afeta o outro.
           if (row.brand !== undefined && row.brand !== existing.brand) patch.brand = row.brand;
           if (row.material !== undefined && row.material !== existing.material) patch.material = row.material;
+          // Peso/dimensões: compara já arredondado à precisão da coluna, para
+          // reimportar a mesma planilha não contar como alteração.
+          for (const key of PHYSICAL_FIELDS) {
+            const value = roundPhysical(key, row[key]);
+            if (value !== undefined && value !== decimalToNumber(existing[key])) patch[key] = value;
+          }
           if (resolvedCategoryId && resolvedCategoryId !== existing.categoryId) {
             patch.category = { connect: { id: resolvedCategoryId } };
           }
@@ -1042,6 +1058,10 @@ export const productsService = {
         // R19-B — brand e material independentes na criação também.
         if (row.brand !== undefined) createData.brand = row.brand;
         if (row.material !== undefined) createData.material = row.material;
+        for (const key of PHYSICAL_FIELDS) {
+          const value = roundPhysical(key, row[key]);
+          if (value !== undefined) createData[key] = value;
+        }
 
         // R19-C — Create + associação da imagem principal numa única transação.
         const result = await prisma.$transaction(async (tx) => {

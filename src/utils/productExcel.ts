@@ -35,6 +35,11 @@ const HEADERS = {
   estoque: 'estoque',
   ativo: 'ativo',
   destaque: 'destaque_home',
+  // Peso/dimensões da EMBALAGEM — usados na cotação de frete.
+  peso: 'peso_kg',
+  largura: 'largura_cm',
+  altura: 'altura_cm',
+  profundidade: 'profundidade_cm',
   // Só leitura (import ignora): aceito por compat com planilhas antigas.
   maisVendido: 'mais_vendido',
   criadoEm: 'criado_em',
@@ -58,6 +63,13 @@ const COLUMN_ALIASES: Record<string, string> = {
   image: HEADERS.imagem,
   imageurl: HEADERS.imagem,
   image_url: HEADERS.imagem,
+  // Peso/dimensões — aceita o nome sem unidade e "comprimento" (termo do frete).
+  peso: HEADERS.peso,
+  largura: HEADERS.largura,
+  altura: HEADERS.altura,
+  profundidade: HEADERS.profundidade,
+  comprimento: HEADERS.profundidade,
+  comprimento_cm: HEADERS.profundidade,
 };
 
 /** URL da mídia principal exatamente como está no banco (menor position). */
@@ -104,6 +116,10 @@ export function buildExportRows(products: ApiProduct[]): Array<Record<string, st
     [HEADERS.estoque]: p.stock,
     [HEADERS.ativo]: p.active ? 'sim' : 'não',
     [HEADERS.destaque]: p.featured ? 'sim' : 'não',
+    [HEADERS.peso]: p.weight ?? '',
+    [HEADERS.largura]: p.width ?? '',
+    [HEADERS.altura]: p.height ?? '',
+    [HEADERS.profundidade]: p.depth ?? '',
     [HEADERS.criadoEm]: fmtDate(p.createdAt),
     [HEADERS.estoqueAtualizadoEm]: fmtDate(p.stockUpdatedAt),
   }));
@@ -134,6 +150,11 @@ export function downloadProductTemplate() {
     [HEADERS.estoque]: 25,
     [HEADERS.ativo]: 'sim',
     [HEADERS.destaque]: 'não',
+    // Embalagem pronta para envio (peso em kg, medidas em cm).
+    [HEADERS.peso]: 1.25,
+    [HEADERS.largura]: 21,
+    [HEADERS.altura]: 8,
+    [HEADERS.profundidade]: 21,
   };
   const ws = XLSX.utils.json_to_sheet([example]);
   const wb = XLSX.utils.book_new();
@@ -175,6 +196,11 @@ export interface ParsedProductRow {
     // R19-C — URL da imagem principal (validação sintática detalhada acontece
     // no backend, por linha; aqui só recolhemos e mandamos como texto).
     imageUrl?: string;
+    // Peso (kg) e dimensões (cm) da embalagem.
+    weight?: number;
+    width?: number;
+    height?: number;
+    depth?: number;
   };
   /** Foto colada na planilha (na célula ou sobre a linha). Enviada após criar o produto. */
   embeddedImage?: File;
@@ -455,6 +481,25 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
       else stock = stockRaw; // `0` explícito é preservado como número.
     }
 
+    // Peso/dimensões: opcionais; quando informados, > 0 e dentro de um limite
+    // plausível (evita "1250" digitado em gramas virar 1.250 kg).
+    const physical = (header: string, label: string, max: number): number | undefined => {
+      const v = optNumber(row[header]);
+      if (v === null) {
+        errors.push(`${label} inválido.`);
+        return undefined;
+      }
+      if (v !== undefined && (v <= 0 || v > max)) {
+        errors.push(`${label} deve ser maior que zero e no máximo ${max}.`);
+        return undefined;
+      }
+      return v;
+    };
+    const weight = physical(HEADERS.peso, 'Peso (kg)', 100);
+    const width = physical(HEADERS.largura, 'Largura (cm)', 300);
+    const height = physical(HEADERS.altura, 'Altura (cm)', 300);
+    const depth = physical(HEADERS.profundidade, 'Profundidade (cm)', 300);
+
     // Booleanos.
     const active = optBool(row[HEADERS.ativo]);
     const destaqueVal = optBool(row[HEADERS.destaque]);
@@ -499,6 +544,10 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
         // R19-C — imagem por URL. Validação sintática por linha é do backend
         // (uma URL ruim aqui só afeta a própria linha, não o lote).
         imageUrl,
+        weight,
+        width,
+        height,
+        depth,
       },
       errors,
     };
