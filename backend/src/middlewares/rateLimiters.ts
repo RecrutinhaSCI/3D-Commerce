@@ -71,6 +71,20 @@ export const orderRateLimiter = rateLimit({
   keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? ''),
 });
 
+/**
+ * Cotação de frete (checkout) — 30 / min por usuário. Cada chamada pode ir ao
+ * Melhor Envio; o limite protege a cota da conta contra loop/abuso. O cache de
+ * 10 min do cliente já absorve as repetições normais do checkout.
+ */
+export const shippingQuoteRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? ''),
+});
+
 /** Formulário de contato e newsletter (públicos) — 10 / hora por IP. */
 export const contactRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
