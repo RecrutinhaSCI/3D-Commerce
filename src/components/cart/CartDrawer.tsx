@@ -125,9 +125,9 @@ export function CartDrawer() {
                 <dd>{formatBRL(subtotal)}</dd>
               </div>
               {appliedCoupon && (discount > 0 || appliedCoupon.freeShipping) && (
-                <div className="flex justify-between text-emerald-600">
+                <div className="flex justify-between gap-2 text-emerald-600">
                   <dt>Cupom ({appliedCoupon.code})</dt>
-                  <dd>{appliedCoupon.freeShipping ? 'Frete grátis' : `-${formatBRL(discount)}`}</dd>
+                  <dd className="shrink-0 whitespace-nowrap text-right">{appliedCoupon.freeShipping ? 'Frete grátis no PAC' : `-${formatBRL(discount)}`}</dd>
                 </div>
               )}
               <div className="flex justify-between">

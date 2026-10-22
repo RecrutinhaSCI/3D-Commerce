@@ -132,14 +132,14 @@ export default function Cart() {
               <dd>{formatBRL(subtotal)}</dd>
             </div>
             {appliedCoupon ? (
-              <div className="flex justify-between text-emerald-600">
+              <div className="flex justify-between gap-2 text-emerald-600">
                 <dt>
                   Cupom {appliedCoupon.code}{' '}
                   <button onClick={removeCoupon} className="text-xs underline">
                     remover
                   </button>
                 </dt>
-                <dd>{appliedCoupon.freeShipping ? 'Frete grátis' : `-${formatBRL(discount)}`}</dd>
+                <dd className="shrink-0 whitespace-nowrap text-right">{appliedCoupon.freeShipping ? 'Frete grátis no PAC' : `-${formatBRL(discount)}`}</dd>
               </div>
             ) : null}
             <div className="flex justify-between">
