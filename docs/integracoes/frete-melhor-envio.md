@@ -17,6 +17,19 @@ Loja: Bento Goncalves/RS, envia pra todo o Brasil.
 
 ---
 
+## Resultado da homologação Sandbox — 22/10/2026
+
+- OAuth real autorizado pelo usuário somente para shipping-calculate. Callback concluiu a troca de code; admin do preview exibiu Conectado. Access/refresh persistidos com formato cifrado v1 (AES-256-GCM), validade ativa, sem needsReconnect ou lastError. Callback redireciona para APP_URL oficial; no preview, retornar à URL de configurações da branch para continuar os testes.
+- Rotação exigiu recarregar as envs: o processo ainda usava o Client ID anterior; novo aplicativo Sandbox e env salva foram conferidos, callback do app corrigido para a rota completa e o mesmo SHA isolado 7583efc republicado. Nenhum secret/token foi incluído nesta evidência.
+- Renovação real pelo botão admin: versão 0 para 1. Renovação automática no caminho de cotação: somente a data de expiração do registro OAuth Sandbox foi antecipada de forma controlada (com metadado original salvo fora do Git); uma nova cotação disparou refresh preventivo, versão 1 para 2, e o provedor restabeleceu a validade completa (> 7 dias). Nenhuma data artificial permaneceu. Reconnect não foi necessário; recusa/expiração e timeout continuam cobertos pelos testes automatizados existentes, sem provocar indisponibilidade no serviço público.
+- Pacote sintético: 1 kg, 20 x 10 x 20 cm, valor R$ 100. CEP 01310100: PAC 22,64 / 7 dias úteis, Sedex 32,01 / 3 dias. CEP 69005000: PAC 33,59 / 21 dias, Sedex 66,42 / 6 dias. Mudança de CEP recotou corretamente. Após refresh automático, CEP 20040002: PAC 25,28 / 8 dias, Sedex 44,51 / 4 dias. Valores são do Sandbox, não tarifas de produção.
+- Cupom grátis, CEP 69005000: PAC zero, Sedex 32,83 (66,42 - 33,59), retirada zero. Produto sem peso: unavailable e somente retirada. CEP curto: 400/CEP inválido. CEP 00000000: sem atendimento e somente retirada. Retirada sempre gratuita e nenhum pedido de teste criado.
+- O limite real de frete grátis está em 0 (desativado). O cenário de R$ 400 manteve PAC 25,64/Sedex 35,01, corretamente sem benefício por valor. A regra de limite habilitado já passou nos testes controlados; não modificar settings públicos para forçar esse caso. O pacote admin acima do limite foi ajustado de R$ 10.000 para R$ 400, porque o alto valor excluía PAC; somente fixture de frontend, build/typecheck frontend aprovados novamente.
+- Auditoria final: 81 produtos, 1 pedido e 1 item de pedido comparados ao backup, todos intactos. Três respostas públicas de frete seguem idênticas ao baseline pré-publicação, mesmo com OAuth conectado e renovado. Tracking inalterado, nenhuma etiqueta ou pagamento gerado.
+- Backend temporário continua em 7583efc com isolamento seguro por padrão; main não recebeu merge, Auto-Deploy permanece desligado, envs continuam Sandbox. Backup e 24 migrations preservados. App de produção: cadastro preparado, criação de credenciais depende de confirmação humana no momento da ação; não houve troca de envs para produção.
+
+---
+
 ## Isolamento temporário de homologação
 
 - MELHOR_ENVIO_HOMOLOGATION_ONLY=true é o padrão seguro. Mantém GET público, cotação do carrinho e cálculo do pedido na tabela exata da main: PAC 24,90; Sedex 42,90; acima do limite PAC zero/Sedex 18; cupom FREE_SHIPPING zera ambos. Produtos sem medidas continuam compráveis. A configuração OAuth não ativa o frete público.
