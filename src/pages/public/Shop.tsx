@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { ProductGrid } from '@/components/product/ProductGrid';
 import { ProductFilters, MAX_PRICE, type FiltersState } from '@/components/product/ProductFilters';
 import { ProductSort, applySort, type SortKey } from '@/components/product/ProductSort';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { SlidersHorizontal, X } from 'lucide-react';
+import { Sparkles, SlidersHorizontal, X } from 'lucide-react';
+import { SeasonalHero } from '@/components/seasonal/SeasonalHero';
+import { seasonalTheme } from '@/utils/seasonalTheme';
 import { useSEO } from '@/utils/seo';
 import { isFilamentCategory } from '@/utils/categoryGroups';
 
@@ -96,14 +98,34 @@ export default function Shop({ categorySlug, title: titleProp }: { categorySlug?
     return applySort(arr, sort);
   }, [scopedProducts, filters, q, sort]);
 
+  // Só a categoria SAZONAL ganha hero/layout de campanha; as demais seguem o
+  // layout de sempre. Tudo vem do Admin → Categoria sazonal.
+  const isSeasonalPage = !!category?.isSeasonal;
+  const seasonalAccent = isSeasonalPage ? seasonalTheme(category?.seasonalColors).accent : undefined;
+
   return (
     <div className="container-x py-10">
-      <div className="mb-6">
-        <p className="text-xs font-bold uppercase tracking-widest text-ink-mute">Catálogo</p>
-        <h1 className="mt-1 text-3xl font-bold">{title ?? category?.name ?? 'Todos os produtos'}</h1>
-        {category?.description && <p className="mt-2 max-w-2xl text-sm text-ink-mute">{category.description}</p>}
-        {q && <p className="mt-2 text-sm text-ink-mute">Busca por: <strong>{q}</strong></p>}
-      </div>
+      {isSeasonalPage && category ? (
+        <>
+          <SeasonalHero category={category} variant="page" productCount={scopedProducts.length} />
+          <div className="mb-6 mt-10 flex flex-wrap items-end justify-between gap-2" data-seasonal-collection-header>
+            <div>
+              <p className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: seasonalAccent }}>
+                <Sparkles className="h-3.5 w-3.5" /> Coleção da campanha
+              </p>
+              <h2 className="mt-1 text-2xl font-bold">{category.seasonalBanner || category.name}</h2>
+            </div>
+            {q && <p className="text-sm text-ink-mute">Busca por: <strong>{q}</strong></p>}
+          </div>
+        </>
+      ) : (
+        <div className="mb-6">
+          <p className="text-xs font-bold uppercase tracking-widest text-ink-mute">Catálogo</p>
+          <h1 className="mt-1 text-3xl font-bold">{title ?? category?.name ?? 'Todos os produtos'}</h1>
+          {category?.description && <p className="mt-2 max-w-2xl text-sm text-ink-mute">{category.description}</p>}
+          {q && <p className="mt-2 text-sm text-ink-mute">Busca por: <strong>{q}</strong></p>}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
         <div className="hidden lg:block">
@@ -122,7 +144,19 @@ export default function Shop({ categorySlug, title: titleProp }: { categorySlug?
             <ProductSort value={sort} onChange={setSort} />
           </div>
 
-          {filtered.length === 0 ? (
+          {isSeasonalPage && scopedProducts.length === 0 ? (
+            // Campanha ainda sem produtos: mensagem da própria campanha, não o "vazio" da loja.
+            <EmptyState
+              icon={<Sparkles className="h-6 w-6" style={{ color: seasonalAccent }} />}
+              title={`A coleção “${category?.seasonalBanner || category?.name}” está sendo preparada`}
+              description="Os produtos desta edição especial aparecem aqui em breve. Enquanto isso, confira o restante da loja."
+              action={
+                <Link to="/loja" className="btn-secondary mt-1">
+                  Ver todos os produtos
+                </Link>
+              }
+            />
+          ) : filtered.length === 0 ? (
             <EmptyState
               title="Nenhum produto encontrado"
               description="Tente remover alguns filtros ou alterar sua busca."

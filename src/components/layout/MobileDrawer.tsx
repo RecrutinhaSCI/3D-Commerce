@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Drawer } from '@/components/ui/Drawer';
 import { useUIStore } from '@/store/useUIStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
-import { LogOut, MessageCircle, Package, Search, ShoppingBag, User, UserPlus } from 'lucide-react';
+import { LogOut, MessageCircle, Package, Search, ShoppingBag, Sparkles, User, UserPlus } from 'lucide-react';
 import { useCurrentCustomer, useCustomerAuthStore } from '@/store/useCustomerAuthStore';
 import toast from 'react-hot-toast';
 import { whatsappContact } from '@/utils/whatsapp';
@@ -10,6 +10,7 @@ import { site } from '@/config/site';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { categoryPath, showsInMenu } from '@/utils/categoryGroups';
+import { seasonalTheme } from '@/utils/seasonalTheme';
 
 export function MobileDrawer() {
   const open = useUIStore((s) => s.mobileMenuOpen);
@@ -110,16 +111,25 @@ export function MobileDrawer() {
 
         <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-ink-mute">Categorias</p>
         <div className="mb-6 grid grid-cols-2 gap-2">
-          {categories.filter((c) => showsInMenu(c) && (c.slug === 'ofertas' || c.isSeasonal || hasProducts(c.id))).sort((a, b) => a.order - b.order).map((c) => (
-            <Link
-              key={c.id}
-              to={categoryPath(c.slug)}
-              onClick={close}
-              className="rounded-xl border border-ink-line px-3 py-2.5 text-xs font-semibold text-ink-soft hover:bg-ink/5"
-            >
-              {c.name}
-            </Link>
-          ))}
+          {categories.filter((c) => showsInMenu(c) && (c.slug === 'ofertas' || c.isSeasonal || hasProducts(c.id))).sort((a, b) => a.order - b.order).map((c) => {
+            // Campanha sazonal: mesma identidade do Header/MegaMenu (cores do admin).
+            const t = c.isSeasonal ? seasonalTheme(c.seasonalColors) : undefined;
+            return (
+              <Link
+                key={c.id}
+                to={categoryPath(c.slug)}
+                onClick={close}
+                data-seasonal-link={t ? 'mobile' : undefined}
+                className={`rounded-xl border px-3 py-2.5 text-xs font-semibold ${
+                  t ? 'inline-flex items-center gap-1.5' : 'border-ink-line text-ink-soft hover:bg-ink/5'
+                }`}
+                style={t ? { backgroundColor: t.tint, borderColor: t.border, color: t.accent } : undefined}
+              >
+                {t && <Sparkles className="h-3.5 w-3.5 shrink-0" />}
+                {c.name}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="space-y-2">

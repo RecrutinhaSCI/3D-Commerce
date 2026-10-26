@@ -11,6 +11,7 @@ import {
   showsInMenu,
   sortMaterials,
 } from '@/utils/categoryGroups';
+import { seasonalTheme } from '@/utils/seasonalTheme';
 
 interface Props {
   open: boolean;
@@ -32,6 +33,7 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
     .sort((a, b) => a.order - b.order);
   const seasonal = categories.find((c) => c.isSeasonal && c.seasonalActive && showsInMenu(c));
   const offers = categories.find((c) => c.slug === 'ofertas' && c.active !== false);
+  const seasonalStyle = seasonal ? seasonalTheme(seasonal.seasonalColors) : undefined;
   const highlights = activeProducts.filter((p) => p.isHighlight).slice(0, 4);
 
   // "Materiais": cada filamento/resina pelo nome curto (PLA, PETG…).
@@ -121,7 +123,11 @@ export function MegaMenu({ open, onClose, onMouseEnter, onMouseLeave }: Props) {
                   <Link
                     to={categoryPath(seasonal.slug)}
                     onClick={onClose}
-                    className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"
+                    data-seasonal-link="megamenu"
+                    // Identidade da campanha derivada do admin: fundo suave, borda e
+                    // texto na cor de destaque (legível); sem gradiente pesado.
+                    className="flex items-center justify-between rounded-xl border px-4 py-3 text-sm font-semibold transition hover:brightness-95"
+                    style={{ backgroundColor: seasonalStyle!.tint, borderColor: seasonalStyle!.border, color: seasonalStyle!.accent }}
                   >
                     <span className="inline-flex items-center gap-2">
                       <Sparkles className="h-4 w-4" /> {seasonal.name}
