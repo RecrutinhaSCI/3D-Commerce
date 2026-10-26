@@ -182,7 +182,7 @@ export default function Settings() {
                   throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover logo.');
                 }
               }}
-              hint="JPG, PNG ou WEBP (fotos grandes são reduzidas automaticamente). Sobrepõe o logo padrão no header e footer."
+              hint="Use PNG ou WEBP com fundo TRANSPARENTE: um fundo branco salvo no próprio arquivo aparece no site (não é removido automaticamente). Sobrepõe o logo padrão no header e footer."
             />
           </div>
           <div>

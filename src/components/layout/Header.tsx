@@ -11,6 +11,7 @@ import { whatsappContact } from '@/utils/whatsapp';
 import { MegaMenu } from './MegaMenu';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import { categoryPath, showsInMenu } from '@/utils/categoryGroups';
+import { seasonalTheme } from '@/utils/seasonalTheme';
 
 export function Header() {
   const setCartOpen = useUIStore((s) => s.setCartOpen);
@@ -140,7 +141,14 @@ export function Header() {
               Blog
             </NavLink>
             {seasonal && (
-              <NavLink to={categoryPath(seasonal.slug)} className="nav-link text-emerald-600">
+              // Cor da campanha (Admin → Categoria sazonal), com contraste AA
+              // sobre o fundo claro; o sublinhado do nav-link segue a mesma cor.
+              <NavLink
+                to={categoryPath(seasonal.slug)}
+                data-seasonal-link="header"
+                className={({ isActive }) => `nav-link font-semibold hover:opacity-80 ${isActive ? 'after:!w-full' : ''}`}
+                style={{ color: seasonalTheme(seasonal.seasonalColors).accent }}
+              >
                 {seasonal.name}
               </NavLink>
             )}

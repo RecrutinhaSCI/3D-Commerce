@@ -66,7 +66,7 @@
     bottom: -6px;
     height: 1px;
     width: 0;
-    background: #0F1115;
+    background: currentColor;
     transition: width 0.2s ease;
     pointer-events: none;
   }
