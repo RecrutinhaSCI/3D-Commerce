@@ -15,6 +15,7 @@ import type { InstagramItemContent, StoreSettings, TrustItemContent, YoutubeVide
 import { apiAssetUrl } from '@/services/api';
 import { useSEO } from '@/utils/seo';
 import { MelhorEnvioCard } from '@/components/admin/MelhorEnvioCard';
+import { ShippingSenderCard } from '@/components/admin/ShippingSenderCard';
 
 const schema = z.object({
   name: z.string().min(2),
@@ -215,6 +216,8 @@ export default function Settings() {
 
       {/* Integração de frete (OAuth do Melhor Envio) — status e conexão. */}
       <MelhorEnvioCard />
+      {/* Remetente estruturado das etiquetas (só admin; fora do DTO público). */}
+      <ShippingSenderCard />
 
       {/* ---------------- Conteúdo editável (R17) ---------------- */}
       <div className="space-y-5">

@@ -358,10 +358,11 @@ model Order {
   createdAt            DateTime            @default(now()) @map("created_at")
   updatedAt            DateTime            @updatedAt @map("updated_at")
 
-  user     User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  coupon   Coupon?     @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  items    OrderItem[]
-  payments Payment[]
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  coupon         Coupon?         @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items          OrderItem[]
+  payments       Payment[]
+  shipmentLabels ShipmentLabel[]
 
   @@index([userId])
   @@index([status])
@@ -564,6 +565,10 @@ model SiteSettings {
   footerDescription String? @map("footer_description")
   footerShowSocials Boolean @default(true) @map("footer_show_socials")
 
+  /// Remetente das etiquetas do Melhor Envio (nome, documento, IE, endereço
+  /// estruturado…). SÓ admin: nunca entra no DTO público de settings.
+  shippingSenderJson Json? @map("shipping_sender_json")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -747,4 +752,122 @@ model OAuthState {
 
   @@index([expiresAt])
   @@map("oauth_states")
+}
+
+// -----------------------------------------------------------------------------
+// Etiquetas do Melhor Envio (postagem) — compra SEMPRE confirmada pelo admin.
+// -----------------------------------------------------------------------------
+
+/// Ausência de registro = "não iniciada".
+enum ShipmentLabelStatus {
+  PREPARED // frete no carrinho do Melhor Envio, preço consultado
+  AWAITING_CONFIRMATION // aguardando o admin confirmar o preço (token com validade)
+  PURCHASING // checkout em andamento (lease em lock_until)
+  PURCHASED // paga no Melhor Envio
+  GENERATING // geração solicitada
+  LABEL_READY // etiqueta gerada (pode baixar/imprimir)
+  POSTED // postada (status vindo do Melhor Envio)
+  DELIVERED // entregue (status vindo do Melhor Envio)
+  NEEDS_RECONCILIATION // resposta ambígua/timeout: consultar o Melhor Envio antes de qualquer ação
+  ERROR // erro recuperável (detalhe em last_error_*)
+  CANCELED
+}
+
+/// Modalidade fiscal do envio.
+enum ShipmentFiscalMode {
+  DECLARATION // declaração de conteúdo (sem NF-e)
+  NFE // envio comercial com chave da NF-e
+}
+
+model ShipmentLabel {
+  id            String              @id @default(cuid())
+  orderId       String              @map("order_id")
+  /// = orderId enquanto a etiqueta está ATIVA; null quando cancelada. O
+  /// índice único garante UMA etiqueta ativa por pedido (NULLs não colidem).
+  activeOrderId String?             @unique @map("active_order_id")
+  /// "sandbox" | "production" — sandbox é SEMPRE etiqueta de teste.
+  environment   String
+  status        ShipmentLabelStatus @default(PREPARED)
+  /// Controle otimista: toda transição grava version + 1 (compare-and-set).
+  version       Int                 @default(0)
+  /// Lease do checkout/geração: impede duas requisições comprando ao mesmo tempo.
+  lockUntil     DateTime?           @map("lock_until")
+
+  // Identificadores do Melhor Envio (nunca vindos do frontend).
+  meOrderId    String? @unique @map("me_order_id") // UUID devolvido pelo carrinho
+  meProtocol   String? @map("me_protocol")
+  mePurchaseId String? @map("me_purchase_id")
+
+  serviceId   Int     @map("service_id") // 1 = PAC, 2 = Sedex
+  serviceName String? @map("service_name")
+  carrier     String?
+
+  // Fiscal: declaração de conteúdo OU NF-e (só a chave; não emitimos nota).
+  fiscalMode ShipmentFiscalMode @map("fiscal_mode")
+  nfeKey     String?            @map("nfe_key") // 44 dígitos
+
+  /// Embalagem REAL usada: { weightKg, heightCm, widthCm, lengthCm, source }.
+  packageJson   Json    @map("package_json")
+  /// Valor declarado/segurado (soma dos itens).
+  declaredValue Decimal @map("declared_value") @db.Decimal(12, 2)
+
+  // Valores: o que o cliente pagou × o custo real da etiqueta.
+  customerShippingValue Decimal  @map("customer_shipping_value") @db.Decimal(12, 2)
+  quotedPrice           Decimal? @map("quoted_price") @db.Decimal(12, 2)
+  paidPrice             Decimal? @map("paid_price") @db.Decimal(12, 2)
+  /// sha256 do payload enviado ao carrinho (detecta mudança sem guardar dados pessoais).
+  payloadHash           String?  @map("payload_hash")
+
+  // Confirmação de compra: token só como HASH, preso ao preço exibido.
+  confirmationHash      String?   @map("confirmation_hash")
+  confirmationExpiresAt DateTime? @map("confirmation_expires_at")
+  confirmationPrice     Decimal?  @map("confirmation_price") @db.Decimal(12, 2)
+
+  trackingCode String? @map("tracking_code") // rastreio da transportadora
+  selfTracking String? @map("self_tracking") // rastreio do próprio Melhor Envio
+
+  preparedAt   DateTime? @map("prepared_at")
+  purchasedAt  DateTime? @map("purchased_at")
+  generatedAt  DateTime? @map("generated_at")
+  postedAt     DateTime? @map("posted_at")
+  deliveredAt  DateTime? @map("delivered_at")
+  canceledAt   DateTime? @map("canceled_at")
+  lastSyncedAt DateTime? @map("last_synced_at")
+
+  // Último erro: código curto + mensagem amigável (nunca resposta bruta/token).
+  lastErrorCode    String? @map("last_error_code")
+  lastErrorMessage String? @map("last_error_message")
+
+  createdByUserId   String? @map("created_by_user_id")
+  purchasedByUserId String? @map("purchased_by_user_id")
+  canceledByUserId  String? @map("canceled_by_user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  order  Order                @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  events ShipmentLabelEvent[]
+
+  @@index([orderId])
+  @@index([status])
+  @@map("shipment_labels")
+}
+
+/// Histórico só de inclusão (auditoria). Sem dados pessoais nem tokens.
+model ShipmentLabelEvent {
+  id          String               @id @default(cuid())
+  labelId     String               @map("label_id")
+  orderId     String               @map("order_id")
+  type        String // ex.: prepared, confirmation_issued, purchase_started, purchased, reconciled, error
+  fromStatus  ShipmentLabelStatus? @map("from_status")
+  toStatus    ShipmentLabelStatus? @map("to_status")
+  userId      String?              @map("user_id")
+  detailsJson Json?                @map("details_json")
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  label ShipmentLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@index([labelId])
+  @@index([orderId])
+  @@map("shipment_label_events")
 }

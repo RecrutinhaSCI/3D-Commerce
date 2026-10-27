@@ -15,3 +15,16 @@ export function isValidCpf(value: string): boolean {
 }
 
 export const onlyDigits = (v: string) => v.replace(/\D/g, '');
+
+/** Validação de CNPJ (numérico) pelos dígitos verificadores. Aceita máscara. */
+export function isValidCnpj(value: string): boolean {
+  const d = value.replace(/\D/g, '');
+  if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false;
+  const digit = (len: number) => {
+    const weights = len === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const sum = weights.reduce((acc, w, i) => acc + Number(d[i]) * w, 0);
+    const r = sum % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return digit(12) === Number(d[12]) && digit(13) === Number(d[13]);
+}
