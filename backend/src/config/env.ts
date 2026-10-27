@@ -114,6 +114,8 @@ const envSchema = z.object({
   // segunda trava, além da primeira.
   MELHOR_ENVIO_LABELS_ENABLED: z.preprocess(emptyToUndefined, z.string().optional()),
   MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Timeout das chamadas de etiqueta (ms, 1000–60000; padrão 20000).
+  MELHOR_ENVIO_LABELS_TIMEOUT_MS: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // --- Pix Banco Inter / mock (R19) — módulo modules/pix-inter, SEM rotas ativas ---
   // A integração de pagamento em uso é o Mercado Pago (acima).

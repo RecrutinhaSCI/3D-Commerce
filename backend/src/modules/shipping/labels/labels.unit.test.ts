@@ -66,6 +66,16 @@ describe('travas MELHOR_ENVIO_LABELS_*', () => {
     expect(() => assertLabelPurchaseAllowed(c)).toThrowError(expect.objectContaining({ code: 'LABELS_DISABLED' }));
   });
 
+  it('timeout das etiquetas: padrão 20 s; fora de 1000–60000 usa o padrão + aviso', () => {
+    expect(resolveMelhorEnvioLabelsConfig({}).timeoutMs).toBe(20000);
+    expect(resolveMelhorEnvioLabelsConfig({ MELHOR_ENVIO_LABELS_TIMEOUT_MS: '45000' }).timeoutMs).toBe(45000);
+    for (const bad of ['500', '90000', 'abc', '1500.5']) {
+      const c = resolveMelhorEnvioLabelsConfig({ MELHOR_ENVIO_LABELS_TIMEOUT_MS: bad });
+      expect(c.timeoutMs).toBe(20000);
+      expect(c.issues.join()).toMatch(/MELHOR_ENVIO_LABELS_TIMEOUT_MS/);
+    }
+  });
+
   it('URL inválida ou host parecido NÃO é tratado como produção', () => {
     for (const url of ['melhorenvio', 'https://melhorenvio.com.br.evil.test', 'http://localhost:9999']) {
       expect(resolveMelhorEnvioLabelsConfig({ MELHOR_ENVIO_LABELS_ENABLED: 'true', MELHOR_ENVIO_BASE_URL: url }).environment).toBe('sandbox');
@@ -126,8 +136,11 @@ describe('remetente', () => {
     const cpf = senderSchema.parse({ ...validSenderInput(), document: TEST_CPF, stateRegister: '' });
     const r = senderReadiness(cpf, '95700000');
     expect(r).toMatchObject({ declaration: true, nfe: false });
-    expect(r.issues.join()).toMatch(/CNPJ/);
+    expect(r.issues.join()).toMatch(/inscrição estadual/);
     expect(senderReadiness(full, '01310100').issues.join()).toMatch(/SHIPPING_ORIGIN_CEP/);
+    const cpfComIe = senderReadiness({ ...full, document: TEST_CPF }, '95700000');
+    expect(cpfComIe.nfe).toBe(true);
+    expect(cpfComIe.issues.join()).toMatch(/CPF/);
   });
 
   it('sugestão vem das configurações da loja (nunca gravada sozinha)', () => {
@@ -150,7 +163,7 @@ describe('modalidade fiscal: NF-e × declaração de conteúdo', () => {
 
   it('declaração: non_commercial e sem invoice', () => {
     const parts = buildFiscalPayloadParts(fiscalSelectionSchema.parse({ mode: 'DECLARATION' }), sender);
-    expect(parts).toEqual({ options: { non_commercial: true }, fromStateRegister: '', fiscalMode: 'DECLARATION', nfeKey: null });
+    expect(parts).toEqual({ options: { non_commercial: true }, fromStateRegister: '', fiscalMode: 'DECLARATION', nfeKey: null, warnings: [] });
   });
 
   it('NF-e: invoice.key + state_register do remetente (chave aceita com espaços)', () => {
@@ -161,6 +174,7 @@ describe('modalidade fiscal: NF-e × declaração de conteúdo', () => {
       fromStateRegister: '1234567890',
       fiscalMode: 'NFE',
       nfeKey: key,
+      warnings: [],
     });
   });
 
@@ -173,10 +187,7 @@ describe('modalidade fiscal: NF-e × declaração de conteúdo', () => {
 
   it.each([
     ['sem remetente', null, key, 'SENDER_MISSING'],
-    ['remetente CPF', { ...sender, document: TEST_CPF }, key, 'NFE_REQUIRES_CNPJ'],
-    ['remetente sem IE', { ...sender, stateRegister: null }, key, 'NFE_REQUIRES_STATE_REGISTER'],
-    ['remetente ISENTO', { ...sender, stateRegister: 'ISENTO' }, key, 'NFE_REQUIRES_STATE_REGISTER'],
-    ['chave de outro CNPJ', sender, makeNfeKey(OTHER_CNPJ), 'NFE_ISSUER_MISMATCH'],
+    ['remetente sem IE (exigência da API)', { ...sender, stateRegister: null }, key, 'NFE_REQUIRES_STATE_REGISTER'],
   ])('NF-e recusada: %s', (_n, s, k, code) => {
     const sel = fiscalSelectionSchema.parse({ mode: 'NFE', nfeKey: k });
     expect(() => buildFiscalPayloadParts(sel, s)).toThrowError(expect.objectContaining({ code }));
@@ -185,6 +196,26 @@ describe('modalidade fiscal: NF-e × declaração de conteúdo', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(FiscalError);
     }
+  });
+});
+
+describe('NF-e: só bloqueia o que a API exige', () => {
+  const sender = senderSchema.parse(validSenderInput());
+  const key = makeNfeKey(TEST_CNPJ);
+  it.each([
+    ['remetente CPF', { ...sender, document: TEST_CPF }, key, /CPF/],
+    ['IE ISENTO', { ...sender, stateRegister: 'ISENTO' }, key, /ISENTO/],
+    ['chave de outro CNPJ', sender, makeNfeKey(OTHER_CNPJ), /outro CNPJ/],
+  ])('%s: NÃO bloqueia, gera aviso', (_n, s, k, msg) => {
+    const parts = buildFiscalPayloadParts(fiscalSelectionSchema.parse({ mode: 'NFE', nfeKey: k }), s);
+    expect(parts.fiscalMode).toBe('NFE');
+    expect(parts.warnings.join()).toMatch(msg);
+  });
+
+  it('CNAE nunca bloqueia; IE só é exigida na NF-e', () => {
+    const semCnae = { ...sender, economicActivityCode: null };
+    expect(() => buildFiscalPayloadParts({ mode: 'NFE', nfeKey: key }, semCnae)).not.toThrow();
+    expect(() => buildFiscalPayloadParts({ mode: 'DECLARATION' }, { ...semCnae, stateRegister: null })).not.toThrow();
   });
 });
 

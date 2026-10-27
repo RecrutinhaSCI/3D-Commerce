@@ -89,30 +89,31 @@ export const senderDocumentType = (s: Pick<ShippingSender, 'document'>): SenderD
 export interface SenderReadiness {
   /** Pronto para declaração de conteúdo. */
   declaration: boolean;
-  /** Pronto para envio com NF-e (exige CNPJ + inscrição estadual). */
+  /** Pronto para envio com NF-e (a API exige a inscrição estadual). */
   nfe: boolean;
-  /** Pendências em português, sem dados sensíveis. */
+  /** Pendências e avisos em português, sem dados sensíveis. */
   issues: string[];
 }
 
 /**
- * O que falta no remetente para cada modalidade fiscal. `originCep` é o
- * SHIPPING_ORIGIN_CEP da cotação: se diferir, o preço cotado ao cliente saiu
- * de outro CEP — vira aviso.
+ * O que falta no remetente para cada modalidade fiscal. Só a IE bloqueia a
+ * NF-e (exigência documentada da API); CPF/"ISENTO" viram aviso. `originCep`
+ * é o SHIPPING_ORIGIN_CEP da cotação: se diferir, o preço cotado ao cliente
+ * saiu de outro CEP — também aviso.
  */
 export function senderReadiness(sender: ShippingSender | null, originCep: string | null): SenderReadiness {
   if (!sender) {
     return { declaration: false, nfe: false, issues: ['Cadastre o remetente (dados da loja) em Configurações → Remetente das etiquetas.'] };
   }
   const issues: string[] = [];
-  const isCnpj = senderDocumentType(sender) === 'CNPJ';
-  const hasIe = Boolean(sender.stateRegister && sender.stateRegister !== 'ISENTO');
-  if (!isCnpj) issues.push('Envio com NF-e exige remetente com CNPJ.');
+  const hasIe = Boolean(sender.stateRegister);
   if (!hasIe) issues.push('Envio com NF-e exige a inscrição estadual do remetente.');
+  else if (senderDocumentType(sender) !== 'CNPJ') issues.push('Remetente com CPF: confira se a NF-e é aceita pelo Melhor Envio.');
+  else if (sender.stateRegister === 'ISENTO') issues.push('Inscrição estadual "ISENTO" em envio com NF-e: confira com o Melhor Envio.');
   if (originCep && originCep !== sender.postalCode) {
     issues.push('O CEP do remetente é diferente do CEP de origem usado na cotação (SHIPPING_ORIGIN_CEP).');
   }
-  return { declaration: true, nfe: isCnpj && hasIe, issues };
+  return { declaration: true, nfe: hasIe, issues };
 }
 
 /**

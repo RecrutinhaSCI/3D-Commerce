@@ -49,9 +49,15 @@ export const fiscalSelectionSchema = z.discriminatedUnion('mode', [
 ]);
 export type FiscalSelection = z.infer<typeof fiscalSelectionSchema>;
 
+/**
+ * Só bloqueia o que a API EXIGE (documentação de inserção no carrinho): envio
+ * comercial precisa de `invoice.key` e `from.state_register`. O resto (CPF no
+ * remetente, IE "ISENTO", chave de outro CNPJ) vira AVISO — quem valida a
+ * regra fiscal/da transportadora é o Melhor Envio.
+ */
 export class FiscalError extends Error {
   constructor(
-    public readonly code: 'SENDER_MISSING' | 'NFE_REQUIRES_CNPJ' | 'NFE_REQUIRES_STATE_REGISTER' | 'NFE_ISSUER_MISMATCH',
+    public readonly code: 'SENDER_MISSING' | 'NFE_REQUIRES_STATE_REGISTER',
     message: string,
   ) {
     super(message);
@@ -59,7 +65,7 @@ export class FiscalError extends Error {
   }
 }
 
-/** Partes fiscais do payload do carrinho (o resto do payload é montado na Etapa 2). */
+/** Partes fiscais do payload do carrinho (o resto vem de `buildCartPayload`). */
 export interface FiscalPayloadParts {
   options: { non_commercial: true } | { non_commercial: false; invoice: { key: string } };
   /** Valor para `from.state_register` (vazio na declaração de conteúdo). */
@@ -67,30 +73,38 @@ export interface FiscalPayloadParts {
   /** Persistência em shipment_labels. */
   fiscalMode: FiscalMode;
   nfeKey: string | null;
+  /** Pontos de atenção que NÃO bloqueiam (o Melhor Envio decide). */
+  warnings: string[];
 }
 
 /**
  * Monta as partes fiscais conforme a modalidade escolhida pelo admin.
- * NF-e: exige remetente com CNPJ + IE e chave emitida por esse CNPJ.
+ * NF-e: chave válida (já garantida pelo schema) + inscrição estadual.
  */
 export function buildFiscalPayloadParts(selection: FiscalSelection, sender: ShippingSender | null): FiscalPayloadParts {
   if (!sender) throw new FiscalError('SENDER_MISSING', 'Cadastre o remetente antes de gerar etiquetas.');
   if (selection.mode === 'DECLARATION') {
-    return { options: { non_commercial: true }, fromStateRegister: '', fiscalMode: 'DECLARATION', nfeKey: null };
+    return { options: { non_commercial: true }, fromStateRegister: '', fiscalMode: 'DECLARATION', nfeKey: null, warnings: [] };
   }
-  if (senderDocumentType(sender) !== 'CNPJ') {
-    throw new FiscalError('NFE_REQUIRES_CNPJ', 'Envio com NF-e exige remetente com CNPJ.');
-  }
-  if (!sender.stateRegister || sender.stateRegister === 'ISENTO') {
+  if (!sender.stateRegister) {
     throw new FiscalError('NFE_REQUIRES_STATE_REGISTER', 'Envio com NF-e exige a inscrição estadual do remetente.');
-  }
-  if (nfeKeyIssuerCnpj(selection.nfeKey) !== sender.document) {
-    throw new FiscalError('NFE_ISSUER_MISMATCH', 'A chave da NF-e não foi emitida pelo CNPJ do remetente.');
   }
   return {
     options: { non_commercial: false, invoice: { key: selection.nfeKey } },
     fromStateRegister: sender.stateRegister,
     fiscalMode: 'NFE',
     nfeKey: selection.nfeKey,
+    warnings: nfeWarnings(sender, selection.nfeKey),
   };
+}
+
+/** Avisos (não bloqueiam) de um envio com NF-e. */
+export function nfeWarnings(sender: ShippingSender, nfeKey?: string): string[] {
+  const warnings: string[] = [];
+  if (senderDocumentType(sender) !== 'CNPJ') warnings.push('Remetente com CPF: confira se a NF-e é aceita pelo Melhor Envio.');
+  if (sender.stateRegister === 'ISENTO') warnings.push('Inscrição estadual "ISENTO" em envio com NF-e: confira com o Melhor Envio.');
+  if (nfeKey && senderDocumentType(sender) === 'CNPJ' && nfeKeyIssuerCnpj(nfeKey) !== sender.document) {
+    warnings.push('A chave da NF-e foi emitida por outro CNPJ, diferente do remetente.');
+  }
+  return warnings;
 }

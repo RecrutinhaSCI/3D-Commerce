@@ -26,6 +26,7 @@ export interface MelhorEnvioRawEnv {
   MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY?: string;
   MELHOR_ENVIO_LABELS_ENABLED?: string;
   MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION?: string;
+  MELHOR_ENVIO_LABELS_TIMEOUT_MS?: string | number;
 }
 
 export type MelhorEnvioEnvironment = 'sandbox' | 'production';
@@ -231,8 +232,13 @@ export interface MelhorEnvioLabelsConfig {
   purchaseAllowed: boolean;
   /** Motivo do bloqueio (texto para o admin), ou null. */
   blockedReason: string | null;
+  /** Timeout de cada chamada de etiqueta (ms). Maior que o da cotação: menos respostas ambíguas no checkout. */
+  timeoutMs: number;
   issues: string[];
 }
+
+export const ME_LABELS_DEFAULT_TIMEOUT_MS = 20000;
+export const ME_LABELS_TIMEOUT_RANGE = { min: 1000, max: 60000 } as const;
 
 /** Só o texto exato "true" liga; "false"/vazio desliga; qualquer outro valor desliga + aviso. */
 function strictFlag(name: string, raw: unknown, issues: string[]): boolean {
@@ -259,5 +265,14 @@ export function resolveMelhorEnvioLabelsConfig(raw: MelhorEnvioRawEnv): MelhorEn
   }
   if (allowProduction && !enabled) issues.push('MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION ligada sem MELHOR_ENVIO_LABELS_ENABLED — sem efeito.');
 
-  return { enabled, allowProduction, environment, isTest, purchaseAllowed: blockedReason === null, blockedReason, issues };
+  let timeoutMs = ME_LABELS_DEFAULT_TIMEOUT_MS;
+  const rawTimeout = typeof raw.MELHOR_ENVIO_LABELS_TIMEOUT_MS === 'number' ? raw.MELHOR_ENVIO_LABELS_TIMEOUT_MS : clean(raw.MELHOR_ENVIO_LABELS_TIMEOUT_MS);
+  if (rawTimeout !== undefined) {
+    const n = Number(rawTimeout);
+    const { min, max } = ME_LABELS_TIMEOUT_RANGE;
+    if (Number.isInteger(n) && n >= min && n <= max) timeoutMs = n;
+    else issues.push(`MELHOR_ENVIO_LABELS_TIMEOUT_MS inválido (use ${min} a ${max}) — usando ${ME_LABELS_DEFAULT_TIMEOUT_MS} ms.`);
+  }
+
+  return { enabled, allowProduction, environment, isTest, purchaseAllowed: blockedReason === null, blockedReason, timeoutMs, issues };
 }
