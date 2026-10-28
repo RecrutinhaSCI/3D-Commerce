@@ -324,6 +324,11 @@ export function ShipmentPanel({ orderId }: { orderId: string }) {
       )}
       {!ov.config.enabled && <p className="rounded-xl bg-bg-soft p-3 text-xs text-ink-soft">Etiquetas do Melhor Envio estão desligadas no servidor.</p>}
       {ov.config.enabled && !ov.config.purchaseAllowed && <p className="rounded-xl bg-bg-soft p-3 text-xs text-ink-soft">{messageForCode('LABELS_PRODUCTION_BLOCKED')}</p>}
+      {ov.config.enabled && ov.config.meAccess === 'missing' && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800" data-testid="me-access-missing">
+          Reconexão necessária para habilitar geração de etiquetas (Configurações → Melhor Envio → Reconectar Melhor Envio).
+        </p>
+      )}
 
       <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
         <Info term="Serviço" value={label?.service.name ?? ov.order.shippingServiceName ?? ov.order.shippingMethod ?? '—'} />

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { createLabelWorkflow, leaseMs, type LabelWorkflow } from './labelWorkflow';
 import { FakeMe, meError } from './labels.fakeMe.testdata';
-import { CFG, createOrder, DB_LOCK_TIMEOUT_MS, dbEnabled, DECL, lockTestDb, newClient, ORDER_PII, PKG, resetDb } from './labels.dbHarness.testdata';
+import { CFG, createOrder, DB_LOCK_TIMEOUT_MS, dbEnabled, DECL, lockTestDb, newClient, ORDER_PII, PKG, resetDb, seedCredential } from './labels.dbHarness.testdata';
 import { HttpError } from '../../../utils/httpError';
 
 const ADMIN = 'admin-1';
@@ -23,7 +23,7 @@ describe.skipIf(!dbEnabled)('ações da etiqueta — Postgres real', () => {
   let B: LabelWorkflow;
   let orderId: string;
 
-  const make = (db: PrismaClient, cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now: () => new Date(clock) });
+  const make = (db: PrismaClient, cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now: () => new Date(clock), oauthConfigured: true });
 
   let unlock: () => Promise<void>;
   beforeAll(async () => {
@@ -422,6 +422,22 @@ describe.skipIf(!dbEnabled)('ações da etiqueta — Postgres real', () => {
       expect((await prod.overview(orderId, ADMIN)).label!.availableActions).toEqual(['DOWNLOAD', 'SYNC_STATUS', 'CHECK_CANCELLABLE', 'RECONCILE', 'ADD_NOTE']);
     });
 
+    it('OAuth sem os scopes de etiqueta (conexão antiga): nenhuma ação que chame o ME, lista do que falta', async () => {
+      await ready();
+      await seedCredential(dbA, 'shipping-calculate', null);
+      const ov = await A.overview(orderId, ADMIN);
+      expect(ov.config).toMatchObject({ meAccess: 'missing', missingScopes: expect.arrayContaining(['shipping-checkout', 'cart-write']) });
+      expect(ov.label!.availableActions).toEqual(['ADD_NOTE']);
+      const other = await createOrder(dbA);
+      expect((await A.overview(other, ADMIN)).availableActions).toEqual([]); // nem PREPARE
+      await dbA.integrationCredential.deleteMany();
+      expect((await A.overview(orderId, ADMIN)).config.meAccess).toBe('missing'); // não conectado
+      await seedCredential(dbA, 'shipping-calculate cart-write orders-read shipping-cancel shipping-checkout shipping-generate shipping-print shipping-tracking', 'requested');
+      const unverified = await A.overview(orderId, ADMIN);
+      expect(unverified.config.meAccess).toBe('unverified');
+      expect(unverified.label!.availableActions).toContain('DOWNLOAD'); // deixa tentar; 403 vira "escopo faltando"
+    });
+
     it('DTO não vaza hash, lease, payload, token nem dado pessoal', async () => {
       const { token } = await awaiting();
       const row = await latest();
@@ -443,7 +459,7 @@ describe.skipIf(!dbEnabled)('arquivo da etiqueta (download/impressão) — Postg
   let orderId: string;
   let unlock: () => Promise<void>;
   const now = () => new Date('2026-10-28T12:00:00Z');
-  const make = (cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now });
+  const make = (cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now, oauthConfigured: true });
 
   beforeAll(async () => {
     unlock = await lockTestDb();

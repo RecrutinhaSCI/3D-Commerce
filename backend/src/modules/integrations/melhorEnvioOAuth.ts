@@ -3,10 +3,12 @@ import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { openSecret, sealSecret, SecretBoxError } from '../../lib/secretBox';
 import {
+  resolveMelhorEnvioLabelsConfig,
   resolveMelhorEnvioOAuthConfig,
   type MelhorEnvioEnvironment,
   type MelhorEnvioOAuthConfig,
 } from '../shipping/melhorEnvioConfig';
+import { evaluateScopes, grantedScopes, labelsAccess, ME_PROVIDER, ME_REQUESTED_SCOPES, type ScopeEvaluation, type ScopeSource } from './melhorEnvioScopes';
 
 /**
  * OAuth do aplicativo Melhor Envio (authorization code + refresh token).
@@ -16,7 +18,11 @@ import {
  *
  *   - Endpoints oficiais: `{base}/oauth/authorize` e `POST {base}/oauth/token`
  *     (mesmo código para sandbox e produção — muda só o host).
- *   - Escopo: `shipping-calculate` (só cotação).
+ *   - Scopes: cotação (`shipping-calculate`) + etiquetas (ver
+ *     melhorEnvioScopes.ts). Grava os scopes CONCEDIDOS e de onde vieram;
+ *     conexão OAuth ≠ etiquetas liberadas (flags + scopes confirmados).
+ *   - Reconectar não apaga nada: a credencial só é trocada quando o novo
+ *     callback conclui com sucesso.
  *   - Access token 30 dias; refresh token 45 dias e pode ROTACIONAR a cada
  *     renovação — o novo é sempre gravado de forma atômica.
  *   - Tokens SEMPRE cifrados no banco (AES-256-GCM); state só como hash,
@@ -24,8 +30,9 @@ import {
  *   - Nada de token, code, state ou client secret em log, erro ou resposta.
  */
 
-export const ME_PROVIDER = 'melhor_envio';
-export const ME_OAUTH_SCOPE = 'shipping-calculate';
+export { ME_PROVIDER, labelsAccess, type LabelsReadiness } from './melhorEnvioScopes';
+/** Parâmetro `scope` da autorização (separado por espaço, como na documentação). */
+export const ME_OAUTH_SCOPE = ME_REQUESTED_SCOPES.join(' ');
 const STATE_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 45 * 24 * 60 * 60 * 1000;
 /** Renova preventivamente quando faltam menos de 7 dias para expirar. */
@@ -102,7 +109,7 @@ export async function createAuthorizationUrl(userId: string, deps: OAuthDeps = {
 }
 
 export type CallbackResult =
-  | { ok: true }
+  | { ok: true; missingLabelScopes: string[]; scopesVerified: boolean }
   | { ok: false; reason: 'config' | 'state' | 'denied' | 'code' | 'exchange' };
 
 /**
@@ -152,9 +159,9 @@ export async function handleOAuthCallback(
       cfg,
       deps,
     );
-    await saveCredential(cfg, tokens, now, stateRow?.userId ?? null);
-    logWarn(`callback: conectado (${cfg.environment})`);
-    return { ok: true };
+    const saved = await saveCredential(cfg, tokens, now, stateRow?.userId ?? null);
+    logWarn(`callback: conectado (${cfg.environment}; scopes: ${saved.source ?? 'desconhecidos'})`);
+    return { ok: true, missingLabelScopes: saved.missing.labels, scopesVerified: saved.verified };
   } catch (err) {
     logWarn(`callback: falha na troca do code (${err instanceof OAuthTokenError ? err.kind : 'interno'})`);
     return { ok: false, reason: 'exchange' };
@@ -169,6 +176,8 @@ interface TokenSet {
   accessToken: string;
   refreshToken: string;
   expiresInSec: number;
+  /** Scopes concedidos, quando o ME informa (resposta ou claim do token). */
+  granted: { scopes: string[]; source: ScopeSource } | null;
 }
 
 async function requestToken(body: Record<string, unknown>, cfg: MelhorEnvioOAuthConfig, deps: OAuthDeps): Promise<TokenSet> {
@@ -209,7 +218,7 @@ async function requestToken(body: Record<string, unknown>, cfg: MelhorEnvioOAuth
     ) {
       throw new OAuthTokenError('bad_response');
     }
-    return { accessToken, refreshToken, expiresInSec: expiresIn };
+    return { accessToken, refreshToken, expiresInSec: expiresIn, granted: grantedScopes(json, accessToken) };
   } finally {
     clearTimeout(timer);
   }
@@ -225,10 +234,15 @@ function sealedData(cfg: MelhorEnvioOAuthConfig, tokens: TokenSet, now: Date) {
   };
 }
 
-async function saveCredential(cfg: MelhorEnvioOAuthConfig, tokens: TokenSet, now: Date, userId: string | null) {
+async function saveCredential(cfg: MelhorEnvioOAuthConfig, tokens: TokenSet, now: Date, userId: string | null): Promise<ScopeEvaluation> {
+  // Sem informação do ME: pela RFC 6749 §5.1 vale o que foi pedido — gravado
+  // como "requested" (NÃO confirmado; não libera etiquetas sozinho).
+  const scope = (tokens.granted?.scopes ?? [...ME_REQUESTED_SCOPES].sort()).join(' ');
+  const scopeSource: ScopeSource = tokens.granted?.source ?? 'requested';
   const data = {
     ...sealedData(cfg, tokens, now),
-    scope: ME_OAUTH_SCOPE,
+    scope,
+    scopeSource,
     needsReconnect: false,
     lastError: null,
     refreshLockUntil: null,
@@ -241,6 +255,7 @@ async function saveCredential(cfg: MelhorEnvioOAuthConfig, tokens: TokenSet, now
     create: { provider: ME_PROVIDER, environment: cfg.environment, ...data },
     update: { ...data, version: { increment: 1 } },
   });
+  return evaluateScopes(scope, scopeSource);
 }
 
 // -----------------------------------------------------------------------------
@@ -375,6 +390,9 @@ async function doRefresh(
       where: { id: cred.id, version: cred.version },
       data: {
         ...sealedData(cfg, tokens, at),
+        // Scopes informados no refresh SUBSTITUEM os gravados (perda reflete na hora).
+        // Omitidos = iguais aos atuais (RFC 6749 §6): mantém o que está gravado.
+        ...(tokens.granted ? { scope: tokens.granted.scopes.join(' '), scopeSource: tokens.granted.source } : {}),
         version: { increment: 1 },
         refreshLockUntil: null,
         needsReconnect: false,
@@ -450,6 +468,9 @@ export async function runMelhorEnvioTokenMaintenance(deps: OAuthDeps = {}): Prom
 export async function getMelhorEnvioOAuthStatus(manualTokenConfigured: boolean, deps: OAuthDeps = {}) {
   const cfg = cfgOf(deps);
   const cred = cfg.enabled ? await findCredential(cfg.environment) : null;
+  const labelsCfg = resolveMelhorEnvioLabelsConfig(env);
+  const access = labelsAccess(cred, cfg.enabled, labelsCfg);
+  const quoteViaOAuth = access.connected && (access.scopes?.granted === null || access.scopes?.quoteScopesOk === true);
   return {
     homologationOnly: env.MELHOR_ENVIO_HOMOLOGATION_ONLY !== 'false',
     oauthConfigured: cfg.enabled,
@@ -465,5 +486,32 @@ export async function getMelhorEnvioOAuthStatus(manualTokenConfigured: boolean, 
     usingManualToken: manualTokenConfigured && !(cred && !cred.needsReconnect),
     /** Problemas de configuração (só nomes de variáveis). */
     issues: cfg.issues,
+    /** Cotação: OAuth com `shipping-calculate`, ou o token manual. */
+    quoteAvailable: quoteViaOAuth || (manualTokenConfigured && !access.connected),
+    scopes: {
+      granted: access.scopes?.granted ?? null,
+      source: access.scopes?.source ?? null,
+      verified: access.scopes?.verified ?? false,
+      required: { quote: evaluateScopes(null, null).required.quote, labels: evaluateScopes(null, null).required.labels },
+      missingForQuote: access.scopes?.missing.quote ?? [],
+      unknown: access.scopes?.unknown ?? [],
+    },
+    missingScopes: access.missingScopes,
+    needsReconnectForLabels: access.needsReconnectForLabels,
+    labelsScopesReady: access.labelsScopesReady,
+    labelsReady: access.labelsReady,
+    labels: {
+      readiness: access.readiness,
+      enabled: labelsCfg.enabled,
+      purchaseAllowed: labelsCfg.purchaseAllowed,
+      blockedReason: labelsCfg.blockedReason,
+    },
   };
+}
+
+/** Acesso de etiquetas da credencial do ambiente (usado pelo painel do pedido). */
+export async function getMelhorEnvioLabelsAccess(deps: OAuthDeps = {}) {
+  const cfg = cfgOf(deps);
+  const cred = cfg.enabled ? await findCredential(cfg.environment) : null;
+  return labelsAccess(cred, cfg.enabled, resolveMelhorEnvioLabelsConfig(env));
 }

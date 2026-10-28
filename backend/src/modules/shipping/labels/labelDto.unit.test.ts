@@ -76,6 +76,14 @@ describe('availableActions por estado', () => {
     expect(labelActions(null, ctx({ config: { enabled: true, environment: 'production', isTest: false, purchaseAllowed: false } }))).toEqual([]);
   });
 
+  it('OAuth sem scopes de etiqueta (meAccess=missing): nada que chame o ME; "unverified" não bloqueia', () => {
+    const l = row({ status: 'LABEL_READY', ...paid, generatedAt: earlier });
+    const cfg = (meAccess: 'ok' | 'unverified' | 'missing') => ctx({ config: { enabled: true, environment: 'sandbox', isTest: true, purchaseAllowed: true, meAccess } });
+    expect(labelActions(l, cfg('missing'))).toEqual(['ADD_NOTE']);
+    expect(labelActions(null, cfg('missing'))).toEqual([]);
+    expect(labelActions(l, cfg('unverified'))).toEqual(labelActions(l, cfg('ok')));
+  });
+
   it('registro de compra numa etiqueta "aguardando" (contradição): nunca oferece compra nem descarte', () => {
     expect(labelActions(row({ ...paid, confirmationHash: 'h' }), ctx())).toEqual(['REQUEST_CONFIRMATION', 'RECONCILE', 'ADD_NOTE']);
   });

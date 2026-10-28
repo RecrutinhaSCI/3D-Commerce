@@ -40,7 +40,7 @@ describe.skipIf(!dbEnabled)('rotas de etiqueta — HTTP + Postgres real', () => 
   let baseB = '';
 
   async function start(db: PrismaClient) {
-    const workflow = createLabelWorkflow({ db, client: new Proxy({}, { get: (_t, k) => (me.client() as never)[k] }) as never, config: CFG, now: () => new Date(clock) });
+    const workflow = createLabelWorkflow({ db, client: new Proxy({}, { get: (_t, k) => (me.client() as never)[k] }) as never, config: CFG, now: () => new Date(clock), oauthConfigured: true });
     const app = express();
     app.use(express.json());
     app.use('/api', createLabelsRouter({ workflow, limits: { read: NO_LIMIT, query: NO_LIMIT, write: NO_LIMIT, financial: { ...NO_LIMIT, perOrder: true }, financialTotal: NO_LIMIT } }));

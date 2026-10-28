@@ -722,7 +722,10 @@ model IntegrationCredential {
   accessTokenExpiresAt  DateTime  @map("access_token_expires_at")
   // Estimada na emissão (o Melhor Envio informa 45 dias para o refresh token).
   refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  /// Scopes CONCEDIDOS (normalizados, separados por espaço).
   scope                 String?
+  /// Origem da lista: response | token | requested (não confirmada) | null = conexão legada.
+  scopeSource           String?   @map("scope_source")
   // Controle otimista: cada renovação grava version + 1.
   version               Int       @default(0)
   // Lease da renovação (impede dois processos renovando ao mesmo tempo).

@@ -140,7 +140,7 @@ describe('GET /integrations/melhor-envio/callback', () => {
     const start = await (await authorize(bearer('admin-1'))).json();
     const state = new URL(start.data.authorizationUrl).searchParams.get('state')!;
     const ok = await callback(`code=abc&state=${encodeURIComponent(state)}`);
-    expect(ok.headers.get('location')).toBe('https://loja.example.test/admin/configuracoes?melhorEnvio=conectado');
+    expect(ok.headers.get('location')).toBe('https://loja.example.test/admin/configuracoes?melhorEnvio=conectado&permissoes=nao-confirmadas');
     expect(tokenEndpoint).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(creds[0])).not.toMatch(/ACCESS-SECRETO|REFRESH-SECRETO/);
 

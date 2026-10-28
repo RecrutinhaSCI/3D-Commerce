@@ -191,6 +191,12 @@ describe('estados do painel', () => {
     expect(actionButtons()).toEqual(['ADD_NOTE']);
   });
 
+  it('OAuth sem permissões de etiqueta: aviso de reconexão (ações já vêm filtradas do backend)', async () => {
+    await render(overview(null, { availableActions: [], config: { enabled: true, environment: 'sandbox', isTest: true, purchaseAllowed: true, meAccess: 'missing', missingScopes: ['cart-write'] } }));
+    expect(byTestId('me-access-missing')!.textContent).toContain('Reconexão necessária para habilitar geração de etiquetas');
+    expect(host.querySelector('[data-testid="label-actions"]')).toBeNull();
+  });
+
   it('travas desligadas: aviso e nenhum botão de compra', async () => {
     await render(overview(null, { availableActions: [], config: { enabled: false, environment: 'sandbox', isTest: true, purchaseAllowed: false } }));
     expect(text()).toContain('desligadas no servidor');

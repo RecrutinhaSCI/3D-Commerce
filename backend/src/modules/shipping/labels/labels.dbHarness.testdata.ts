@@ -51,7 +51,24 @@ export async function lockTestDb(): Promise<() => Promise<void>> {
 }
 export const DB_LOCK_TIMEOUT_MS = 180_000;
 
+/** Scopes completos (cotação + etiquetas), como se o ME tivesse confirmado. */
+export const FULL_SCOPES = 'cart-write orders-read shipping-calculate shipping-cancel shipping-checkout shipping-generate shipping-print shipping-tracking';
+
+/** Credenciais OAuth FICTÍCIAS (Sandbox e produção) (tokens falsos; só a lista de scopes importa nos testes). */
+export async function seedCredential(db: PrismaClient, scope: string | null = FULL_SCOPES, scopeSource: string | null = 'response') {
+  await db.integrationCredential.deleteMany();
+  for (const environment of ['sandbox', 'production']) {
+    await db.integrationCredential.create({
+      data: {
+        provider: 'melhor_envio', environment, accessTokenEnc: 'nao-e-token', refreshTokenEnc: 'nao-e-token',
+        accessTokenExpiresAt: new Date('2099-01-01T00:00:00Z'), scope, scopeSource,
+      },
+    });
+  }
+}
+
 export async function resetDb(db: PrismaClient) {
+  await seedCredential(db);
   await db.shipmentLabelEvent.deleteMany();
   await db.shipmentLabel.deleteMany();
   await db.orderItem.deleteMany();

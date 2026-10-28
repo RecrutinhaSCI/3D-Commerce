@@ -130,7 +130,15 @@ export interface ApiLabelOverview {
     packageSuggestion?: { package: ApiLabelPackage | null; itemsMissingData: number };
     sender?: ApiSenderReadiness;
   };
-  config: { enabled: boolean; environment: string; isTest: boolean; purchaseAllowed: boolean };
+  config: {
+    enabled: boolean;
+    environment: string;
+    isTest: boolean;
+    purchaseAllowed: boolean;
+    /** Permissões OAuth para etiquetas: missing = reconexão necessária (backend já tirou as ações). */
+    meAccess?: 'ok' | 'unverified' | 'missing';
+    missingScopes?: string[];
+  };
   label: ApiShipmentLabel | null;
   availableActions: ApiLabelAction[];
   history: Array<{ id: string; status: ApiLabelStatus; environment: string; isTest: boolean; paidPrice: number | null; trackingCode: string | null; cancelReason: string | null; createdAt: string; canceledAt: string | null }>;

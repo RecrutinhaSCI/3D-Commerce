@@ -11,7 +11,8 @@ import { buildCartPayload, PayloadError, resolveLabelServiceId, type OrderAddres
 import { buildLabelOverview, sandboxPrintLimited, toLabelEventDto, type LabelOverview } from './labelDto';
 import { parseStoredSender, senderReadiness } from './sender';
 import { env } from '../../../config/env';
-import { resolveMelhorEnvioConfig } from '../melhorEnvioConfig';
+import { resolveMelhorEnvioConfig, resolveMelhorEnvioOAuthConfig } from '../melhorEnvioConfig';
+import { labelsAccess, ME_PROVIDER } from '../../integrations/melhorEnvioScopes';
 
 /**
  * Ciclo de vida da etiqueta PERSISTIDA (shipment_labels).
@@ -147,6 +148,8 @@ export interface LabelWorkflowDeps {
   randomToken?: () => string;
   /** CEP de origem da cotação (prontidão do remetente). Padrão: env. */
   originCep?: string | null;
+  /** OAuth do app configurado no servidor? Padrão: env. */
+  oauthConfigured?: boolean;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -1120,6 +1123,14 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
     }
     const c = cfg();
     const settings = await client_.siteSettings.findUnique({ where: { id: 'main' }, select: { shippingSenderJson: true } });
+    // Permissões da conexão (mesmo banco do workflow; nunca o token).
+    const cred = await client_.integrationCredential.findUnique({
+      where: { provider_environment: { provider: ME_PROVIDER, environment: c.environment } },
+      select: { needsReconnect: true, scope: true, scopeSource: true },
+    });
+    const oauthConfigured = deps.oauthConfigured ?? resolveMelhorEnvioOAuthConfig(env).enabled;
+    const purchaseAllowed = c.enabled && (c.environment !== 'production' || c.allowProduction);
+    const access = labelsAccess(cred, oauthConfigured, { enabled: c.enabled, purchaseAllowed });
     const originCep = deps.originCep !== undefined ? deps.originCep : resolveMelhorEnvioConfig(env).originCep;
     const zip = String((order.addressSnapshot as OrderAddressSnapshot | null)?.zipCode ?? '').replace(/\D/g, '');
     return buildLabelOverview(label, history, {
@@ -1151,7 +1162,9 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
         enabled: c.enabled,
         environment: c.environment,
         isTest: c.environment !== 'production',
-        purchaseAllowed: c.enabled && (c.environment !== 'production' || c.allowProduction),
+        purchaseAllowed,
+        meAccess: access.readiness === 'not_connected' || access.readiness === 'reconnect_required' ? 'missing' : access.readiness === 'scopes_unverified' ? 'unverified' : 'ok',
+        missingScopes: access.missingScopes,
       },
       cartAddUncertain: label ? await cartAddUncertain(label) : false,
       now: now(),

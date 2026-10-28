@@ -15,7 +15,7 @@ import { FakeMe, meError } from './labels.fakeMe.testdata';
 import { senderSchema } from './sender';
 import { validSenderInput } from './labels.testdata';
 import { HttpError } from '../../../utils/httpError';
-import { DB_LOCK_TIMEOUT_MS, lockTestDb } from './labels.dbHarness.testdata';
+import { DB_LOCK_TIMEOUT_MS, lockTestDb, seedCredential } from './labels.dbHarness.testdata';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 function isSafeTestDb(url: string | undefined): boolean {
@@ -46,7 +46,7 @@ describe.skipIf(!enabled)('labelWorkflow — Postgres real', () => {
   let B: LabelWorkflow;
   let orderId: string;
 
-  const make = (db: PrismaClient, cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now: () => new Date(clock) });
+  const make = (db: PrismaClient, cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now: () => new Date(clock), oauthConfigured: true });
 
   let unlock: () => Promise<void>;
   beforeAll(async () => {
@@ -75,6 +75,7 @@ describe.skipIf(!enabled)('labelWorkflow — Postgres real', () => {
   }
 
   beforeEach(async () => {
+    await seedCredential(dbA);
     await dbA.shipmentLabelEvent.deleteMany();
     await dbA.shipmentLabel.deleteMany();
     await dbA.orderItem.deleteMany();

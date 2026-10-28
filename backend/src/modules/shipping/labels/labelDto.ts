@@ -37,6 +37,14 @@ export interface LabelsConfigView {
   isTest: boolean;
   /** enabled e (sandbox ou produção liberada). */
   purchaseAllowed: boolean;
+  /**
+   * Permissões da conexão OAuth para etiquetas (Etapa 6):
+   *   ok         — scopes confirmados;
+   *   unverified — o ME não informou os scopes (deixa tentar; um 403 vira "escopo faltando");
+   *   missing    — não conectado / reconexão necessária: nenhuma ação que chame o ME.
+   */
+  meAccess?: 'ok' | 'unverified' | 'missing';
+  missingScopes?: string[];
 }
 
 export interface OrderLabelContext {
@@ -154,9 +162,10 @@ export function labelActions(label: ShipmentLabel | null, ctx: ActionContext): L
     actions.push('ADD_NOTE');
   }
 
+  const meOk = config.meAccess !== 'missing';
   return actions.filter((a) => {
-    if (WRITE_ACTIONS.includes(a)) return config.purchaseAllowed;
-    if (READ_ACTIONS.includes(a)) return config.enabled;
+    if (WRITE_ACTIONS.includes(a)) return config.purchaseAllowed && meOk;
+    if (READ_ACTIONS.includes(a)) return config.enabled && meOk;
     return true;
   });
 }

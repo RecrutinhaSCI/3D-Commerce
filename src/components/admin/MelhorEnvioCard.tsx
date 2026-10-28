@@ -15,6 +15,16 @@ const CALLBACK_MESSAGES: Record<string, string> = {
   falha: 'Não foi possível concluir a conexão com o Melhor Envio. Tente novamente.',
 };
 
+/** Etiquetas: texto por estado (o backend decide o estado; aqui só a frase). */
+const LABELS_TEXT: Record<ApiMelhorEnvioStatus['labels']['readiness'], { text: string; tone: string }> = {
+  ready: { text: 'Permissões completas', tone: 'text-emerald-700' },
+  reconnect_required: { text: 'Reconexão necessária', tone: 'text-rose-700' },
+  scopes_unverified: { text: 'Permissões não confirmadas pelo Melhor Envio', tone: 'text-amber-700' },
+  not_connected: { text: 'Conecte o Melhor Envio', tone: 'text-ink-mute' },
+  disabled: { text: 'Permissões completas · desligadas no servidor', tone: 'text-ink-soft' },
+  production_blocked: { text: 'Permissões completas · compra em produção bloqueada', tone: 'text-ink-soft' },
+};
+
 const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
@@ -48,11 +58,17 @@ export function MelhorEnvioCard() {
     const result = params.get('melhorEnvio');
     if (!result) return;
     // `id` fixo: o efeito pode rodar 2x (StrictMode) sem duplicar o aviso.
-    if (result === 'conectado') toast.success('Melhor Envio conectado!', { id: 'melhor-envio-callback' });
+    const perms = params.get('permissoes');
+    if (result === 'conectado' && perms === 'incompletas') {
+      toast.error('Conectado, mas o Melhor Envio não concedeu todas as permissões de etiqueta. Veja abaixo o que falta.', { id: 'melhor-envio-callback' });
+    } else if (result === 'conectado' && perms === 'nao-confirmadas') {
+      toast('Conectado. O Melhor Envio não informou as permissões concedidas — elas serão confirmadas na homologação.', { id: 'melhor-envio-callback' });
+    } else if (result === 'conectado') toast.success('Melhor Envio conectado!', { id: 'melhor-envio-callback' });
     else toast.error(CALLBACK_MESSAGES[params.get('motivo') ?? ''] ?? CALLBACK_MESSAGES.falha, { id: 'melhor-envio-callback' });
     const next = new URLSearchParams(params);
     next.delete('melhorEnvio');
     next.delete('motivo');
+    next.delete('permissoes');
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -108,8 +124,29 @@ export function MelhorEnvioCard() {
         </div>
       ) : (
         <>
-          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          <dl className="space-y-1.5 rounded-lg border border-ink-line p-3 text-sm" data-testid="me-summary">
             <div className="flex justify-between gap-2"><dt className="text-ink-mute">Ambiente</dt><dd className="font-medium">{envLabel}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-ink-mute">OAuth</dt><dd className="font-medium">{status.needsReconnect ? 'Reconexão necessária' : status.connected ? 'Conectado' : 'Desconectado'}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-ink-mute">Cotação</dt><dd className="font-medium">{status.quoteAvailable ? 'Disponível' : 'Indisponível'}</dd></div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-mute">Etiquetas</dt>
+              <dd className={`text-right font-medium ${LABELS_TEXT[status.labels.readiness].tone}`} data-testid="me-labels">{LABELS_TEXT[status.labels.readiness].text}</dd>
+            </div>
+            <div className="flex justify-between gap-2"><dt className="text-ink-mute">Homologação</dt><dd className="font-medium">{status.environment === 'sandbox' && status.labelsReady ? 'Ativa' : 'Inativa'}</dd></div>
+          </dl>
+          {status.needsReconnectForLabels && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="me-reconnect-labels">
+              <p className="font-semibold">Reconexão necessária para habilitar geração de etiquetas.</p>
+              {status.missingScopes.length > 0 && (
+                <p className="mt-1 break-words text-xs">Permissões faltando: <span className="font-mono">{status.missingScopes.join(', ')}</span></p>
+              )}
+              <p className="mt-1 text-xs">A conexão atual continua valendo (a cotação não para) até a nova autorização ser concluída.</p>
+            </div>
+          )}
+          {status.labels.readiness === 'scopes_unverified' && (
+            <p className="rounded-lg bg-bg-soft p-3 text-xs text-ink-soft">O Melhor Envio não informou quais permissões concedeu. Elas serão confirmadas na homologação Sandbox antes de liberar etiquetas.</p>
+          )}
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div className="flex justify-between gap-2"><dt className="text-ink-mute">Acesso válido até</dt><dd>{fmtDate(status.accessTokenExpiresAt)}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-ink-mute">Última renovação</dt><dd>{fmtDate(status.lastRefreshedAt)}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-ink-mute">Conectado em</dt><dd>{fmtDate(status.connectedAt)}</dd></div>
@@ -126,7 +163,7 @@ export function MelhorEnvioCard() {
           <div className="flex flex-wrap gap-2">
             <Button onClick={connect} loading={starting} variant={status.connected ? 'secondary' : 'primary'}>
               {status.connected || status.needsReconnect ? <RefreshCw className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-              {status.connected || status.needsReconnect ? 'Reconectar' : 'Conectar Melhor Envio'}
+              {status.connected || status.needsReconnect ? 'Reconectar Melhor Envio' : 'Conectar Melhor Envio'}
             </Button>
           </div>
         </>
