@@ -771,6 +771,8 @@ enum ShipmentLabelStatus {
   NEEDS_RECONCILIATION // resposta ambígua/timeout: consultar o Melhor Envio antes de qualquer ação
   ERROR // erro recuperável (detalhe em last_error_*)
   CANCELED
+  CANCELING // cancelamento enviado ao Melhor Envio (lease em lock_until)
+  DISCARDED // preparação NÃO paga descartada (provado no Melhor Envio); inativa
 }
 
 /// Modalidade fiscal do envio.
@@ -833,6 +835,11 @@ model ShipmentLabel {
   deliveredAt  DateTime? @map("delivered_at")
   canceledAt   DateTime? @map("canceled_at")
   lastSyncedAt DateTime? @map("last_synced_at")
+  /// Geração PEDIDA ao ME. `generatedAt` só é preenchido quando o ME CONFIRMA
+  /// a etiqueta gerada (status/data) — o download depende disso.
+  generationRequestedAt DateTime? @map("generation_requested_at")
+  /// Motivo informado pelo admin no cancelamento/descarte (sanitizado).
+  cancelReason String? @map("cancel_reason")
 
   // Último erro: código curto + mensagem amigável (nunca resposta bruta/token).
   lastErrorCode    String? @map("last_error_code")

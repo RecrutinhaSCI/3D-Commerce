@@ -6,7 +6,7 @@
 import { LabelApiError, type LabelApiErrorCode, type LabelErrorOutcome, type LabelOperation } from './labelErrors';
 import type { MeLabelsClient, MeOrderInfo } from './meLabelsClient';
 
-type Op = 'add' | 'get' | 'checkout' | 'generate';
+type Op = 'add' | 'get' | 'checkout' | 'generate' | 'remove' | 'cancellable' | 'cancel';
 interface FakeOrder {
   status: string;
   price: number;
@@ -23,8 +23,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class FakeMe {
   orders = new Map<string, FakeOrder>();
-  calls: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0 };
-  delay: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0 };
+  calls: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0, remove: 0, cancellable: 0, cancel: 0 };
+  delay: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0, remove: 0, cancellable: 0, cancel: 0 };
+  /** Resposta do `cancellable`. */
+  canCancel = true;
   /** Preço que o próximo item de carrinho recebe. */
   cartPrice = 23.45;
   /** Falhas de uma vez: executadas (e removidas) na próxima chamada da operação. */
@@ -86,6 +88,22 @@ export class FakeMe {
         await self.hook('generate', id);
         Object.assign(self.orders.get(id)!, { status: 'generated', generatedAt: '2026-10-27T12:05:00.000Z', tracking: 'AB123456789BR' });
         return { accepted: true, message: null };
+      },
+      async removeFromCart(id: string) {
+        await self.hook('remove', id);
+        const o = self.orders.get(id);
+        if (!o) throw meError('cart.remove', 'NOT_FOUND', 'rejected', 404);
+        if (o.status !== 'pending') throw meError('cart.remove', 'VALIDATION', 'rejected', 422);
+        self.orders.delete(id); // some do ME: GET passa a dar 404
+      },
+      async cancellable(id: string) {
+        await self.hook('cancellable', id);
+        return { cancellable: self.canCancel };
+      },
+      async cancel(id: string) {
+        await self.hook('cancel', id);
+        Object.assign(self.orders.get(id)!, { status: 'canceled', canceledAt: '2026-10-27T13:00:00.000Z' });
+        return { canceled: true as const };
       },
     };
     return c as MeLabelsClient;

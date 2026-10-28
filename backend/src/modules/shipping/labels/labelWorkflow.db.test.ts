@@ -15,6 +15,7 @@ import { FakeMe, meError } from './labels.fakeMe.testdata';
 import { senderSchema } from './sender';
 import { validSenderInput } from './labels.testdata';
 import { HttpError } from '../../../utils/httpError';
+import { DB_LOCK_TIMEOUT_MS, lockTestDb } from './labels.dbHarness.testdata';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 function isSafeTestDb(url: string | undefined): boolean {
@@ -47,13 +48,16 @@ describe.skipIf(!enabled)('labelWorkflow — Postgres real', () => {
 
   const make = (db: PrismaClient, cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now: () => new Date(clock) });
 
+  let unlock: () => Promise<void>;
   beforeAll(async () => {
+    unlock = await lockTestDb();
     dbA = new PrismaClient({ datasourceUrl: TEST_URL });
     dbB = new PrismaClient({ datasourceUrl: TEST_URL });
     await Promise.all([dbA.$connect(), dbB.$connect()]);
-  });
+  }, DB_LOCK_TIMEOUT_MS);
   afterAll(async () => {
     await Promise.all([dbA?.$disconnect(), dbB?.$disconnect()]);
+    await unlock?.();
   });
 
   async function createOrder(p: Record<string, unknown> = {}) {
