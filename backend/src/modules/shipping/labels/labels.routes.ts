@@ -29,6 +29,7 @@ import { createLabelWorkflow, type LabelWorkflow, type WorkflowResult } from './
  *   POST …/label/cancel        { labelId, reason }
  *   POST …/label/discard       { labelId, reason }   (só não paga, provado no ME)
  *   POST …/label/notes         { labelId, reason, evidence? } (só auditoria)
+ *   GET  …/label/file?disposition=inline|attachment → PDF (revalida no ME antes)
  *
  * Toda resposta de ação devolve a visão atualizada (+ `confirmation` quando
  * uma foi criada, + `error` sanitizado quando o ME falhou). Não existe rota
@@ -86,6 +87,7 @@ export function createLabelsRouter(deps: LabelsRouterDeps = {}) {
       ...view,
       ...(result?.confirmation ? { confirmation: result.confirmation } : {}),
       ...(result?.error ? { error: result.error } : {}),
+      ...(result?.warnings?.length ? { warnings: result.warnings } : {}),
       ...extra,
     };
   }
@@ -194,6 +196,22 @@ export function createLabelsRouter(deps: LabelsRouterDeps = {}) {
       const orderId = orderIdOf(req);
       const input = noteSchema.parse(body(req));
       ok(res, await respond(orderId, userOf(req), await wf().addNote(orderId, input, userOf(req))));
+    }),
+  );
+
+  router.get(
+    `${base}/file`,
+    query,
+    asyncHandler(async (req, res) => {
+      const orderId = orderIdOf(req);
+      const disposition = z.enum(['inline', 'attachment']).catch('attachment').parse(req.query.disposition);
+      const { pdf, filename } = await wf().labelFile(orderId, userOf(req));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `${disposition}; filename="${filename}"`);
+      res.setHeader('Content-Length', String(pdf.length));
+      res.setHeader('Cache-Control', 'no-store, private');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.status(200).end(pdf);
     }),
   );
 

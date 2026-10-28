@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAuthTokenError, OAuthUnavailableError } from '../../integrations/melhorEnvioOAuth';
-import { createMeLabelsClient, type MeLabelsRuntimeConfig } from './meLabelsClient';
+import { createMeLabelsClient, isAllowedLabelFileUrl, MAX_LABEL_FILE_REDIRECTS, type MeLabelsRuntimeConfig } from './meLabelsClient';
 import { LabelApiError, sanitizeExternalMessage } from './labelErrors';
 import type { MeCartPayload } from './payload';
 
@@ -379,5 +379,131 @@ describe('logs e sanitização', () => {
     expect(sanitizeExternalMessage('x'.repeat(500))!.length).toBeLessThanOrEqual(200);
     expect(sanitizeExternalMessage('   ')).toBeNull();
     expect(sanitizeExternalMessage({ obj: 1 })).toBeNull();
+  });
+});
+
+describe('download do PDF (URL temporária)', () => {
+  const PDF_URL = 'https://arquivos.melhorenvio.com.br/etiqueta/abc.pdf';
+  const pdf = (bytes = '%PDF-1.4 conteudo') => new Response(bytes, { status: 200, headers: { 'content-type': 'application/pdf' } });
+
+  it('baixa SEM o token do ME e devolve os bytes', async () => {
+    handler = () => pdf();
+    const buf = await client().downloadLabelPdf(PDF_URL);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(calls[0].url).toBe(PDF_URL);
+    expect(JSON.stringify(calls[0].headers)).not.toContain(TOKEN);
+    expect(calls[0].headers).not.toHaveProperty('Authorization');
+    expect(getToken).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'http://arquivos.melhorenvio.com.br/x.pdf',
+    'https://melhorenvio.com.br.evil.test/x.pdf',
+    'https://169.254.169.254/latest',
+    'nao-e-url',
+  ])('host/protocolo fora do Melhor Envio é recusado sem rede: %s', async (url) => {
+    expect((await caught(client().downloadLabelPdf(url))).code).toBe('BAD_RESPONSE');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('conteúdo que não é PDF, vazio ou grande demais é recusado', async () => {
+    handler = () => new Response('<html>login</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    expect((await caught(client().downloadLabelPdf(PDF_URL))).code).toBe('BAD_RESPONSE');
+    handler = () => pdf('');
+    expect((await caught(client().downloadLabelPdf(PDF_URL))).code).toBe('BAD_RESPONSE');
+    handler = () => new Response('%PDF-', { status: 200, headers: { 'content-length': String(20 * 1024 * 1024) } });
+    expect((await caught(client().downloadLabelPdf(PDF_URL))).code).toBe('BAD_RESPONSE');
+  });
+
+  it('404/5xx/timeout viram erro tipado; travas desligadas bloqueiam antes da rede', async () => {
+    handler = () => new Response('', { status: 404 });
+    expect((await caught(client().downloadLabelPdf(PDF_URL))).code).toBe('NOT_FOUND');
+    handler = () => new Response('', { status: 503 });
+    expect((await caught(client().downloadLabelPdf(PDF_URL))).code).toBe('SERVER_ERROR');
+    handler = () => {
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    };
+    expect((await caught(client().downloadLabelPdf(PDF_URL))).code).toBe('TIMEOUT');
+    calls.length = 0;
+    expect((await caught(client({ ...SANDBOX, enabled: false }).downloadLabelPdf(PDF_URL))).code).toBe('OPERATION_BLOCKED');
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('download do PDF — redirects validados um a um', () => {
+  const START = 'https://www.melhorenvio.com.br/imprimir/abc';
+  const pdf = () => new Response('%PDF-1.4 ok', { status: 200, headers: { 'content-type': 'application/pdf' } });
+  const redirect = (location: string, status = 302) => new Response(null, { status, headers: { location } });
+  /** Servidor falso: mapa URL → resposta. */
+  const routes = (map: Record<string, () => Response>): Handler => (req) => (map[req.url] ?? (() => new Response('', { status: 404 })))();
+
+  it('redirect para OUTRO subdomínio permitido → baixa; sem token em nenhum salto; redirect manual', async () => {
+    handler = routes({ [START]: () => redirect('https://arquivos.melhorenvio.com.br/tmp/abc.pdf'), 'https://arquivos.melhorenvio.com.br/tmp/abc.pdf': pdf });
+    const buf = await client().downloadLabelPdf(START);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(calls.map((c) => c.url)).toEqual([START, 'https://arquivos.melhorenvio.com.br/tmp/abc.pdf']);
+    for (const c of calls) {
+      expect(Object.keys(c.headers).map((h) => h.toLowerCase())).not.toContain('authorization');
+      expect(JSON.stringify(c.headers)).not.toContain(TOKEN);
+    }
+    expect(vi.mocked(fetchImpl).mock.calls.every(([, init]) => init?.redirect === 'manual')).toBe(true);
+    expect(getToken).not.toHaveBeenCalled();
+  });
+
+  it('redirect relativo dentro do mesmo host permitido → ok', async () => {
+    handler = routes({ [START]: () => redirect('/files/abc.pdf', 301), 'https://www.melhorenvio.com.br/files/abc.pdf': pdf });
+    expect((await client().downloadLabelPdf(START)).length).toBeGreaterThan(5);
+  });
+
+  it.each([
+    ['domínio externo', 'https://cdn.exemplo.test/abc.pdf'],
+    ['sufixo enganoso', 'https://melhorenvio.com.br.evil.test/abc.pdf'],
+    ['HTTP', 'http://arquivos.melhorenvio.com.br/abc.pdf'],
+    ['localhost', 'https://localhost/abc.pdf'],
+    ['IP privado', 'https://10.0.0.5/abc.pdf'],
+    ['metadados da nuvem', 'https://169.254.169.254/latest/meta-data'],
+    ['IPv6 loopback', 'https://[::1]/abc.pdf'],
+    ['porta estranha', 'https://arquivos.melhorenvio.com.br:8443/abc.pdf'],
+    ['credenciais na URL', 'https://user:pass@arquivos.melhorenvio.com.br/abc.pdf'],
+    ['outro esquema', 'file:///etc/passwd'],
+  ])('redirect para %s → bloqueado SEM buscar o destino', async (_n, dest) => {
+    handler = routes({ [START]: () => redirect(dest) });
+    expect((await caught(client().downloadLabelPdf(START))).code).toBe('BAD_RESPONSE');
+    expect(calls).toHaveLength(1);
+  });
+
+  it(`cadeia acima de ${MAX_LABEL_FILE_REDIRECTS} redirects → bloqueada`, async () => {
+    const hop = (i: number) => `https://h${i}.melhorenvio.com.br/x`;
+    const map: Record<string, () => Response> = { [START]: () => redirect(hop(1)) };
+    for (let i = 1; i <= 10; i++) map[hop(i)] = () => redirect(hop(i + 1));
+    handler = routes(map);
+    expect((await caught(client().downloadLabelPdf(START))).code).toBe('BAD_RESPONSE');
+    expect(calls).toHaveLength(MAX_LABEL_FILE_REDIRECTS + 1);
+  });
+
+  it('exatamente o limite de redirects + PDF válido → ok', async () => {
+    const hop = (i: number) => `https://h${i}.melhorenvio.com.br/x`;
+    const map: Record<string, () => Response> = { [START]: () => redirect(hop(1)) };
+    for (let i = 1; i < MAX_LABEL_FILE_REDIRECTS; i++) map[hop(i)] = () => redirect(hop(i + 1));
+    map[hop(MAX_LABEL_FILE_REDIRECTS)] = pdf;
+    handler = routes(map);
+    expect((await client().downloadLabelPdf(START)).subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('redirect sem Location, e destino não-PDF após redirect permitido → recusados', async () => {
+    handler = routes({ [START]: () => new Response(null, { status: 302 }) });
+    expect((await caught(client().downloadLabelPdf(START))).code).toBe('BAD_RESPONSE');
+    calls.length = 0;
+    handler = routes({ [START]: () => redirect('https://a.melhorenvio.com.br/x'), 'https://a.melhorenvio.com.br/x': () => new Response('<html>', { status: 200 }) });
+    expect((await caught(client().downloadLabelPdf(START))).code).toBe('BAD_RESPONSE');
+  });
+
+  it('allowlist: só melhorenvio.com.br e subdomínios, HTTPS', () => {
+    expect(isAllowedLabelFileUrl('https://melhorenvio.com.br/a')).toBe(true);
+    expect(isAllowedLabelFileUrl('https://sandbox.melhorenvio.com.br/a')).toBe(true);
+    expect(isAllowedLabelFileUrl('https://MELHORENVIO.COM.BR./a')).toBe(true);
+    for (const u of ['https://xmelhorenvio.com.br/a', 'https://melhorenvio.com/a', 'https://127.0.0.1/a', 'https://app.local/a', 'nada']) {
+      expect(isAllowedLabelFileUrl(u)).toBe(false);
+    }
   });
 });

@@ -242,7 +242,32 @@ const MESSAGES: Record<LabelApiErrorCode, string> = {
   UNKNOWN: 'Erro inesperado do Melhor Envio.',
 };
 
-const ALREADY_PAID_RE = /j[áa]\s+(foram|foi)\s+pag|already\s+(been\s+)?paid/i;
+/**
+ * Allowlist EXPLÍCITA dos hosts de onde o backend aceita baixar o PDF (a URL
+ * inicial e CADA redirect). Novo host/CDN só entra aqui depois de visto no
+ * Sandbox. Só HTTPS; IP literal e nomes locais nunca passam.
+ */
+export const LABEL_FILE_ALLOWED_DOMAINS: readonly string[] = ['melhorenvio.com.br'];
+export const MAX_LABEL_FILE_REDIRECTS = 3;
+const MAX_LABEL_PDF_BYTES = 10 * 1024 * 1024;
+
+/** URL permitida para baixar o PDF? (HTTPS + host da allowlist ou subdomínio; sem credenciais/porta estranha.) */
+export function isAllowedLabelFileUrl(raw: string | URL): boolean {
+  let u: URL;
+  try {
+    u = typeof raw === 'string' ? new URL(raw) : raw;
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  if (u.port && u.port !== '443') return false;
+  const host = u.hostname.toLowerCase().replace(/\.$/, '');
+  // IP literal (v4/v6) ou nome local: nunca, mesmo que a allowlist mude.
+  if (/^\[.*\]$/.test(host) || /^\d+(\.\d+){3}$/.test(host) || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+  return LABEL_FILE_ALLOWED_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
+const ALREADY_PAID_RE =/j[áa]\s+(foram|foi)\s+pag|already\s+(been\s+)?paid/i;
 
 type Raw = { status: number; body: unknown; headers: Headers };
 
@@ -471,6 +496,60 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
       const res = await call(op, 'GET', `/api/v2/me/imprimir/pdf/${id}`);
       const url = isObj(res.body) ? httpsUrl(res.body.url) : null;
       return url ? { url } : badResponse(op, res.status);
+    },
+
+    /**
+     * Baixa o PDF a partir da URL temporária de `getLabelFile`. Vai SEM o token
+     * do ME (a URL já é a autorização), só para host do Melhor Envio, com
+     * timeout, limite de tamanho e conferência de que é mesmo um PDF. A URL
+     * nunca é gravada nem devolvida ao navegador.
+     */
+    async downloadLabelPdf(url: string): Promise<Buffer> {
+      const op = 'print.file';
+      const cfg = guard(op);
+      if (!isAllowedLabelFileUrl(url)) return fail(op, 'BAD_RESPONSE', 'not_sent');
+      let target = new URL(url);
+      // Um timeout para a cadeia inteira (redirects inclusos).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+      try {
+        let res: Response;
+        for (let hop = 0; ; hop++) {
+          try {
+            // redirect: 'manual' → cada destino passa pela allowlist antes de ser buscado.
+            // Cabeçalhos fixos a cada salto: NUNCA Authorization/token do ME.
+            res = await fetchImpl(target.toString(), {
+              method: 'GET',
+              redirect: 'manual',
+              headers: { Accept: 'application/pdf', 'User-Agent': cfg.userAgent },
+              signal: controller.signal,
+            });
+          } catch (err) {
+            return fail(op, (err as Error).name === 'AbortError' ? 'TIMEOUT' : 'NETWORK', 'unknown');
+          }
+          if (res.status < 300 || res.status >= 400) break;
+          const location = res.headers.get('location');
+          if (!location || hop >= MAX_LABEL_FILE_REDIRECTS) return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
+          let next: URL;
+          try {
+            next = new URL(location, target);
+          } catch {
+            return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
+          }
+          if (!isAllowedLabelFileUrl(next)) return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
+          target = next;
+        }
+        if (!res.ok) return fail(op, res.status === 404 ? 'NOT_FOUND' : res.status >= 500 ? 'SERVER_ERROR' : 'UNKNOWN', 'rejected', { httpStatus: res.status });
+        const declared = Number(res.headers.get('content-length') ?? 0);
+        if (declared > MAX_LABEL_PDF_BYTES) return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length === 0 || buf.length > MAX_LABEL_PDF_BYTES || buf.subarray(0, 5).toString('latin1') !== '%PDF-') {
+          return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
+        }
+        return buf;
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     async tracking(id: string): Promise<MeTrackingInfo> {

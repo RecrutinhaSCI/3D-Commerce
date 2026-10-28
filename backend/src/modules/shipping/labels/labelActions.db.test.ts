@@ -436,3 +436,123 @@ describe.skipIf(!dbEnabled)('ações da etiqueta — Postgres real', () => {
     });
   });
 });
+
+describe.skipIf(!dbEnabled)('arquivo da etiqueta (download/impressão) — Postgres real', () => {
+  let db: PrismaClient;
+  let me: FakeMe;
+  let orderId: string;
+  let unlock: () => Promise<void>;
+  const now = () => new Date('2026-10-28T12:00:00Z');
+  const make = (cfg = CFG) => createLabelWorkflow({ db, client: me.client(), config: cfg, now });
+
+  beforeAll(async () => {
+    unlock = await lockTestDb();
+    db = newClient();
+    await db.$connect();
+  }, DB_LOCK_TIMEOUT_MS);
+  afterAll(async () => {
+    await db?.$disconnect();
+    await unlock?.();
+  });
+  beforeEach(async () => {
+    await resetDb(db);
+    me = new FakeMe();
+    orderId = await createOrder(db);
+  });
+  async function rejected(p: Promise<unknown>): Promise<HttpError> {
+    try {
+      await p;
+    } catch (e) {
+      expect(e).toBeInstanceOf(HttpError);
+      return e as HttpError;
+    }
+    throw new Error('deveria ter sido recusado');
+  }
+  async function buy(w = make()) {
+    const r = await w.prepare(orderId, { package: PKG, fiscal: DECL }, ADMIN);
+    return w.purchase(orderId, r.confirmation!.token, ADMIN);
+  }
+
+  it('pronta e confirmada: revalida no ME, entrega o PDF e audita; URL temporária nunca é gravada', async () => {
+    const w = make();
+    await buy(w);
+    const gets = me.calls.get;
+    const { pdf, filename } = await w.labelFile(orderId, ADMIN);
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(filename).toMatch(/^etiqueta-TESTE-/);
+    expect(me.calls.get - gets).toBe(1); // revalidou antes de liberar
+    expect(me.calls.file).toBe(1);
+    const dump = JSON.stringify([await db.shipmentLabel.findMany(), await db.shipmentLabelEvent.findMany()]);
+    expect(dump).not.toMatch(/URL-TEMPORARIA|arquivos\.melhorenvio/);
+    expect(dump).toContain('LABEL_FILE_DOWNLOADED');
+  });
+
+  it('geração ainda processando no ME: NÃO libera, atualiza o status e avisa', async () => {
+    const w = make();
+    const r = await w.prepare(orderId, { package: PKG, fiscal: DECL }, ADMIN);
+    me.failNext('get', () => undefined);
+    me.failNext('get', () => {
+      throw meError('order.get', 'TIMEOUT', 'unknown');
+    });
+    await w.purchase(orderId, r.confirmation!.token, ADMIN);
+    const meId = (await db.shipmentLabel.findFirstOrThrow({ where: { orderId } })).meOrderId!;
+    Object.assign(me.orders.get(meId)!, { status: 'released', generatedAt: null }); // ME ainda não gerou
+    expect((await rejected(w.labelFile(orderId, ADMIN))).code).toBe('LABEL_NOT_GENERATED');
+    expect(me.calls.file).toBe(0);
+    expect((await db.shipmentLabel.findFirstOrThrow({ where: { orderId } })).lastSyncedAt).not.toBeNull();
+  });
+
+  it('ME fora do ar na revalidação: 502, sem arquivo', async () => {
+    const w = make();
+    await buy(w);
+    me.failNext('get', () => {
+      throw meError('order.get', 'SERVER_ERROR', 'unknown', 503);
+    });
+    expect(await rejected(w.labelFile(orderId, ADMIN))).toMatchObject({ status: 502, code: 'LABEL_FILE_UNVERIFIED' });
+    expect(me.calls.file).toBe(0);
+  });
+
+  it('Sandbox + Correios sem PDF: mensagem de limitação do ambiente (não finge que funciona)', async () => {
+    const w = make();
+    await buy(w);
+    me.failNext('file', () => {
+      throw meError('print.file', 'NOT_FOUND', 'rejected', 404);
+    });
+    const e = await rejected(w.labelFile(orderId, ADMIN));
+    expect(e.code).toBe('SANDBOX_PRINT_UNAVAILABLE');
+    expect(e.message).toMatch(/Sandbox/);
+  });
+
+  it('produção (liberada) com falha no arquivo: 502 LABEL_FILE_UNAVAILABLE', async () => {
+    const w = make({ ...CFG, environment: 'production', allowProduction: true });
+    await buy(w);
+    me.failNext('file', () => {
+      throw meError('print.file', 'SERVER_ERROR', 'unknown', 503);
+    });
+    expect(await rejected(w.labelFile(orderId, ADMIN))).toMatchObject({ status: 502, code: 'LABEL_FILE_UNAVAILABLE' });
+  });
+
+  it('sem etiqueta, não comprada, cancelada no ME: download recusado', async () => {
+    const w = make();
+    expect((await rejected(w.labelFile(orderId, ADMIN))).code).toBe('LABEL_NOT_FOUND');
+    await w.prepare(orderId, { package: PKG, fiscal: DECL }, ADMIN);
+    expect((await rejected(w.labelFile(orderId, ADMIN))).code).toBe('NOT_PURCHASED');
+    await resetDb(db);
+    orderId = await createOrder(db);
+    await buy(w);
+    const meId = (await db.shipmentLabel.findFirstOrThrow({ where: { orderId } })).meOrderId!;
+    Object.assign(me.orders.get(meId)!, { status: 'canceled', canceledAt: '2026-10-28T13:00:00.000Z' });
+    await expect(w.labelFile(orderId, ADMIN)).rejects.toBeInstanceOf(HttpError);
+    expect(me.calls.file).toBe(0);
+  });
+
+  it('visão do pedido: CEP de destino, prazo, sugestão de caixa, remetente e plano do rastreio', async () => {
+    const ov = await make().overview(orderId, ADMIN);
+    expect(ov.order).toMatchObject({ destinationCep: '01310100', recipientDocumentMissing: false, sender: { declaration: expect.any(Boolean) } });
+    expect(ov.order.packageSuggestion).toEqual({ package: null, itemsMissingData: 2 }); // itens de teste sem produto
+    await buy();
+    const after = await make().overview(orderId, ADMIN);
+    expect(after.label!.tracking.orderSync).toBe('SANDBOX_NEVER');
+    expect(after.label!.file).toMatchObject({ downloadable: true, sandboxPrintLimited: true });
+  });
+});

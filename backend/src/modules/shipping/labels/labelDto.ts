@@ -1,7 +1,7 @@
 import type { ShipmentLabel, ShipmentLabelEvent, ShipmentLabelStatus } from '@prisma/client';
 import { decimalToNumber } from '../../../utils/decimal';
 import { LEASED_STATUSES } from './labelStatus';
-import type { StoredPackage } from './package';
+import type { ShipmentPackage, StoredPackage } from './package';
 
 /**
  * DTO das etiquetas para o PAINEL. O backend decide o que pode ser feito
@@ -46,7 +46,44 @@ export interface OrderLabelContext {
   /** Entrega com serviço de etiqueta suportado (retirada = false). */
   serviceSupported: boolean;
   customerShippingValue: number | null;
+  /** Dados de exibição/pré-preenchimento do painel (sem dado pessoal além do CEP de destino). */
+  shippingMethod?: string | null;
+  shippingServiceName?: string | null;
+  shippingCarrier?: string | null;
+  deadlineDays?: number | null;
+  destinationCep?: string | null;
+  /** Rastreio JÁ gravado no pedido (manual ou futuro automático). */
+  trackingCode?: string | null;
+  /** Pedido sem CPF/CNPJ do destinatário: o modal pede o documento. */
+  recipientDocumentMissing?: boolean;
+  /** Sugestão de caixa pelos produtos (null quando falta peso/medida em algum item). */
+  packageSuggestion?: { package: ShipmentPackage | null; itemsMissingData: number };
+  /** Prontidão do remetente por modalidade fiscal + pendências legíveis. */
+  sender?: { declaration: boolean; nfe: boolean; issues: string[] };
 }
+
+/**
+ * O que fazer com o rastreio do PEDIDO quando a etiqueta tem código:
+ *   SANDBOX_NEVER        — etiqueta de teste: nunca alimenta o pedido;
+ *   NO_LABEL_CODE        — a etiqueta ainda não tem rastreio;
+ *   ALREADY_SAME         — o pedido já tem este código;
+ *   AVAILABLE            — pedido sem código: pode receber o da etiqueta;
+ *   MANUAL_CODE_CONFLICT — o pedido tem OUTRO código (manual): nunca sobrescrever sem confirmação.
+ * Só a decisão — aplicar fica para a etapa de produção.
+ */
+export type OrderTrackingSync = 'SANDBOX_NEVER' | 'NO_LABEL_CODE' | 'ALREADY_SAME' | 'AVAILABLE' | 'MANUAL_CODE_CONFLICT';
+export function orderTrackingSync(environment: string, labelCode: string | null, orderCode: string | null | undefined): OrderTrackingSync {
+  if (environment !== 'production') return 'SANDBOX_NEVER';
+  if (!labelCode) return 'NO_LABEL_CODE';
+  const current = orderCode?.trim().toUpperCase() || null;
+  if (!current) return 'AVAILABLE';
+  return current === labelCode.trim().toUpperCase() ? 'ALREADY_SAME' : 'MANUAL_CODE_CONFLICT';
+}
+
+/** Serviços dos Correios (PAC/Sedex): no Sandbox o ME não gera o PDF deles. */
+const CORREIOS_SERVICE_IDS = new Set([1, 2]);
+export const sandboxPrintLimited = (l: Pick<ShipmentLabel, 'environment' | 'serviceId'>) =>
+  l.environment !== 'production' && CORREIOS_SERVICE_IDS.has(l.serviceId);
 
 export interface ActionContext {
   order: OrderLabelContext;
@@ -143,9 +180,12 @@ export interface LabelDto {
   package: StoredPackage | null;
   declaredValue: number | null;
   fiscal: { mode: string; nfeKeyEnd: string | null };
-  tracking: { code: string | null; melhorEnvio: string | null };
-  /** Arquivo da etiqueta: `downloadable` só depois que o ME CONFIRMA a geração. */
-  file: { requestedAt: string | null; verifiedAt: string | null; downloadable: boolean };
+  tracking: { code: string | null; melhorEnvio: string | null; orderSync: OrderTrackingSync };
+  /**
+   * Arquivo da etiqueta: `downloadable` só depois que o ME CONFIRMA a geração.
+   * `sandboxPrintLimited`: no Sandbox o ME não gera PDF de PAC/Sedex.
+   */
+  file: { requestedAt: string | null; verifiedAt: string | null; downloadable: boolean; sandboxPrintLimited: boolean };
   /** Confirmação de preço válida no momento (o token só vem na resposta que a criou). */
   pendingConfirmation: { price: number | null; expiresAt: string } | null;
   dates: {
@@ -198,11 +238,12 @@ export function toLabelDto(l: ShipmentLabel, ctx: ActionContext): LabelDto {
     package: (l.packageJson as unknown as StoredPackage) ?? null,
     declaredValue: decimalToNumber(l.declaredValue),
     fiscal: { mode: l.fiscalMode, nfeKeyEnd: l.nfeKey ? l.nfeKey.slice(-4) : null },
-    tracking: { code: l.trackingCode, melhorEnvio: l.selfTracking },
+    tracking: { code: l.trackingCode, melhorEnvio: l.selfTracking, orderSync: orderTrackingSync(l.environment, l.trackingCode, ctx.order.trackingCode) },
     file: {
       requestedAt: iso(l.generationRequestedAt),
       verifiedAt: iso(l.generatedAt),
       downloadable: actions.includes('DOWNLOAD'),
+      sandboxPrintLimited: sandboxPrintLimited(l),
     },
     pendingConfirmation: pending ? { price: decimalToNumber(l.confirmationPrice), expiresAt: l.confirmationExpiresAt!.toISOString() } : null,
     dates: {

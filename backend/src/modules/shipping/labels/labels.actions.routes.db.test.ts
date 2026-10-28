@@ -215,10 +215,24 @@ describe.skipIf(!dbEnabled)('rotas de etiqueta — HTTP + Postgres real', () => 
     expect(me.calls.checkout).toBe(0);
   });
 
+  it('download pela HTTP: PDF real do fluxo; antes da compra, 409 em JSON', async () => {
+    const p = await prepare();
+    const early = await fetch(`${baseA}/api/admin/shipping-labels/orders/${orderId}/label/file`, { headers: admin });
+    expect(early.status).toBe(409);
+    bodies.push(await early.text());
+    await call('POST', `${orderId}/label/purchase`, { labelId: p.label.id, token: p.confirmation.token });
+    const r = await fetch(`${baseA}/api/admin/shipping-labels/orders/${orderId}/label/file?disposition=inline`, { headers: admin });
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('application/pdf');
+    const text = Buffer.from(await r.arrayBuffer()).toString('latin1');
+    expect(text.startsWith('%PDF-')).toBe(true);
+    expect(text).not.toMatch(/URL-TEMPORARIA|melhorenvio/);
+  });
+
   it('NENHUMA resposta vaza hash, payload, lease ou dado pessoal; token só nas respostas que o criaram', async () => {
     const all = bodies.join('\n');
     const rows = await dbA.shipmentLabel.findMany();
-    for (const s of ['confirmationHash', 'payloadHash', 'lockUntil', 'access_token', 'refresh_token', ...ORDER_PII]) expect(all).not.toContain(s);
+    for (const s of ['confirmationHash', 'payloadHash', 'lockUntil', 'access_token', 'refresh_token', 'URL-TEMPORARIA', ...ORDER_PII]) expect(all).not.toContain(s);
     for (const r of rows) {
       if (r.confirmationHash) expect(all).not.toContain(r.confirmationHash);
       if (r.payloadHash) expect(all).not.toContain(r.payloadHash);

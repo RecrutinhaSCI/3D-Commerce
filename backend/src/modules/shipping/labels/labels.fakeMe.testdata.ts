@@ -6,7 +6,7 @@
 import { LabelApiError, type LabelApiErrorCode, type LabelErrorOutcome, type LabelOperation } from './labelErrors';
 import type { MeLabelsClient, MeOrderInfo } from './meLabelsClient';
 
-type Op = 'add' | 'get' | 'checkout' | 'generate' | 'remove' | 'cancellable' | 'cancel';
+type Op = 'add' | 'get' | 'checkout' | 'generate' | 'remove' | 'cancellable' | 'cancel' | 'file';
 interface FakeOrder {
   status: string;
   price: number;
@@ -23,8 +23,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class FakeMe {
   orders = new Map<string, FakeOrder>();
-  calls: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0, remove: 0, cancellable: 0, cancel: 0 };
-  delay: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0, remove: 0, cancellable: 0, cancel: 0 };
+  calls: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0, remove: 0, cancellable: 0, cancel: 0, file: 0 };
+  delay: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0, remove: 0, cancellable: 0, cancel: 0, file: 0 };
   /** Resposta do `cancellable`. */
   canCancel = true;
   /** Preço que o próximo item de carrinho recebe. */
@@ -99,6 +99,13 @@ export class FakeMe {
       async cancellable(id: string) {
         await self.hook('cancellable', id);
         return { cancellable: self.canCancel };
+      },
+      async getLabelFile(id: string) {
+        await self.hook('file', id);
+        return { url: `https://arquivos.melhorenvio.com.br/tmp/${id}.pdf?sig=URL-TEMPORARIA-SECRETA` };
+      },
+      async downloadLabelPdf() {
+        return Buffer.from('%PDF-1.4 etiqueta de teste');
       },
       async cancel(id: string) {
         await self.hook('cancel', id);

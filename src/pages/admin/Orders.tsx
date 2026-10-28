@@ -14,6 +14,7 @@ import { ApiError } from '@/services/api';
 import type { Order, OrderStatus, PaymentStatus } from '@/types';
 import { useSEO } from '@/utils/seo';
 import { editOnDoubleClick } from '@/utils/rowEdit';
+import { ShipmentPanel } from '@/components/admin/shipment/ShipmentPanel';
 
 /** Marcadores de alerta gravados nas notas pelo backend (revisão do admin). */
 const ALERT_MARKERS = ['[REVISAR ESTOQUE]', '[PAGAMENTO DUPLICADO]', '[CONFERIR VALOR]', '[ESTORNO MANUAL]'];
@@ -292,6 +293,8 @@ export default function Orders() {
                 O cliente vê e rastreia por este código em “Meus pedidos”.
               </p>
             </div>
+
+            <ShipmentPanel orderId={active.id} />
 
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Itens</p>

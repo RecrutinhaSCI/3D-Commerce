@@ -38,6 +38,7 @@ const makeWorkflow = () => ({
   cancel: vi.fn(async () => RESULT),
   discard: vi.fn(async () => RESULT),
   addNote: vi.fn(async () => RESULT),
+  labelFile: vi.fn(async () => ({ pdf: Buffer.from('%PDF-1.4 teste'), filename: 'etiqueta-TESTE-ord1.pdf' })),
   get: vi.fn(),
 });
 type Wf = ReturnType<typeof makeWorkflow>;
@@ -215,5 +216,56 @@ describe('rate limit', () => {
     const call = caller(await start({ workflow: wf as never, limits: { financial: { windowMs: 60_000, limit: 1, perOrder: true } } }));
     for (let i = 0; i < 5; i++) await call('POST', '/ordA/label/purchase', {}, { labelId: 'lab1', token: TOKEN });
     expect((await call('POST', '/ordA/label/purchase', bearer('admin-1'), { labelId: 'lab1', token: TOKEN })).status).toBe(200);
+  });
+});
+
+describe('download da etiqueta (GET …/label/file)', () => {
+  let wf: Wf;
+  let base: string;
+  beforeEach(async () => {
+    wf = makeWorkflow();
+    base = await start({ workflow: wf as never });
+  });
+  const get = (qs = '', headers: Record<string, string> = bearer('admin-1')) =>
+    fetch(`${base}/api/admin/shipping-labels/orders/ord1/label/file${qs}`, { headers });
+
+  it('sem login 401, cliente 403; nada buscado', async () => {
+    expect((await get('', {})).status).toBe(401);
+    expect((await get('', bearer('cliente-1'))).status).toBe(403);
+    expect(wf.labelFile).not.toHaveBeenCalled();
+  });
+
+  it('admin: PDF com no-store, nosniff e disposição pedida (padrão: anexo)', async () => {
+    let r = await get();
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('application/pdf');
+    expect(r.headers.get('cache-control')).toContain('no-store');
+    expect(r.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(r.headers.get('content-disposition')).toBe('attachment; filename="etiqueta-TESTE-ord1.pdf"');
+    expect(Buffer.from(await r.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
+    r = await get('?disposition=inline');
+    expect(r.headers.get('content-disposition')).toMatch(/^inline;/);
+    r = await get('?disposition=%22%3E%3Cscript%3E');
+    expect(r.headers.get('content-disposition')).toMatch(/^attachment;/);
+    expect(wf.labelFile).toHaveBeenCalledWith('ord1', 'admin-1');
+  });
+
+  it('não gerada / limitação do Sandbox: JSON de erro padrão, sem PDF', async () => {
+    wf.labelFile.mockRejectedValueOnce(new HttpError(409, 'LABEL_NOT_GENERATED', 'Etiqueta ainda sendo gerada.'));
+    let r = await get();
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ ok: false, error: { code: 'LABEL_NOT_GENERATED' } });
+    wf.labelFile.mockRejectedValueOnce(new HttpError(409, 'SANDBOX_PRINT_UNAVAILABLE', 'Limitação do Sandbox.'));
+    r = await get();
+    expect((await r.json()).error.code).toBe('SANDBOX_PRINT_UNAVAILABLE');
+  });
+
+  it('usa a cota de CONSULTA ao ME (cada download revalida lá)', async () => {
+    const w = makeWorkflow();
+    const b = await start({ workflow: w as never, limits: { query: { windowMs: 60_000, limit: 2 } } });
+    const g = () => fetch(`${b}/api/admin/shipping-labels/orders/ord1/label/file`, { headers: bearer('admin-1') });
+    expect((await g()).status).toBe(200);
+    expect((await g()).status).toBe(200);
+    expect((await g()).status).toBe(429);
   });
 });

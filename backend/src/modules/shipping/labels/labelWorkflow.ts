@@ -6,10 +6,12 @@ import { assertLabelPurchaseAllowed, canTransition, LEASED_STATUSES } from './la
 import { buildFiscalPayloadParts, FiscalError, fiscalSelectionSchema } from './fiscal';
 import { LabelApiError, sanitizeExternalMessage } from './labelErrors';
 import { createMeLabelsClient, labelsRuntimeConfig, type MeLabelsClient, type MeLabelsRuntimeConfig, type MeOrderInfo } from './meLabelsClient';
-import { packageSchema, type StoredPackage } from './package';
+import { packageSchema, suggestPackage, type StoredPackage } from './package';
 import { buildCartPayload, PayloadError, resolveLabelServiceId, type OrderAddressSnapshot } from './payload';
-import { buildLabelOverview, toLabelEventDto, type LabelOverview } from './labelDto';
-import { parseStoredSender } from './sender';
+import { buildLabelOverview, sandboxPrintLimited, toLabelEventDto, type LabelOverview } from './labelDto';
+import { parseStoredSender, senderReadiness } from './sender';
+import { env } from '../../../config/env';
+import { resolveMelhorEnvioConfig } from '../melhorEnvioConfig';
 
 /**
  * Ciclo de vida da etiqueta PERSISTIDA (shipment_labels).
@@ -67,6 +69,7 @@ export type LabelEventType =
   | 'DISCARD_REFUSED'
   | 'DISCARDED'
   | 'MANUAL_NOTE'
+  | 'LABEL_FILE_DOWNLOADED'
   | 'ERROR';
 
 export interface LabelView {
@@ -114,6 +117,8 @@ export interface WorkflowResult {
   confirmation?: ConfirmationView;
   /** Erro do ME (já seguro) quando a ação terminou num estado de erro/reconciliação. */
   error?: ReturnType<LabelApiError['toSafeJSON']>;
+  /** Avisos que NÃO bloqueiam (ex.: destinatário sem documento). */
+  warnings?: string[];
 }
 
 /** Cancelamento/descarte: motivo obrigatório (vai sanitizado para o evento). */
@@ -140,6 +145,8 @@ export interface LabelWorkflowDeps {
   config?: MeLabelsRuntimeConfig;
   now?: () => Date;
   randomToken?: () => string;
+  /** CEP de origem da cotação (prontidão do remetente). Padrão: env. */
+  originCep?: string | null;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -457,7 +464,8 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
       return { label: view(failed ?? label), error: err.toSafeJSON() };
     }
 
-    return requestConfirmationFor(label, userId);
+    const confirmed = await requestConfirmationFor(label, userId);
+    return built.warnings.length ? { ...confirmed, warnings: built.warnings } : confirmed;
   }
 
   // ---------------------------------------------------------------------------
@@ -1094,7 +1102,11 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
     const client_ = await db();
     const order = await client_.order.findUnique({
       where: { id: orderId },
-      select: { id: true, paymentStatus: true, status: true, shippingMethod: true, shippingServiceId: true, shippingValue: true },
+      select: {
+        id: true, paymentStatus: true, status: true, shippingMethod: true, shippingServiceId: true, shippingValue: true,
+        shippingServiceName: true, shippingCarrier: true, shippingDeadlineDays: true, addressSnapshot: true, customerCpf: true, trackingCode: true,
+        items: { select: { quantity: true, product: { select: { weight: true, width: true, height: true, depth: true } } } },
+      },
     });
     if (!order) throw new HttpError(404, 'ORDER_NOT_FOUND', 'Pedido não encontrado.');
     const active = await findActive(orderId);
@@ -1107,6 +1119,9 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
       serviceSupported = false;
     }
     const c = cfg();
+    const settings = await client_.siteSettings.findUnique({ where: { id: 'main' }, select: { shippingSenderJson: true } });
+    const originCep = deps.originCep !== undefined ? deps.originCep : resolveMelhorEnvioConfig(env).originCep;
+    const zip = String((order.addressSnapshot as OrderAddressSnapshot | null)?.zipCode ?? '').replace(/\D/g, '');
     return buildLabelOverview(label, history, {
       order: {
         id: order.id,
@@ -1114,6 +1129,23 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
         canceled: order.status === 'CANCELED',
         serviceSupported,
         customerShippingValue: decimalToNumber(order.shippingValue),
+        shippingMethod: order.shippingMethod,
+        shippingServiceName: order.shippingServiceName,
+        shippingCarrier: order.shippingCarrier,
+        deadlineDays: order.shippingDeadlineDays,
+        destinationCep: zip.length === 8 ? zip : null,
+        trackingCode: order.trackingCode,
+        recipientDocumentMissing: !order.customerCpf,
+        packageSuggestion: suggestPackage(
+          order.items.map((i) => ({
+            quantity: i.quantity,
+            weight: decimalToNumber(i.product?.weight),
+            width: decimalToNumber(i.product?.width),
+            height: decimalToNumber(i.product?.height),
+            depth: decimalToNumber(i.product?.depth),
+          })),
+        ),
+        sender: senderReadiness(parseStoredSender(settings?.shippingSenderJson), originCep),
       },
       config: {
         enabled: c.enabled,
@@ -1126,6 +1158,45 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
     });
   }
 
+  /**
+   * PDF da etiqueta para o admin. Antes de liberar, REVALIDA no ME (sync):
+   * só entrega se o ME confirmar a etiqueta gerada. A URL temporária do ME é
+   * usada só aqui dentro (backend baixa e repassa) — nunca vai ao navegador
+   * nem ao banco.
+   */
+  async function labelFile(orderId: string, userId: string): Promise<{ pdf: Buffer; filename: string }> {
+    const synced = await sync(orderId, userId);
+    if (synced.error) {
+      throw new HttpError(502, 'LABEL_FILE_UNVERIFIED', 'Não foi possível confirmar a etiqueta no Melhor Envio agora. Tente de novo em instantes.');
+    }
+    const row = await (await db()).shipmentLabel.findUniqueOrThrow({ where: { id: synced.label.id } });
+    if (row.status !== 'LABEL_READY' && row.status !== 'POSTED') {
+      throw row.status === 'PURCHASED'
+        ? conflict('LABEL_NOT_GENERATED', 'A etiqueta ainda não foi gerada.')
+        : row.status === 'DELIVERED'
+          ? conflict('LABEL_DELIVERED', 'Envio já entregue: a etiqueta não está mais disponível.')
+          : blockedBy(row);
+    }
+    if (!row.generatedAt) throw conflict('LABEL_NOT_GENERATED', 'Etiqueta ainda sendo gerada pelo Melhor Envio. Tente em instantes.');
+
+    let pdf: Buffer;
+    try {
+      const { url } = await client().getLabelFile(row.meOrderId!);
+      pdf = await client().downloadLabelPdf(url);
+    } catch (err) {
+      if (!(err instanceof LabelApiError)) throw err;
+      if (sandboxPrintLimited(row)) {
+        throw conflict(
+          'SANDBOX_PRINT_UNAVAILABLE',
+          'No Sandbox o Melhor Envio não gera o PDF de etiquetas dos Correios (PAC/Sedex). É uma limitação do ambiente de teste — nenhuma etiqueta real existe.',
+        );
+      }
+      throw new HttpError(502, 'LABEL_FILE_UNAVAILABLE', 'O Melhor Envio não entregou o arquivo da etiqueta agora. Tente de novo em instantes.', { error: err.toSafeJSON() });
+    }
+    await logEvent(row, 'LABEL_FILE_DOWNLOADED', userId, { bytes: pdf.length });
+    return { pdf, filename: `etiqueta-${row.environment === 'production' ? '' : 'TESTE-'}${orderId}.pdf` };
+  }
+
   async function events(orderId: string) {
     const rows = await (await db()).shipmentLabelEvent.findMany({ where: { orderId }, orderBy: { createdAt: 'desc' }, take: 100 });
     return rows.map(toLabelEventDto);
@@ -1136,7 +1207,7 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
     return label ? view(await normalize(label, userId)) : null;
   }
 
-  return { prepare, requestConfirmation, purchase, reconcile, generate, sync, checkCancellable, cancel, discard, addNote, overview, events, get };
+  return { prepare, requestConfirmation, purchase, reconcile, generate, sync, checkCancellable, cancel, discard, addNote, overview, events, labelFile, get };
 }
 
 export type LabelWorkflow = ReturnType<typeof createLabelWorkflow>;

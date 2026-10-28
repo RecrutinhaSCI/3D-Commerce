@@ -63,8 +63,12 @@ export async function resetDb(db: PrismaClient) {
   });
 }
 
-/** Dados pessoais do pedido de teste — os testes conferem que NUNCA vazam. */
-export const ORDER_PII = ['Paulista', '52998224725', 'cliente@exemplo.test', '01310100', '11988887777'];
+/**
+ * Dados pessoais do pedido de teste — os testes conferem que NUNCA vazam.
+ * O CEP de destino NÃO está aqui: o painel do admin o exibe de propósito
+ * (pedido da Etapa 5); eventos e erros continuam sem ele.
+ */
+export const ORDER_PII = ['Paulista', '52998224725', 'cliente@exemplo.test', '11988887777'];
 
 export async function createOrder(db: PrismaClient, p: Record<string, unknown> = {}) {
   const o = await db.order.create({
