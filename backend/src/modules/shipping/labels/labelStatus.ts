@@ -4,17 +4,18 @@ import type { MelhorEnvioEnvironment, MelhorEnvioLabelsConfig } from '../melhorE
 
 /**
  * Máquina de estados da etiqueta. Toda mudança de status passa por
- * `canTransition` e é gravada com compare-and-set (status + version) — a
- * implementação das transições vem na Etapa 3.
+ * `canTransition` e é gravada com compare-and-set (status + version) — ver
+ * `labelWorkflow.ts`.
  *
  * Regra de ouro: de PURCHASING só se sai para um estado CONFIRMADO pelo
  * Melhor Envio; timeout ou resposta ambígua vai para NEEDS_RECONCILIATION,
  * que nunca compra de novo sem antes consultar a etiqueta lá.
  */
 export const LABEL_TRANSITIONS: Record<ShipmentLabelStatus, readonly ShipmentLabelStatus[]> = {
-  PREPARED: ['AWAITING_CONFIRMATION', 'ERROR', 'CANCELED'],
+  // → NEEDS_RECONCILIATION: a releitura no ME mostrou algo além de "no carrinho".
+  PREPARED: ['AWAITING_CONFIRMATION', 'NEEDS_RECONCILIATION', 'ERROR', 'CANCELED'],
   // → AWAITING_CONFIRMATION: novo token (expirou ou preço mudou).
-  AWAITING_CONFIRMATION: ['AWAITING_CONFIRMATION', 'PURCHASING', 'PREPARED', 'ERROR', 'CANCELED'],
+  AWAITING_CONFIRMATION: ['AWAITING_CONFIRMATION', 'PURCHASING', 'PREPARED', 'NEEDS_RECONCILIATION', 'ERROR', 'CANCELED'],
   // → AWAITING_CONFIRMATION: preço mudou na releitura ANTES do checkout.
   // → ERROR: só quando é certo que o checkout não foi aceito (ex.: 4xx de saldo).
   PURCHASING: ['PURCHASED', 'NEEDS_RECONCILIATION', 'AWAITING_CONFIRMATION', 'ERROR'],

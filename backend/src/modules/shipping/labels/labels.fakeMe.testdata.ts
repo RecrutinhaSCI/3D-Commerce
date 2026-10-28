@@ -1,0 +1,93 @@
+/**
+ * Melhor Envio FALSO com estado (só testes): carrinho, compra, geração e
+ * cancelamento em memória, contadores por operação e falhas injetáveis.
+ * Erros são `LabelApiError` reais, como o cliente de verdade lança.
+ */
+import { LabelApiError, type LabelApiErrorCode, type LabelErrorOutcome, type LabelOperation } from './labelErrors';
+import type { MeLabelsClient, MeOrderInfo } from './meLabelsClient';
+
+type Op = 'add' | 'get' | 'checkout' | 'generate';
+interface FakeOrder {
+  status: string;
+  price: number;
+  paidAt: string | null;
+  generatedAt: string | null;
+  canceledAt: string | null;
+  tracking: string | null;
+}
+
+export const meError = (operation: LabelOperation, code: LabelApiErrorCode, outcome: LabelErrorOutcome, httpStatus: number | null = null) =>
+  new LabelApiError({ operation, code, outcome, message: `falha simulada ${code}`, httpStatus });
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export class FakeMe {
+  orders = new Map<string, FakeOrder>();
+  calls: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0 };
+  delay: Record<Op, number> = { add: 0, get: 0, checkout: 0, generate: 0 };
+  /** Preço que o próximo item de carrinho recebe. */
+  cartPrice = 23.45;
+  /** Falhas de uma vez: executadas (e removidas) na próxima chamada da operação. */
+  private once: Partial<Record<Op, Array<(id?: string) => void>>> = {};
+  private seq = 0;
+
+  failNext(op: Op, fn: (id?: string) => void) {
+    (this.once[op] ??= []).push(fn);
+  }
+
+  private async hook(op: Op, id?: string) {
+    this.calls[op]++;
+    if (this.delay[op]) await sleep(this.delay[op]);
+    const fn = this.once[op]?.shift();
+    if (fn) fn(id);
+  }
+
+  info(id: string): MeOrderInfo {
+    const o = this.orders.get(id)!;
+    return {
+      id,
+      protocol: `ORD-${id.slice(0, 6)}`,
+      status: o.status,
+      serviceId: 1,
+      price: o.price,
+      tracking: o.tracking,
+      selfTracking: null,
+      dates: { createdAt: null, paidAt: o.paidAt, generatedAt: o.generatedAt, postedAt: null, deliveredAt: null, canceledAt: o.canceledAt, expiredAt: null },
+    };
+  }
+
+  /** Marca como paga do lado do ME (ex.: checkout que "aconteceu" antes do timeout). */
+  markPaid(id: string) {
+    Object.assign(this.orders.get(id)!, { status: 'released', paidAt: '2026-10-27T12:00:00.000Z' });
+  }
+
+  client(): MeLabelsClient {
+    const self = this;
+    const c: Partial<MeLabelsClient> = {
+      async addToCart() {
+        await self.hook('add');
+        const id = `${String(++self.seq).padStart(8, '0')}-aaaa-4bbb-8ccc-000000000000`;
+        self.orders.set(id, { status: 'pending', price: self.cartPrice, paidAt: null, generatedAt: null, canceledAt: null, tracking: null });
+        return { id, protocol: `ORD-${self.seq}`, serviceId: 1, price: self.cartPrice, status: 'pending' };
+      },
+      async getOrder(id: string) {
+        await self.hook('get', id);
+        if (!self.orders.has(id)) throw meError('order.get', 'NOT_FOUND', 'rejected', 404);
+        return self.info(id);
+      },
+      async checkout(id: string) {
+        await self.hook('checkout', id);
+        const o = self.orders.get(id)!;
+        if (o.status !== 'pending') throw meError('checkout', 'ALREADY_PAID', 'rejected', 422);
+        self.markPaid(id);
+        return { purchaseId: `pur-${id.slice(0, 8)}`, protocol: 'PUR-1', status: 'paid', total: o.price, paidAt: o.paidAt, order: { id, status: 'released', price: o.price } };
+      },
+      async generate(id: string) {
+        await self.hook('generate', id);
+        Object.assign(self.orders.get(id)!, { status: 'generated', generatedAt: '2026-10-27T12:05:00.000Z', tracking: 'AB123456789BR' });
+        return { accepted: true, message: null };
+      },
+    };
+    return c as MeLabelsClient;
+  }
+}
