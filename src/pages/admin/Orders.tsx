@@ -17,7 +17,7 @@ import { editOnDoubleClick } from '@/utils/rowEdit';
 import { ShipmentPanel } from '@/components/admin/shipment/ShipmentPanel';
 
 /** Marcadores de alerta gravados nas notas pelo backend (revisão do admin). */
-const ALERT_MARKERS = ['[REVISAR ESTOQUE]', '[PAGAMENTO DUPLICADO]', '[CONFERIR VALOR]', '[ESTORNO MANUAL]'];
+const ALERT_MARKERS = ['[REVISAR ESTOQUE]', '[PAGAMENTO DUPLICADO]', '[CONFERIR VALOR]', '[ESTORNO MANUAL]', '[PAGO APÓS CANCELAMENTO]', '[ESTORNO PARCIAL]'];
 const hasAlert = (o: Order) => !!o.notes && ALERT_MARKERS.some((m) => o.notes!.includes(m));
 
 const paymentMethodLabel: Record<Order['payment']['method'], string> = {
@@ -111,6 +111,9 @@ export default function Orders() {
 
   const activeIsPaid = active?.paymentStatus === 'PAID';
   const activeCanceled = active?.status === 'cancelado';
+  // Pagamento aprovado no MP depois do cancelamento: o pedido segue cancelado,
+  // mas o dinheiro entrou — o admin precisa conseguir estornar.
+  const activePaidAfterCancel = activeCanceled && activeIsPaid && !!active?.mpOrderId;
 
   return (
     <div>
@@ -318,10 +321,10 @@ export default function Orders() {
               <div className="flex justify-between border-t border-ink-line pt-1 font-bold"><span>Total</span><span>{formatBRL(active.total)}</span></div>
             </div>
 
-            {!activeCanceled && (
+            {(!activeCanceled || activePaidAfterCancel) && (
               <div className="border-t border-ink-line pt-4">
                 <Button variant="secondary" fullWidth onClick={() => setConfirmCancel(true)} className="!text-rose-600">
-                  {activeIsPaid ? 'Estornar e cancelar pedido' : 'Cancelar pedido'}
+                  {activePaidAfterCancel ? 'Estornar pagamento recebido após o cancelamento' : activeIsPaid ? 'Estornar e cancelar pedido' : 'Cancelar pedido'}
                 </Button>
               </div>
             )}
@@ -336,7 +339,9 @@ export default function Orders() {
       >
         <h2 className="pr-8 text-lg font-bold">{activeIsPaid ? 'Estornar e cancelar?' : 'Cancelar pedido?'}</h2>
         <p className="mt-2 text-sm text-ink-soft">
-          {activeIsPaid
+          {activePaidAfterCancel
+            ? `O pedido já está cancelado, mas o Mercado Pago aprovou um pagamento de ${formatBRL(active?.total ?? 0)} depois. Esse valor será estornado ao cliente; o estoque não muda (não foi baixado).`
+            : activeIsPaid
             ? active?.mpOrderId
               ? `O valor de ${formatBRL(active.total)} será estornado ao cliente pelo Mercado Pago. O estoque volta e o cupom é liberado.`
               : 'Este pagamento foi feito fora do site: o pedido é cancelado, mas você precisa devolver o valor ao cliente manualmente.'

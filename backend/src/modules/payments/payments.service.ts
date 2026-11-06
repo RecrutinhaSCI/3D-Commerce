@@ -6,7 +6,7 @@ import { HttpError } from '../../utils/httpError';
 import { decimalToNumber } from '../../utils/decimal';
 import { sendEmail } from '../../lib/email';
 import { orderCanceledEmail } from '../../lib/emailTemplates';
-import { cancelOrderRecord, settlePaidOrder } from '../orders/orders.service';
+import { appendNoteOnce, cancelOrderRecord, settlePaidOrder } from '../orders/orders.service';
 import {
   resolvePaymentKind,
   type CreatePaymentInput,
@@ -100,9 +100,14 @@ export function mapMpStatus(mpStatus: string | undefined): PaymentStatus {
     case 'canceled':
       return PaymentStatus.CANCELED;
     case 'refunded':
-    case 'partially_refunded':
     case 'charged_back':
       return PaymentStatus.REFUNDED;
+    // Estorno PARCIAL: o pagamento continua valendo (parte do valor ficou com a
+    // loja). Não há suporte a estorno parcial no pedido, então NÃO cancela nem
+    // repõe estoque — fica PAID e o pedido recebe [ESTORNO PARCIAL] para revisão
+    // manual (ver `isPartialRefund`).
+    case 'partially_refunded':
+      return PaymentStatus.PAID;
     case 'action_required':
     case 'processing':
     case 'pending':
@@ -287,11 +292,62 @@ interface CreatePaymentResult {
   barcode_content?: string;
 }
 
+/**
+ * Order com estorno PARCIAL? O MP pode sinalizar no status ou no status_detail,
+ * da Order ou do pagamento — qualquer um basta (na dúvida, revisão manual é o
+ * lado seguro: um estorno total confundido com parcial só gera um alerta).
+ */
+export function isPartialRefund(mpOrder: MpOrder): boolean {
+  const p = mpOrder.transactions?.payments?.[0];
+  return [p?.status, p?.status_detail, mpOrder.status, mpOrder.status_detail].includes('partially_refunded');
+}
+
 /** Status do PAGAMENTO de uma Order do MP (prefere o payment, cai na Order). */
-function mpOrderPaymentStatus(mpOrder: MpOrder): PaymentStatus {
+export function mpOrderPaymentStatus(mpOrder: MpOrder): PaymentStatus {
+  if (isPartialRefund(mpOrder)) return PaymentStatus.PAID;
   const p = mpOrder.transactions?.payments?.[0];
   return mapMpStatus(p?.status ?? mpOrder.status);
 }
+
+export const PARTIAL_REFUND_MARKER = '[ESTORNO PARCIAL]';
+
+/** Alerta de estorno parcial (idempotente): nada é alterado automaticamente. */
+async function flagPartialRefund(orderId: string, mpOrderId: string): Promise<void> {
+  // eslint-disable-next-line no-console
+  console.warn(`[payments] Estorno PARCIAL no pedido ${orderId} (Order ${mpOrderId}) — revisão manual.`);
+  await appendNoteOnce(
+    orderId,
+    PARTIAL_REFUND_MARKER,
+    `O Mercado Pago registrou estorno parcial na Order ${mpOrderId}. Pedido, estoque e cupom NÃO foram alterados automaticamente — conferir o valor no MP e ajustar manualmente.`,
+  );
+}
+
+/**
+ * Chave de idempotência DETERMINÍSTICA da tentativa: mesma intenção → mesma
+ * chave → o MP devolve a MESMA Order em vez de criar outra cobrança (duplo
+ * clique, retry de rede, duas instâncias). Muda quando a intenção muda: outra
+ * tentativa anterior (recusa/troca de método já gravada), outro método, outro
+ * valor ou outro token de cartão. A janela de 10 min evita prender o cliente
+ * numa resposta de erro antiga do MP.
+ */
+export function paymentAttemptIdempotencyKey(parts: {
+  orderId: string;
+  previousAttempt: string | null;
+  kind: PaymentKind;
+  amount: string;
+  cardToken?: string | null;
+  now?: number;
+}): string {
+  const bucket = Math.floor((parts.now ?? Date.now()) / 600_000);
+  const h = crypto
+    .createHash('sha256')
+    .update(['pay', parts.orderId, parts.previousAttempt ?? '-', parts.kind, parts.amount, parts.cardToken ?? '-', bucket].join('|'))
+    .digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Pedidos com createPayment em andamento NESTA instância (duplo clique). */
+const paymentsInFlight = new Set<string>();
 
 /** Order do MP ainda cancelável (aguardando Pix/boleto ou criada). */
 function isMpOrderOpen(mpOrder: MpOrder): boolean {
@@ -400,6 +456,25 @@ export const paymentsService = {
     orderId: string,
     input: CreatePaymentInput,
   ): Promise<CreatePaymentResult> {
+    // Duplo clique / duas abas: uma tentativa por pedido de cada vez. A segunda
+    // é recusada de imediato (409) — nunca cria outra cobrança em paralelo.
+    if (paymentsInFlight.has(orderId)) {
+      throw HttpError.conflict('Já existe um pagamento sendo processado para este pedido. Aguarde alguns segundos.');
+    }
+    paymentsInFlight.add(orderId);
+    try {
+      return await paymentsService.createPaymentUnlocked(userId, orderId, input);
+    } finally {
+      paymentsInFlight.delete(orderId);
+    }
+  },
+
+  /** Corpo do createPayment (chamado só com a trava do pedido). */
+  async createPaymentUnlocked(
+    userId: string,
+    orderId: string,
+    input: CreatePaymentInput,
+  ): Promise<CreatePaymentResult> {
     const order = await prisma.order.findFirst({ where: { id: orderId, userId } });
     if (!order) throw HttpError.notFound('Pedido não encontrado.');
     if (order.status !== OrderStatus.PENDING) {
@@ -499,9 +574,16 @@ export const paymentsService = {
     const res = await mpRequest('/v1/orders', {
       method: 'POST',
       body,
-      // UUID por tentativa: torna um retry de rede DESTA tentativa seguro (sem
-      // cobrança dupla) sem bloquear uma nova tentativa do usuário após recusa.
-      idempotencyKey: crypto.randomUUID(),
+      // Determinística por intenção (ver `paymentAttemptIdempotencyKey`): repetir
+      // a MESMA tentativa devolve a mesma Order; uma tentativa nova (após recusa
+      // gravada, troca de método/valor/cartão) gera outra chave.
+      idempotencyKey: paymentAttemptIdempotencyKey({
+        orderId: order.id,
+        previousAttempt: order.mpPaymentId,
+        kind,
+        amount,
+        cardToken: kind === 'credit_card' ? formData.token ?? null : null,
+      }),
     });
 
     let mpOrder: MpOrder;
@@ -524,8 +606,11 @@ export const paymentsService = {
     const paymentStatus = mapMpStatus(rawStatus);
     const mpOrderId = mpOrder.id ?? null;
 
-    await prisma.order.update({
-      where: { id: order.id },
+    // Grava SÓ se ninguém gravou outra tentativa no meio (compare-and-set no
+    // mpPaymentId lido no início). Cobre o caso entre instâncias, que a trava
+    // em memória não vê.
+    const saved = await prisma.order.updateMany({
+      where: { id: order.id, mpPaymentId: order.mpPaymentId },
       data: {
         ...(mpOrderId ? { mpPaymentId: mpOrderId } : {}),
         externalReference: order.id,
@@ -537,6 +622,22 @@ export const paymentsService = {
         paymentDiscount,
       },
     });
+    if (saved.count === 0) {
+      const current = await prisma.order.findUnique({ where: { id: order.id }, select: { mpPaymentId: true } });
+      if (!mpOrderId || current?.mpPaymentId !== mpOrderId) {
+        // Outra tentativa venceu. Esta cobrança não pode ficar solta: se ainda
+        // está aberta, cancela no MP; se já foi paga, deixa alerta para estorno.
+        if (mpOrderId && paymentStatus === PaymentStatus.PAID) {
+          // eslint-disable-next-line no-console
+          console.error(`[payments] Cobrança concorrente PAGA no pedido ${order.id} (Order ${mpOrderId}).`);
+          await appendOrderNote(order.id, '[PAGAMENTO DUPLICADO]', `A Order ${mpOrderId} do Mercado Pago também foi paga — estornar pelo painel do MP.`);
+        } else if (mpOrderId && isMpOrderOpen(mpOrder)) {
+          await cancelMpOrder(mpOrderId);
+        }
+        throw HttpError.conflict('Outro pagamento deste pedido foi iniciado ao mesmo tempo. Atualize a página para ver o pagamento atual.');
+      }
+      // Mesma Order (chave de idempotência repetida): já gravada por quem veio antes.
+    }
 
     // Pagamento aprovado → baixa o estoque (idempotente) e confirma o pedido.
     // A baixa acontece AQUI, no pagamento — não na criação do pedido.
@@ -590,7 +691,8 @@ export const paymentsService = {
     const mpOrder = res.body as MpOrder;
     const mpPayment = mpOrder.transactions?.payments?.[0] ?? {};
     const rawStatus = mpPayment.status ?? mpOrder.status;
-    const paymentStatus = mapMpStatus(rawStatus);
+    const paymentStatus = mpOrderPaymentStatus(mpOrder);
+    if (isPartialRefund(mpOrder)) await flagPartialRefund(order.id, order.mpPaymentId);
 
     if (canAdvancePaymentStatus(order.paymentStatus, paymentStatus)) {
       await prisma.order.update({
@@ -659,6 +761,9 @@ export const paymentsService = {
     }
 
     const nextStatus = mpOrderPaymentStatus(mpOrder);
+    if (isPartialRefund(mpOrder) && (!order.mpPaymentId || id === order.mpPaymentId)) {
+      await flagPartialRefund(order.id, id);
+    }
 
     // Notificação de uma tentativa ANTIGA (o cliente trocou de método depois).
     // Só o id atual (`mpPaymentId`) move o status — senão um "failed" atrasado
@@ -719,7 +824,28 @@ export const paymentsService = {
   async cancelOrRefund(orderId: string): Promise<{ orderId: string; result: 'refunded' | 'canceled' }> {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw HttpError.notFound('Pedido não encontrado.');
-    if (order.status === OrderStatus.CANCELED) throw HttpError.conflict('Este pedido já está cancelado.');
+    if (order.status === OrderStatus.CANCELED) {
+      // Pagamento aprovado DEPOIS do cancelamento ([PAGO APÓS CANCELAMENTO]):
+      // o pedido continua cancelado; só falta devolver o dinheiro. Estoque não
+      // muda (não foi baixado) e o cupom já foi devolvido no cancelamento.
+      if (order.paymentStatus === PaymentStatus.PAID && order.mpPaymentId) {
+        const res = await mpRequest(`/v1/orders/${encodeURIComponent(order.mpPaymentId)}/refund`, {
+          method: 'POST',
+          idempotencyKey: `refund-${order.id}`,
+        });
+        if (!res.ok) throw providerError(res.status, res.body);
+        const moved = await prisma.order.updateMany({
+          where: { id: order.id, status: OrderStatus.CANCELED, paymentStatus: PaymentStatus.PAID },
+          data: { paymentStatus: PaymentStatus.REFUNDED },
+        });
+        if (moved.count > 0) {
+          await appendOrderNote(order.id, '[ESTORNADO APÓS CANCELAMENTO]', 'Pagamento recebido após o cancelamento foi estornado pelo painel.');
+          await notifyCanceled(order.id, 'refunded');
+        }
+        return { orderId: order.id, result: 'refunded' };
+      }
+      throw HttpError.conflict('Este pedido já está cancelado.');
+    }
 
     if (order.paymentStatus === PaymentStatus.PAID) {
       if (order.mpPaymentId) {
@@ -855,8 +981,8 @@ export const paymentsService = {
         }
 
         const mpOrder = res.body as MpOrder;
-        const mpPayment = mpOrder.transactions?.payments?.[0] ?? {};
-        const next = mapMpStatus(mpPayment.status ?? mpOrder.status);
+        const next = mpOrderPaymentStatus(mpOrder);
+        if (isPartialRefund(mpOrder)) await flagPartialRefund(o.id, o.mpPaymentId);
 
         if (!canAdvancePaymentStatus(o.paymentStatus, next)) {
           unchanged++;

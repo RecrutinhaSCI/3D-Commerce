@@ -537,6 +537,8 @@ class StockShortfall extends Error {
 export type ApplyStockResult =
   | { status: 'applied' }
   | { status: 'already_applied' }
+  /** Pedido já CANCELADO: nada é baixado (pagamento chegou depois do cancelamento). */
+  | { status: 'order_canceled' }
   | { status: 'insufficient'; productName: string };
 
 /**
@@ -556,11 +558,19 @@ export type ApplyStockResult =
 export async function applyStockForOrder(orderId: string): Promise<ApplyStockResult> {
   try {
     return await prisma.$transaction(async (tx) => {
+      // O claim também exige pedido NÃO cancelado: pagamento aprovado depois do
+      // cancelamento nunca baixa estoque. Atômico com `cancelOrderRecord` (mesma
+      // linha): ou o cancelamento vence e aqui nada acontece, ou a baixa vence e
+      // o cancelamento a desfaz logo depois (stockApplied = true → repõe).
       const claim = await tx.order.updateMany({
-        where: { id: orderId, stockApplied: false },
+        where: { id: orderId, stockApplied: false, status: { not: OrderStatus.CANCELED } },
         data: { stockApplied: true },
       });
-      if (claim.count === 0) return { status: 'already_applied' as const };
+      if (claim.count === 0) {
+        const current = await tx.order.findUnique({ where: { id: orderId }, select: { status: true, stockApplied: true } });
+        if (current?.status === OrderStatus.CANCELED && !current.stockApplied) return { status: 'order_canceled' as const };
+        return { status: 'already_applied' as const };
+      }
 
       const items = await tx.orderItem.findMany({ where: { orderId } });
       for (const item of items) {
@@ -665,6 +675,16 @@ export async function restoreStockForOrder(orderId: string): Promise<boolean> {
 
 /** Marcador de revisão manual anexado a um pedido pago sem estoque. */
 const STOCK_REVIEW_MARKER = '[REVISAR ESTOQUE]';
+/** Pagamento aprovado num pedido que já estava cancelado (exige ação do admin). */
+export const PAID_AFTER_CANCEL_MARKER = '[PAGO APÓS CANCELAMENTO]';
+
+/** Anexa um marcador às notas do pedido uma única vez (idempotente). */
+export async function appendNoteOnce(orderId: string, marker: string, text: string): Promise<void> {
+  const current = await prisma.order.findUnique({ where: { id: orderId }, select: { notes: true } });
+  if (!current || current.notes?.includes(marker)) return;
+  const note = `${marker} ${text}`;
+  await prisma.order.update({ where: { id: orderId }, data: { notes: current.notes ? `${note}\n${current.notes}` : note } });
+}
 
 /**
  * Liquida um pedido recém-confirmado como PAGO: baixa o estoque (idempotente) e
@@ -721,22 +741,28 @@ export async function settlePaidOrder(orderId: string): Promise<void> {
     await sendPaymentApprovedEmail(orderId);
   }
 
+  // Pagamento aprovado DEPOIS do cancelamento (cancelamento no MP falhou, boleto
+  // compensado após expirar...). O dinheiro é real e o pedido continua
+  // CANCELADO: não baixa estoque, não envia "pagamento aprovado", não reativa.
+  // paymentStatus PAID + status CANCELED fica visível, e o marcador leva o
+  // admin a estornar (Cancelar/estornar no painel) ou a combinar com o cliente.
+  if (result.status === 'order_canceled') {
+    // eslint-disable-next-line no-console
+    console.error(`[orders] Pedido ${orderId} recebeu pagamento APROVADO depois de cancelado — revisão manual.`);
+    await appendNoteOnce(
+      orderId,
+      PAID_AFTER_CANCEL_MARKER,
+      'Pagamento aprovado no Mercado Pago com o pedido já cancelado. Estoque NÃO foi baixado e o cliente NÃO recebeu e-mail de aprovação. Estornar pelo painel (Cancelar/estornar) ou combinar com o cliente.',
+    );
+    return;
+  }
+
   if (result.status === 'insufficient') {
     // eslint-disable-next-line no-console
     console.error(
       `[orders] Pedido ${orderId} pago sem estoque suficiente — marcado para revisão do admin.`,
     );
-    const current = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: { notes: true },
-    });
-    if (!current?.notes?.includes(STOCK_REVIEW_MARKER)) {
-      const note = `${STOCK_REVIEW_MARKER} Pagamento aprovado sem estoque suficiente; revisar.`;
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { notes: current?.notes ? `${note}\n${current.notes}` : note },
-      });
-    }
+    await appendNoteOnce(orderId, STOCK_REVIEW_MARKER, 'Pagamento aprovado sem estoque suficiente; revisar.');
     return;
   }
 
