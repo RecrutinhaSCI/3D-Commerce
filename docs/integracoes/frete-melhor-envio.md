@@ -22,8 +22,21 @@ Loja: Bento Goncalves/RS, envia pra todo o Brasil.
 Ambiente: backend local + Postgres isolado (`me_homolog`, 127.0.0.1), Melhor Envio **Sandbox** com OAuth dos 8 scopes, `MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION=false`, `HOMOLOGATION_ONLY=true`. Somente pedidos artificiais, remetente sintético (CNPJ gerado) e destinatário fictício. Nenhuma credencial/banco de produção tocado. Evidências redigidas (sem token, documento, endereço, telefone ou e-mail) ficaram fora do Git.
 
 **Cotação (Fase 1)** — `quoteAvailable=true`, scopes verificados no token. PAC = `id 1`, SEDEX = `id 2`.
-- ⚠️ **CEP de origem precisa ser o do LOGRADOURO da loja.** Com `SHIPPING_ORIGIN_CEP=95700000` (CEP geral de Bento Gonçalves) o ME respondeu `200` com `error: "Transportadora não atende este trecho."` em PAC e SEDEX para todos os destinos (→ checkout "só retirada"). Com CEPs de logradouro (ex.: 957000xx) as cotações vieram normais: SP 01310100 → PAC 30,51 / 7 d, SEDEX 45,75 / 3 d (valores Sandbox). O motivo do ME agora vai para o log (`[melhor-envio] cotação sem PAC/Sedex …`).
-- Pacote 42,3 kg 70×80×70: nenhum serviço. 29 kg 60×60×60: só SEDEX (R$ 455,93 Sandbox). Impressoras > 30 kg ficam "só retirada" com a cotação real.
+- ⚠️ **CEP de origem precisa ser o do LOGRADOURO da loja.**
+  - `95700000` = CEP **genérico** de Bento Gonçalves — **inadequado**: o ME respondeu `200` com `error: "Transportadora não atende este trecho."` em PAC e SEDEX para todos os destinos (→ checkout "só retirada"). Reconfirmado no fechamento.
+  - `95703154` = CEP **operacional informado pela loja** (Rua 13 de Maio, 877). Configurado só no `.env` local (vem de `SHIPPING_ORIGIN_CEP`, nunca do código). Em produção, o mesmo valor precisa ir para o Render.
+  - Cotações Sandbox com origem 95703154 (pacote 2× 1,25 kg 21×8×21, R$ 199,80; valores de Sandbox, não tarifas reais) — `quoteAvailable=true`, scope `shipping-calculate` aceito na prática (200 com OAuth):
+
+    | Destino | PAC (id 1) | SEDEX (id 2) |
+    |---|---|---|
+    | 01310100 São Paulo/SP | R$ 30,51 · 7 d | R$ 45,75 · 3 d |
+    | 20040002 Rio de Janeiro/RJ | R$ 33,96 · 8 d | R$ 61,16 · 4 d |
+    | 69005000 Manaus/AM | R$ 44,88 · 21 d | R$ 102,96 · 6 d |
+    | 90010000 Porto Alegre/RS | R$ 25,89 · 6 d | R$ 28,46 · 2 d |
+    | 70040010 Brasília/DF | R$ 44,88 · 7 d | R$ 102,96 · 3 d |
+  - O motivo do ME em cotação vazia vai para o log (`[melhor-envio] cotação sem PAC/Sedex (origem 957xx***): …`).
+- Limites dos Correios observados: 42,3 kg 70×80×70 (R$ 30.000) → nenhum serviço (`"Peso ultrapassa o limite máximo de 30,00kg."` e, no PAC, `"Valor segurado ultrapassa o limite máximo de R$ 4.184,84."`). 29 kg 60×60×60 (R$ 9.000) → só SEDEX (R$ 455,93). **O PAC recusa valor segurado acima de R$ 4.184,84** — impressoras caras tendem a ter só SEDEX.
+- **Sem serviço válido = só retirada**, nunca tabela fixa nem frete inventado; o pedido recusa PAC/SEDEX ausentes (409 `SHIPPING_CHANGED`). Coberto por testes com os formatos reais. **Evolução futura (não implementada):** outra transportadora (ex.: Jadlog) pelo próprio Melhor Envio para itens acima dos limites dos Correios.
 
 **Carrinho → compra → geração → PDF → cancelamento (PAC e SEDEX)** — formatos reais:
 - `POST /me/cart` 201: `{ id (UUID), protocol "ORD-…", service_id, price, quote, delivery_min/max, status "pending", … }`. `GET /me/orders/{id}` e `GET /me/orders/search?q=` (id ou protocolo) devolvem o item; busca **sem resultado = 204 sem corpo**.
@@ -41,7 +54,9 @@ Ambiente: backend local + Postgres isolado (`me_homolog`, 127.0.0.1), Melhor Env
 
 **Correções feitas com essa evidência:** datas sem fuso tratadas como UTC; `imprimir/pdf` aceita a lista; busca 204 = vazia; geração ambígua (204/timeout) reconcilia sozinha; "Verificar" não rebaixa etiqueta com geração aceita (LABEL_READY sem `generatedAt` até o ME confirmar); motivo do ME em cotação vazia no log; textos do painel sobre o PDF do Sandbox.
 
-**PENDENTE DE APROVAÇÃO (não aplicado):** o download do PDF pelo backend está bloqueado pela allowlist (`melhorenvio.com.br`), porque o arquivo vem de `me-0047-sandbox.s3.amazonaws.com`. A URL veio do endpoint autenticado do ME e o arquivo foi conferido (PDF). Proposta: allowlist **por ambiente e por host exato** — Sandbox: `me-0047-sandbox.s3.amazonaws.com`; produção: host a confirmar na primeira etiqueta real (não liberar `*.amazonaws.com`). Até lá, o admin baixa/imprime pelo painel do Melhor Envio.
+**Allowlist do PDF (aprovada e implementada no fechamento):** `melhorenvio.com.br` (+ subdomínios) em qualquer ambiente; **`me-0047-sandbox.s3.amazonaws.com` exato, só quando ambiente = sandbox E API = `https://sandbox.melhorenvio.com.br`**. HTTPS, porta 443, sem credenciais, sem IP/localhost/`.local`, sem `*.amazonaws.com`, sem outros buckets, cada redirect revalidado. Produção NÃO herda: host não autorizado → 502 `LABEL_FILE_HOST_BLOCKED` e o host (sem a URL assinada) vai para o log, para aprovação na primeira etiqueta real.
+- Validação final pelo código real (sem bypass): PAC 91.996 bytes e SEDEX 92.768 bytes, `application/pdf`, `%PDF-`, HTTPS, host `me-0047-sandbox.s3.amazonaws.com`, sem redirect, evento `LABEL_FILE_DOWNLOADED`.
+- Logo após gerar, o PDF pode não estar pronto: o ME responde 404 `E-PRT-0007 … Aguarde 3 minutos`, ou entrega a URL e o S3 ainda responde 404. Ambos → 409 `LABEL_FILE_NOT_READY` ("tente em 1 a 3 minutos"), sem registrar download. Visto na 1ª tentativa de PAC e de SEDEX; a 2ª (~4 s depois) baixou.
 
 ## Resultado da homologação Sandbox — 22/10/2026
 

@@ -74,12 +74,13 @@ vi.mock('../coupons/coupons.service', () => ({ couponsService: { resolveForOrder
 // Melhor Envio: só o fetch externo é simulado (cliente, cache e regra reais)
 // ---------------------------------------------------------------------------
 const realFetch = globalThis.fetch;
-type MePrices = { pac?: number | null; sedex?: number | null; status?: number };
+type MePrices = { pac?: number | null; sedex?: number | null; status?: number; raw?: unknown };
 let mePricesByCep: Record<string, MePrices> = {};
 const meFetch = vi.fn(async (url: string, init?: RequestInit) => {
   const body = JSON.parse(String(init?.body));
   const p = mePricesByCep[body.to.postal_code] ?? {};
   if (p.status && p.status !== 200) return new Response('{}', { status: p.status });
+  if (p.raw !== undefined) return new Response(JSON.stringify(p.raw), { status: 200 });
   const services = [];
   if (p.pac != null) services.push({ id: 1, name: 'PAC', custom_price: String(p.pac), custom_delivery_time: 7, company: { name: 'Correios' } });
   if (p.sedex != null) services.push({ id: 2, name: 'SEDEX', custom_price: String(p.sedex), custom_delivery_time: 2, company: { name: 'Correios' } });
@@ -339,6 +340,71 @@ describe('cotação → criação do pedido', () => {
 
     const err = await ordersService.createFromCart('u1', orderInput()).catch((e) => e);
     expect(err).toMatchObject({ status: 409 });
+  });
+
+  // ---- Carrinho sem transportadora (formatos REAIS do Sandbox, 06/11/2026) ----
+  const notServed = (msg: string) => [
+    { id: 1, name: 'PAC', error: msg, company: { id: 1, name: 'Correios' } },
+    { id: 2, name: 'SEDEX', error: msg, company: { id: 1, name: 'Correios' } },
+  ];
+
+  /** Nenhum serviço válido: só retirada na cotação; PAC/Sedex recusados no pedido; retirada funciona; nada de tabela fixa. */
+  async function expectPickupOnly() {
+    const q = await postQuote({ cep: CEP_A });
+    expect(q.status).toBe(200);
+    expect(q.json.data).toMatchObject({ status: 'unavailable', retryable: false });
+    expect(q.json.data.options.map((o: any) => o.method)).toEqual(['PICKUP']);
+    expect(q.text).not.toMatch(/24[.,]9|42[.,]9/); // valores da tabela fixa nunca aparecem
+    for (const shippingMethod of ['PAC', 'SEDEX'] as const) {
+      const err = await ordersService.createFromCart('u1', orderInput({ shippingMethod })).catch((e) => e);
+      expect(err).toMatchObject({ status: 409, code: 'SHIPPING_CHANGED' });
+    }
+    expect(orderCreate).not.toHaveBeenCalled();
+    await ordersService.createFromCart('u1', orderInput({ shippingMethod: 'PICKUP', expectedShippingValue: 0 }));
+    expect(savedData()).toMatchObject({ shippingMethod: 'PICKUP', shippingQuoteSource: 'store' });
+    expect(num(savedData().shippingValue)).toBe(0);
+  }
+
+  it('"Transportadora não atende este trecho." em PAC e Sedex → só retirada', async () => {
+    mePricesByCep[CEP_A] = { raw: notServed('Transportadora não atende este trecho.') };
+    await expectPickupOnly();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Transportadora não atende este trecho.'));
+  });
+
+  it('produto acima do limite (peso/valor segurado) → só retirada, motivo no log', async () => {
+    db.cart!.items[0].product = product({ weight: 42.3, width: 70, height: 80, depth: 70, price: 30000 });
+    mePricesByCep[CEP_A] = { raw: [
+      { id: 1, name: 'PAC', error: 'Valor segurado ultrapassa o limite máximo de R$ 4.184,84.', company: { name: 'Correios' } },
+      { id: 2, name: 'SEDEX', error: 'Peso ultrapassa o limite máximo de 30,00kg.', company: { name: 'Correios' } },
+    ] };
+    await expectPickupOnly();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Peso ultrapassa'));
+  });
+
+  it('resposta vazia do Melhor Envio ([]) → só retirada', async () => {
+    mePricesByCep[CEP_A] = { raw: [] };
+    await expectPickupOnly();
+  });
+
+  it('só um serviço disponível (Sedex): PAC recusado, Sedex cobrado pelo valor real', async () => {
+    mePricesByCep[CEP_A] = { raw: [
+      { id: 1, name: 'PAC', error: 'Valor segurado ultrapassa o limite máximo de R$ 4.184,84.', company: { name: 'Correios' } },
+      { id: 2, name: 'SEDEX', custom_price: '455.93', custom_delivery_time: 3, company: { name: 'Correios' } },
+    ] };
+    const q = await postQuote({ cep: CEP_A });
+    expect(q.json.data.status).toBe('ok');
+    expect(q.json.data.options.map((o: any) => o.method)).toEqual(['SEDEX', 'PICKUP']);
+    const err = await ordersService.createFromCart('u1', orderInput({ shippingMethod: 'PAC' })).catch((e) => e);
+    expect(err).toMatchObject({ status: 409, code: 'SHIPPING_CHANGED' });
+    await ordersService.createFromCart('u1', orderInput({ shippingMethod: 'SEDEX', expectedShippingValue: 455.93 }));
+    expect(savedData()).toMatchObject({ shippingMethod: 'SEDEX', shippingServiceId: 2, shippingQuoteSource: 'melhor_envio' });
+    expect(num(savedData().shippingValue)).toBe(455.93);
+  });
+
+  it('carrinho normal: PAC e Sedex reais + retirada', async () => {
+    const q = await postQuote({ cep: CEP_A });
+    expect(q.json.data.status).toBe('ok');
+    expect(q.json.data.options.map((o: any) => [o.method, o.price])).toEqual([['PAC', 23.5], ['SEDEX', 41.3], ['PICKUP', 0]]);
   });
 
   it('carrinho com produto inativo: cotação recusa como o pedido recusaria', async () => {
