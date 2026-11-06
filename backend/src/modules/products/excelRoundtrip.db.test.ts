@@ -12,11 +12,12 @@
  *   (crie o banco "app_test" e rode `prisma migrate deploy` nele)
  *   TEST_DATABASE_URL=postgresql://postgres:x@localhost:55432/app_test npx vitest run
  */
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import type { PrismaClient } from '@prisma/client';
 import { buildExportRows, parseWorkbook } from '../../../../src/utils/productExcel';
 import type { ApiProduct } from '../../../../src/services/types';
+import { DB_LOCK_TIMEOUT_MS, lockTestDb } from '../shipping/labels/labels.dbHarness.testdata';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 
@@ -97,8 +98,12 @@ const PLANILHA_INICIAL = [
 ];
 
 describe.skipIf(!enabled)('Catálogo + Excel — integração com Postgres real', () => {
+  // Mesmo banco dos outros *.db.test (que rodam em paralelo e limpam pedidos):
+  // o advisory lock do harness faz este arquivo esperar a vez.
+  let unlock: () => Promise<void>;
+  beforeAll(async () => { unlock = await lockTestDb(); }, DB_LOCK_TIMEOUT_MS);
   beforeEach(resetDb);
-  afterAll(async () => { await prisma.$disconnect(); });
+  afterAll(async () => { await prisma.$disconnect(); await unlock?.(); });
 
   it('banco limpo: listagens vazias e export sem linhas', async () => {
     expect((await productsService.listAdmin({ page: 1, limit: 50 } as never)).products).toEqual([]);
@@ -130,9 +135,10 @@ describe.skipIf(!enabled)('Catálogo + Excel — integração com Postgres real'
     const rows = sheetRows(await exportXlsx());
     expect(rows).toHaveLength(3);
     expect(Object.keys(rows[0]).sort()).toEqual([
-      'ativo', 'categoria', 'criado_em', 'descricao_completa', 'descricao_curta', 'destaque_home',
-      'estoque', 'estoque_atualizado_em', 'id', 'imagem', 'marca', 'material', 'nome', 'preco',
-      'preco_promocional', 'sku', 'slug',
+      // + peso/medidas da embalagem (frete).
+      'altura_cm', 'ativo', 'categoria', 'criado_em', 'descricao_completa', 'descricao_curta', 'destaque_home',
+      'estoque', 'estoque_atualizado_em', 'id', 'imagem', 'largura_cm', 'marca', 'material', 'nome',
+      'peso_kg', 'preco', 'preco_promocional', 'profundidade_cm', 'sku', 'slug',
     ]);
     const byName = Object.fromEntries(rows.map((r) => [r.nome, r]));
     const a = await snapshot('SKU-A');
