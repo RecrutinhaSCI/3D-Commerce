@@ -127,7 +127,7 @@ const MESSAGES: Record<string, string> = {
   LABEL_NOT_GENERATED: 'Etiqueta ainda sendo gerada pelo Melhor Envio. Tente em instantes.',
   LABEL_FILE_UNVERIFIED: 'Não foi possível confirmar a etiqueta no Melhor Envio agora. Tente de novo.',
   LABEL_FILE_UNAVAILABLE: 'O Melhor Envio não entregou o arquivo da etiqueta agora. Tente de novo em instantes.',
-  SANDBOX_PRINT_UNAVAILABLE: 'Ambiente de teste: o Melhor Envio não gera o PDF de etiquetas dos Correios (PAC/Sedex) no Sandbox. Nenhuma etiqueta real existe.',
+  SANDBOX_PRINT_UNAVAILABLE: 'Ambiente de teste: o PDF do Sandbox ainda não pode ser baixado por aqui. Confira no painel do Melhor Envio Sandbox — nenhuma etiqueta real existe.',
   LABEL_DELIVERED: 'Envio já entregue: a etiqueta não está mais disponível.',
   NOT_CANCELLABLE: 'O Melhor Envio não permite cancelar esta etiqueta agora.',
   NOT_PURCHASED: 'Etiqueta ainda não comprada. Para trocar a caixa, use “Descartar preparação”.',

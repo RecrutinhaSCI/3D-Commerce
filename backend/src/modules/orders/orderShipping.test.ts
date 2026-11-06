@@ -102,8 +102,18 @@ const ORIGINAL_ME = {
   MELHOR_ENVIO_TOKEN: env.MELHOR_ENVIO_TOKEN,
   SHIPPING_ORIGIN_CEP: env.SHIPPING_ORIGIN_CEP,
   MELHOR_ENVIO_BASE_URL: env.MELHOR_ENVIO_BASE_URL,
+  MELHOR_ENVIO_CLIENT_ID: env.MELHOR_ENVIO_CLIENT_ID,
+  MELHOR_ENVIO_CLIENT_SECRET: env.MELHOR_ENVIO_CLIENT_SECRET,
+  MELHOR_ENVIO_REDIRECT_URI: env.MELHOR_ENVIO_REDIRECT_URI,
+  MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: env.MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY,
 };
 function setMelhorEnvio(enabled: boolean) {
+  // OAuth do .env local (ex.: homologação Sandbox) não pode vazar para o teste:
+  // aqui a cotação usa só o token manual de teste.
+  env.MELHOR_ENVIO_CLIENT_ID = undefined;
+  env.MELHOR_ENVIO_CLIENT_SECRET = undefined;
+  env.MELHOR_ENVIO_REDIRECT_URI = undefined;
+  env.MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY = undefined;
   env.MELHOR_ENVIO_TOKEN = enabled ? 'token-de-teste' : undefined;
   env.SHIPPING_ORIGIN_CEP = enabled ? '95700000' : undefined;
   env.MELHOR_ENVIO_BASE_URL = 'https://sandbox.melhorenvio.com.br';

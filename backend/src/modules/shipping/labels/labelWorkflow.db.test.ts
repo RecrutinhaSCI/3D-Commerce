@@ -501,9 +501,48 @@ describe.skipIf(!enabled)('labelWorkflow — Postgres real', () => {
         throw meError('generate', 'TIMEOUT', 'unknown');
       });
       const r = await A.purchase(orderId, token, ADMIN);
-      expect(r.label.status).toBe('NEEDS_RECONCILIATION');
-      expect((await rejected(A.generate(orderId, ADMIN))).code).toBe('NEEDS_RECONCILIATION');
-      expect((await A.reconcile(orderId, ADMIN)).label.status).toBe('PURCHASED'); // ME: paga, não gerada
+      // Reconciliação AUTOMÁTICA (gerar não cobra): o ME mostra paga e não
+      // gerada → volta a PURCHASED, com o erro original informado.
+      expect(r.label.status).toBe('PURCHASED');
+      expect(r.error?.code).toBe('TIMEOUT');
+      const evts = (await dbA.shipmentLabelEvent.findMany({ where: { orderId }, orderBy: { createdAt: 'asc' } })).map((e) => e.type);
+      expect(evts).toEqual(expect.arrayContaining(['RECONCILIATION_REQUIRED', 'RECONCILED']));
+      expect((await A.generate(orderId, ADMIN)).label.status).toBe('LABEL_READY');
+      expect(me.calls.checkout).toBe(1);
+    });
+
+    // Comportamento REAL do Sandbox (06/11/2026): geração assíncrona, status
+    // segue "released" e gerar de novo responde 204 sem corpo.
+    it('Sandbox real: gerar de novo durante a geração (204) → reconcilia sozinho, sem travar', async () => {
+      me.asyncGeneration = true;
+      const token = await prepared();
+      const r = await A.purchase(orderId, token, ADMIN);
+      expect(r.label.status).toBe('LABEL_READY'); // aceito
+      expect(r.label.generatedAt).toBeNull(); // arquivo ainda não confirmado
+      // Admin pede "Verificar" antes de o ME concluir: NÃO rebaixa para PURCHASED.
+      expect((await A.reconcile(orderId, ADMIN)).label.status).toBe('LABEL_READY');
+      expect((await rejected(A.labelFile(orderId, ADMIN))).code).toBe('LABEL_NOT_GENERATED');
+      // ME conclui: a consulta de status preenche generatedAt e o rastreio.
+      me.finishGeneration(me.orders.keys().next().value!);
+      const s = await A.sync(orderId, ADMIN);
+      expect(s.label.status).toBe('LABEL_READY');
+      expect(s.label.generatedAt).not.toBeNull();
+      expect(me.calls.generate).toBe(1);
+      expect(me.calls.checkout).toBe(1);
+    });
+
+    it('Sandbox real: 204 no generate de etiqueta já em geração → PURCHASED→reconciliada, sem segunda compra', async () => {
+      me.asyncGeneration = true;
+      const token = await prepared();
+      me.failNext('generate', () => {
+        throw meError('generate', 'BAD_RESPONSE', 'unknown', 204);
+      });
+      const r = await A.purchase(orderId, token, ADMIN);
+      expect(r.label.status).toBe('PURCHASED'); // ME: paga, sem geração confirmada
+      expect(r.error?.httpStatus).toBe(204);
+      const g = await A.generate(orderId, ADMIN);
+      expect(g.label.status).toBe('LABEL_READY');
+      // Clique repetido em "Gerar" com o ME ainda gerando: 204 → reconcilia → segue LABEL_READY.
       expect((await A.generate(orderId, ADMIN)).label.status).toBe('LABEL_READY');
       expect(me.calls.checkout).toBe(1);
     });

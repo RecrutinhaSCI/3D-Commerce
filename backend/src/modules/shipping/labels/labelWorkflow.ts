@@ -740,7 +740,12 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
         trackingCode: me.tracking ?? locked.trackingCode,
         selfTracking: me.selfTracking ?? locked.selfTracking,
       };
-      const to = paidTarget(me);
+      // A geração já foi PEDIDA e o ME ainda não a confirmou (no Sandbox leva
+      // alguns segundos; o status segue "released"): não volta para PURCHASED
+      // — isso abriria "Gerar" de novo à toa. Fica LABEL_READY sem
+      // generatedAt (o download continua esperando a confirmação do ME).
+      const target = paidTarget(me);
+      const to = target === 'PURCHASED' && locked.generationRequestedAt ? 'LABEL_READY' : target;
       const generatedAt = locked.generatedAt ?? meGeneratedAt(me, now());
       next = await cas(
         locked,
@@ -812,9 +817,26 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
     } catch (err) {
       if (!(err instanceof LabelApiError)) throw err;
       if (err.outcome === 'unknown') {
-        // Pode ter gerado: consultar o ME antes de repetir.
-        const moved = await cas(generating, 'NEEDS_RECONCILIATION', { lockUntil: null, ...errorData(err) }, { type: 'RECONCILIATION_REQUIRED', userId, details: { ...errorDetails(err), stage: 'generate' } });
-        return { label: view(moved ?? generating), error: err.toSafeJSON() };
+        // Pode ter gerado (no Sandbox, gerar de novo uma etiqueta já em geração
+        // responde 204 SEM corpo). Gerar não cobra, então a releitura no ME é
+        // feita JÁ (reconciliação automática) em vez de travar até o admin
+        // clicar em "Verificar". generationRequestedAt NÃO é marcado: num
+        // timeout o pedido pode nem ter chegado — se o ME não mostrar gerada,
+        // a etiqueta volta a PURCHASED e "Gerar" continua disponível.
+        const moved = await cas(
+          generating,
+          'NEEDS_RECONCILIATION',
+          { lockUntil: null, ...errorData(err) },
+          { type: 'RECONCILIATION_REQUIRED', userId, details: { ...errorDetails(err), stage: 'generate' } },
+        );
+        if (!moved) return { label: view(generating), error: err.toSafeJSON() };
+        try {
+          const r = await reconcileFor(moved, userId);
+          return { ...r, error: r.error ?? err.toSafeJSON() };
+        } catch (e) {
+          if (!(e instanceof HttpError)) throw e;
+          return { label: view(moved), error: err.toSafeJSON() };
+        }
       }
       // Recusa explícita: não gerou; pode tentar de novo (gerar não cobra).
       const back = await cas(generating, 'PURCHASED', { lockUntil: null, ...errorData(err) }, { type: 'ERROR', userId, details: { ...errorDetails(err), stage: 'generate' } });
@@ -1201,7 +1223,7 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
       if (sandboxPrintLimited(row)) {
         throw conflict(
           'SANDBOX_PRINT_UNAVAILABLE',
-          'No Sandbox o Melhor Envio não gera o PDF de etiquetas dos Correios (PAC/Sedex). É uma limitação do ambiente de teste — nenhuma etiqueta real existe.',
+          'Ambiente de teste: o PDF do Sandbox ainda não pode ser baixado por aqui (o Melhor Envio o entrega por um servidor de arquivos ainda não liberado no sistema). Confira no painel do Melhor Envio Sandbox — nenhuma etiqueta real existe.',
         );
       }
       throw new HttpError(502, 'LABEL_FILE_UNAVAILABLE', 'O Melhor Envio não entregou o arquivo da etiqueta agora. Tente de novo em instantes.', { error: err.toSafeJSON() });

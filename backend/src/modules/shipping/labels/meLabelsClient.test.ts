@@ -94,6 +94,53 @@ describe('sucesso de cada endpoint', () => {
     expect(calls[0]).toMatchObject({ method: 'GET', url: `${SANDBOX.baseUrl}/api/v2/me/orders/${ID}` });
   });
 
+  // Sandbox real (06/11/2026): datas SEM fuso e em UTC (created_at = hora UTC
+  // da requisição). Independe do fuso do servidor (BRT local × UTC no Render).
+  it('datas do ME sem fuso são UTC; com fuso explícito, respeita o informado', async () => {
+    handler = () => json(200, {
+      id: ID, status: 'canceled', created_at: '2026-11-06 20:44:41', paid_at: '2026-11-06T20:44:44',
+      generated_at: '2026-11-06 20:44:47-03:00', canceled_at: '2026-11-06T20:44:55Z', posted_at: '2026-11-07',
+    });
+    const o = await client().getOrder(ID);
+    expect(o.dates.createdAt).toBe('2026-11-06T20:44:41.000Z');
+    expect(o.dates.paidAt).toBe('2026-11-06T20:44:44.000Z');
+    expect(o.dates.generatedAt).toBe('2026-11-06T23:44:47.000Z');
+    expect(o.dates.canceledAt).toBe('2026-11-06T20:44:55.000Z');
+    expect(o.dates.postedAt).toBe('2026-11-07T00:00:00.000Z');
+  });
+
+  // Sandbox real: checkout de etiqueta JÁ paga e generate de etiqueta já em
+  // geração respondem 204 sem corpo — nunca "sucesso": ambíguo → reconciliar.
+  it.each([['checkout'], ['generate']] as const)('%s com 204 sem corpo → BAD_RESPONSE com reconciliação', async (op) => {
+    handler = () => new Response(null, { status: 204 });
+    const err = await caught(op === 'checkout' ? client().checkout(ID) : client().generate(ID));
+    expect(err).toMatchObject({ code: 'BAD_RESPONSE', outcome: 'unknown', httpStatus: 204 });
+    expect(err.toSafeJSON().requiresReconciliation).toBe(true);
+  });
+
+  it('order.search: 204 sem corpo (formato real "nenhum resultado") → lista vazia', async () => {
+    handler = () => new Response(null, { status: 204 });
+    expect(await client().searchOrders('ORD-000000000000')).toEqual([]);
+  });
+
+  it('checkout: 422 real "já foram pagas ou inválidas" → ALREADY_PAID (exige reconciliação)', async () => {
+    handler = () => json(422, { message: 'Existe uma ou mais orders que já foram pagas ou inválidas.', errors: { orders: ['Existe uma ou mais orders que já foram pagas ou inválidas.'] } });
+    const e = await caught(client().checkout(ID));
+    expect(e).toMatchObject({ code: 'ALREADY_PAID', outcome: 'rejected' });
+    expect(e.toSafeJSON().requiresReconciliation).toBe(true);
+  });
+
+  it('generate antes da compra: 200 com status=false "O Envio não está pago" → GENERATION_FAILED', async () => {
+    handler = () => json(200, { [ID]: { status: false, message: 'O Envio não está pago' } });
+    const e = await caught(client().generate(ID));
+    expect(e).toMatchObject({ code: 'GENERATION_FAILED', outcome: 'rejected', externalMessage: 'O Envio não está pago' });
+  });
+
+  it('cancel: formato real { key, [id]: { canceled, status } }', async () => {
+    handler = () => json(200, { key: '11111111-2222-4333-8444-555555555555', [ID]: { canceled: true, status: 'pending' } });
+    expect(await client().cancel(ID, 'motivo')).toEqual({ canceled: true });
+  });
+
   it('order.search: aceita lista ou { data: [] }; descarta itens inválidos', async () => {
     handler = () => json(200, [{ id: ID, status: 'paid' }, { id: '../hack' }, 'lixo']);
     expect((await client().searchOrders('ORD-1')).map((o) => o.id)).toEqual([ID]);
@@ -121,6 +168,28 @@ describe('sucesso de cada endpoint', () => {
     handler = () => json(200, { url: 'https://melhorenvio.com.br/imprimir/abc' });
     expect(await client().print(ID)).toEqual({ url: 'https://melhorenvio.com.br/imprimir/abc' });
     expect(calls[0].body).toEqual({ mode: 'private', orders: [ID] });
+  });
+
+  // Formato REAL (Sandbox, 06/11/2026, PAC e Sedex): lista com URL pré-assinada do S3.
+  it('print.file: resposta em LISTA (formato real) → primeira URL https; lista vazia/http → BAD_RESPONSE', async () => {
+    const real = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800&X-Amz-Signature=x';
+    handler = () => json(200, [real]);
+    expect((await client().getLabelFile(ID)).url).toBe(real);
+    for (const body of [[], ['http://inseguro.test/a.pdf'], [42]]) {
+      handler = () => json(200, body);
+      expect((await caught(client().getLabelFile(ID))).code).toBe('BAD_RESPONSE');
+    }
+  });
+
+  it('print.file: 404 "E-PRT-0007: Etiqueta pdf não processada" (recém-gerada) → NOT_FOUND com a mensagem do ME', async () => {
+    handler = () => json(404, { message: 'E-PRT-0007: Etiqueta pdf não processada.' });
+    const e = await caught(client().getLabelFile(ID));
+    expect(e).toMatchObject({ code: 'NOT_FOUND', outcome: 'rejected' });
+    expect(e.externalMessage).toContain('E-PRT-0007');
+  });
+
+  it('allowlist: host S3 do Sandbox continua BLOQUEADO até aprovação explícita', () => {
+    expect(isAllowedLabelFileUrl('https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800')).toBe(false);
   });
 
   it('print.file: GET /imprimir/pdf/{id} → URL temporária', async () => {

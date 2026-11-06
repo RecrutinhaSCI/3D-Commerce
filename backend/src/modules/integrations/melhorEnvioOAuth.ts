@@ -3,6 +3,7 @@ import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { openSecret, sealSecret, SecretBoxError } from '../../lib/secretBox';
 import {
+  resolveMelhorEnvioConfig,
   resolveMelhorEnvioLabelsConfig,
   resolveMelhorEnvioOAuthConfig,
   type MelhorEnvioEnvironment,
@@ -471,6 +472,9 @@ export async function getMelhorEnvioOAuthStatus(manualTokenConfigured: boolean, 
   const labelsCfg = resolveMelhorEnvioLabelsConfig(env);
   const access = labelsAccess(cred, cfg.enabled, labelsCfg);
   const quoteViaOAuth = access.connected && (access.scopes?.granted === null || access.scopes?.quoteScopesOk === true);
+  // A cotação também exige a config base (CEP de origem, URL): sem ela fica
+  // desligada de propósito, mesmo com OAuth conectado.
+  const quoteCfg = resolveMelhorEnvioConfig(env);
   return {
     homologationOnly: env.MELHOR_ENVIO_HOMOLOGATION_ONLY !== 'false',
     oauthConfigured: cfg.enabled,
@@ -485,9 +489,9 @@ export async function getMelhorEnvioOAuthStatus(manualTokenConfigured: boolean, 
     /** Cotação usando o MELHOR_ENVIO_TOKEN manual (OAuth não conectado). */
     usingManualToken: manualTokenConfigured && !(cred && !cred.needsReconnect),
     /** Problemas de configuração (só nomes de variáveis). */
-    issues: cfg.issues,
+    issues: [...new Set([...cfg.issues, ...quoteCfg.issues])],
     /** Cotação: OAuth com `shipping-calculate`, ou o token manual. */
-    quoteAvailable: quoteViaOAuth || (manualTokenConfigured && !access.connected),
+    quoteAvailable: quoteCfg.enabled && (quoteViaOAuth || (manualTokenConfigured && !access.connected)),
     scopes: {
       granted: access.scopes?.granted ?? null,
       source: access.scopes?.source ?? null,

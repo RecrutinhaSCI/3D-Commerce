@@ -365,7 +365,7 @@ export function ShipmentPanel({ orderId }: { orderId: string }) {
         <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800" data-testid="file-pending">Etiqueta ainda sendo gerada pelo Melhor Envio. Use “Atualizar status” em instantes.</p>
       )}
       {label?.file.downloadable && label.file.sandboxPrintLimited && (
-        <p className="text-xs text-ink-mute">No Sandbox o Melhor Envio pode não gerar o PDF de etiquetas dos Correios — é limitação do ambiente de teste.</p>
+        <p className="text-xs text-ink-mute">Ambiente de teste: o download do PDF pode não estar disponível por aqui — confira no painel do Melhor Envio Sandbox.</p>
       )}
       {label?.requiresReconciliation && (
         <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 p-3 text-xs text-amber-800" data-testid="needs-reconciliation">

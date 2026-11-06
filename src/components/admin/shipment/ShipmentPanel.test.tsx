@@ -316,7 +316,7 @@ describe('download, erros e mobile', () => {
     expect(svc.overview).toHaveBeenCalledTimes(2);
     svc.file.mockRejectedValueOnce(new ApiError(409, { code: 'SANDBOX_PRINT_UNAVAILABLE', message: 'x' }));
     await click(btn('PRINT'));
-    expect(byTestId('notice')!.textContent).toContain('não gera o PDF de etiquetas dos Correios');
+    expect(byTestId('notice')!.textContent).toContain('PDF do Sandbox ainda não pode ser baixado');
   });
 
   it.each([

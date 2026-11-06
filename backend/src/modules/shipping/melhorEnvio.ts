@@ -149,6 +149,23 @@ function toNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Motivos (texto do próprio ME, sem dados pessoais) de os serviços PAC/Sedex
+ * virem sem preço. Observado no Sandbox (06/11/2026) com CEP de ORIGEM geral
+ * da cidade (95700000): "Transportadora não atende este trecho." em todos os
+ * destinos — o CEP de origem precisa ser o do logradouro da loja.
+ */
+export function quoteServiceErrors(body: unknown): string[] {
+  if (!Array.isArray(body)) return [];
+  const msgs = new Set<string>();
+  for (const s of body as MeService[]) {
+    if (typeof s?.id === 'number' && CORREIOS_SERVICES[s.id] && typeof s.error === 'string' && s.error.trim()) {
+      msgs.add(s.error.replace(/\s+/g, ' ').trim().slice(0, 120));
+    }
+  }
+  return [...msgs];
+}
+
 /** Converte a resposta do Melhor Envio nas opções aceitas (só Correios PAC/Sedex). */
 export function parseQuoteResponse(body: unknown): QuotedOption[] {
   if (!Array.isArray(body)) {
@@ -323,7 +340,13 @@ async function callCalculate(
       }
       throw new MelhorEnvioError('BAD_RESPONSE', 'Resposta inválida do Melhor Envio.');
     }
-    return parseQuoteResponse(body);
+    const options = parseQuoteResponse(body);
+    if (options.length === 0) {
+      const reasons = quoteServiceErrors(body);
+      // Só o motivo do ME + prefixo do CEP de origem (nada do cliente).
+      if (reasons.length) console.warn(`[melhor-envio] cotação sem PAC/Sedex (origem ${config.originCep?.slice(0, 5) ?? "?"}***): ${reasons.join(' | ')}`);
+    }
+    return options;
   } finally {
     clearTimeout(timer);
   }

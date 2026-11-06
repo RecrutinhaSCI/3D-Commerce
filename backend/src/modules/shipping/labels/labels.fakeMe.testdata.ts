@@ -14,6 +14,7 @@ interface FakeOrder {
   generatedAt: string | null;
   canceledAt: string | null;
   tracking: string | null;
+  generationRequested?: boolean;
 }
 
 export const meError = (operation: LabelOperation, code: LabelApiErrorCode, outcome: LabelErrorOutcome, httpStatus: number | null = null) =>
@@ -29,6 +30,13 @@ export class FakeMe {
   canCancel = true;
   /** Preço que o próximo item de carrinho recebe. */
   cartPrice = 23.45;
+  /**
+   * Geração como no Sandbox REAL (06/11/2026): o `generate` só aceita; o
+   * status continua "released" e `generated_at`/rastreio aparecem segundos
+   * depois (ver `finishGeneration`). Gerar de novo nesse meio-tempo → 204
+   * sem corpo (BAD_RESPONSE no cliente).
+   */
+  asyncGeneration = false;
   /** Falhas de uma vez: executadas (e removidas) na próxima chamada da operação. */
   private once: Partial<Record<Op, Array<(id?: string) => void>>> = {};
   private seq = 0;
@@ -56,6 +64,11 @@ export class FakeMe {
       selfTracking: null,
       dates: { createdAt: null, paidAt: o.paidAt, generatedAt: o.generatedAt, postedAt: null, deliveredAt: null, canceledAt: o.canceledAt, expiredAt: null },
     };
+  }
+
+  /** Conclui a geração assíncrona (status segue "released", como no Sandbox real). */
+  finishGeneration(id: string) {
+    Object.assign(this.orders.get(id)!, { generatedAt: '2026-10-27T12:05:00.000Z', tracking: 'AB123456789BR' });
   }
 
   /** Marca como paga do lado do ME (ex.: checkout que "aconteceu" antes do timeout). */
@@ -86,7 +99,13 @@ export class FakeMe {
       },
       async generate(id: string) {
         await self.hook('generate', id);
-        Object.assign(self.orders.get(id)!, { status: 'generated', generatedAt: '2026-10-27T12:05:00.000Z', tracking: 'AB123456789BR' });
+        const o = self.orders.get(id)!;
+        if (self.asyncGeneration) {
+          if (o.generationRequested || o.generatedAt) throw meError('generate', 'BAD_RESPONSE', 'unknown', 204);
+          o.generationRequested = true;
+          return { accepted: true, message: null };
+        }
+        Object.assign(o, { status: 'generated', generatedAt: '2026-10-27T12:05:00.000Z', tracking: 'AB123456789BR' });
         return { accepted: true, message: null };
       },
       async removeFromCart(id: string) {

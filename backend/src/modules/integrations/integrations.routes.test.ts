@@ -59,6 +59,7 @@ const ORIGINAL = {
   MELHOR_ENVIO_REDIRECT_URI: env.MELHOR_ENVIO_REDIRECT_URI,
   MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: env.MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY,
   MELHOR_ENVIO_BASE_URL: env.MELHOR_ENVIO_BASE_URL,
+  SHIPPING_ORIGIN_CEP: env.SHIPPING_ORIGIN_CEP,
   APP_URL: env.APP_URL,
 };
 function setOAuth(on: boolean) {
@@ -168,6 +169,22 @@ describe('GET /admin/integrations/melhor-envio/status', () => {
     expect(res.status).toBe(200);
     expect(JSON.parse(text).data).toMatchObject({ oauthConfigured: true, connected: true, environment: 'sandbox' });
     expect(text).not.toMatch(/ACCESS-SECRETO|REFRESH-SECRETO|v1\.|CLIENT-SECRET/);
+  });
+
+  // Homologação Sandbox (Etapa 7): OAuth conectado mas .env sem
+  // SHIPPING_ORIGIN_CEP — o card dizia "Cotação: Disponível" e a cotação dava 503.
+  it('OAuth conectado SEM SHIPPING_ORIGIN_CEP: cotação indisponível e o motivo aparece em issues', async () => {
+    const start = await (await authorize(bearer('admin-1'))).json();
+    const state = new URL(start.data.authorizationUrl).searchParams.get('state')!;
+    await callback(`code=abc&state=${encodeURIComponent(state)}`);
+    const get = async () => (await (await realFetch(`${base}/api/admin/integrations/melhor-envio/status`, { headers: bearer('admin-1') })).json()).data;
+    env.SHIPPING_ORIGIN_CEP = undefined;
+    let d = await get();
+    expect(d).toMatchObject({ connected: true, quoteAvailable: false });
+    expect(d.issues.join(' ')).toContain('SHIPPING_ORIGIN_CEP');
+    env.SHIPPING_ORIGIN_CEP = '95700000';
+    d = await get();
+    expect(d).toMatchObject({ connected: true, quoteAvailable: true });
   });
 });
 

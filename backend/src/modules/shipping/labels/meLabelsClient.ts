@@ -175,10 +175,18 @@ function trackingCode(v: unknown): string | null {
   return s && /^[A-Za-z0-9-]+$/.test(s) ? s : null;
 }
 
+/**
+ * Datas do ME vêm SEM fuso ("2026-11-06 20:44:41") e estão em UTC — observado
+ * no Sandbox (06/11/2026): created_at = hora UTC da requisição (±1 s). Sem o
+ * "Z", Date.parse usaria o fuso do servidor (+3 h numa máquina em Brasília).
+ * Com fuso explícito (Z ou ±hh:mm), respeita o informado.
+ */
 function date(v: unknown): string | null {
   const s = str(v, 40);
   if (!s) return null;
-  const t = Date.parse(s.includes('T') || s.endsWith('Z') ? s : s.replace(' ', 'T'));
+  const iso = s.includes('T') ? s : s.replace(' ', 'T');
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const t = Date.parse(hasZone || !/T\d{2}:\d{2}/.test(iso) ? iso : `${iso}Z`);
   return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
@@ -231,7 +239,9 @@ const MESSAGES: Record<LabelApiErrorCode, string> = {
   FORBIDDEN: 'A conta conectada não tem permissão para esta operação (escopos de etiqueta).',
   NOT_FOUND: 'Etiqueta não encontrada no Melhor Envio.',
   VALIDATION: 'O Melhor Envio recusou os dados enviados.',
-  ALREADY_PAID: 'O Melhor Envio informou que a etiqueta já foi paga.',
+  // Texto real do 422: "Existe uma ou mais orders que já foram pagas ou inválidas."
+  // (também para id removido/inexistente). Etiqueta REALMENTE paga responde 204.
+  ALREADY_PAID: 'O Melhor Envio informou que a etiqueta já foi paga ou não é mais válida.',
   NOT_CANCELLABLE: 'O Melhor Envio não permitiu cancelar esta etiqueta.',
   GENERATION_FAILED: 'O Melhor Envio não gerou a etiqueta.',
   RATE_LIMITED: 'Muitas requisições ao Melhor Envio. Aguarde e tente de novo.',
@@ -436,6 +446,8 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
       const q = query.trim();
       if (!/^[A-Za-z0-9-]{3,64}$/.test(q)) return fail(op, 'VALIDATION', 'not_sent');
       const res = await call(op, 'GET', `/api/v2/me/orders/search?q=${encodeURIComponent(q)}`);
+      // Sem resultado o ME responde 204 SEM corpo (Sandbox, 06/11/2026): lista vazia.
+      if (res.status === 204 && res.body === undefined) return [];
       // A documentação não fixa o envelope: aceita lista direta ou { data: [...] }.
       const list = Array.isArray(res.body) ? res.body : isObj(res.body) && Array.isArray(res.body.data) ? res.body.data : null;
       if (!list) return badResponse(op, res.status);
@@ -489,12 +501,20 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
       return url ? { url } : badResponse(op, res.status);
     },
 
-    /** URL temporária do PDF (o backend baixa e entrega ao admin). No Sandbox, só Jadlog. */
+    /**
+     * URL temporária do PDF (o backend baixa e entrega ao admin). Formato REAL
+     * (Sandbox, 06/11/2026, PAC e Sedex): LISTA com uma URL pré-assinada
+     * (`["https://…/pdf/…?X-Amz-…"]`, validade 1800 s); `{ url }` continua
+     * aceito. Recém-gerada pode responder 404 "E-PRT-0007: Etiqueta pdf não
+     * processada" por alguns segundos. O host da URL passa pela allowlist no
+     * download (`downloadLabelPdf`).
+     */
     async getLabelFile(id: string): Promise<{ url: string }> {
       const op = 'print.file';
       assertId(op, id);
       const res = await call(op, 'GET', `/api/v2/me/imprimir/pdf/${id}`);
-      const url = isObj(res.body) ? httpsUrl(res.body.url) : null;
+      const raw = Array.isArray(res.body) ? res.body.find((v) => typeof v === 'string') : isObj(res.body) ? res.body.url : null;
+      const url = httpsUrl(raw);
       return url ? { url } : badResponse(op, res.status);
     },
 
