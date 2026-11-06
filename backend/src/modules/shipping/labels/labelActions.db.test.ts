@@ -10,6 +10,7 @@ import { createLabelWorkflow, leaseMs, type LabelWorkflow } from './labelWorkflo
 import { FakeMe, meError } from './labels.fakeMe.testdata';
 import { CFG, createOrder, DB_LOCK_TIMEOUT_MS, dbEnabled, DECL, lockTestDb, newClient, ORDER_PII, PKG, resetDb, seedCredential } from './labels.dbHarness.testdata';
 import { HttpError } from '../../../utils/httpError';
+import { LabelApiError } from './labelErrors';
 
 const ADMIN = 'admin-1';
 const REASON = 'Cliente pediu troca da caixa';
@@ -528,15 +529,27 @@ describe.skipIf(!dbEnabled)('arquivo da etiqueta (download/impressão) — Postg
     expect(me.calls.file).toBe(0);
   });
 
-  it('Sandbox + Correios sem PDF: mensagem de limitação do ambiente (não finge que funciona)', async () => {
-    const w = make();
+  // Visto no Sandbox real (PAC e SEDEX): 404 "E-PRT-0007 … Aguarde 3 minutos"
+  // logo após gerar, ou URL entregue com o arquivo ainda ausente no storage.
+  it.each(['sandbox', 'production'] as const)('%s: PDF ainda não processado (404) → 409 LABEL_FILE_NOT_READY, sem registrar download', async (environment) => {
+    const w = make(environment === 'production' ? { ...CFG, environment, allowProduction: true } : CFG);
     await buy(w);
     me.failNext('file', () => {
       throw meError('print.file', 'NOT_FOUND', 'rejected', 404);
     });
     const e = await rejected(w.labelFile(orderId, ADMIN));
-    expect(e.code).toBe('SANDBOX_PRINT_UNAVAILABLE');
-    expect(e.message).toMatch(/Sandbox/);
+    expect(e).toMatchObject({ status: 409, code: 'LABEL_FILE_NOT_READY' });
+    expect(await db.shipmentLabelEvent.count({ where: { orderId, type: 'LABEL_FILE_DOWNLOADED' } })).toBe(0);
+  });
+
+  it('produção: PDF de host ainda não autorizado → 502 LABEL_FILE_HOST_BLOCKED (sem download registrado)', async () => {
+    const w = make({ ...CFG, environment: 'production', allowProduction: true });
+    await buy(w);
+    me.failNext('file', () => {
+      throw new LabelApiError({ operation: 'print.file', code: 'BAD_RESPONSE', outcome: 'not_sent', message: 'x', fields: ['host_not_allowed'] });
+    });
+    expect(await rejected(w.labelFile(orderId, ADMIN))).toMatchObject({ status: 502, code: 'LABEL_FILE_HOST_BLOCKED' });
+    expect(await db.shipmentLabelEvent.count({ where: { orderId, type: 'LABEL_FILE_DOWNLOADED' } })).toBe(0);
   });
 
   it('produção (liberada) com falha no arquivo: 502 LABEL_FILE_UNAVAILABLE', async () => {
@@ -569,6 +582,6 @@ describe.skipIf(!dbEnabled)('arquivo da etiqueta (download/impressão) — Postg
     await buy();
     const after = await make().overview(orderId, ADMIN);
     expect(after.label!.tracking.orderSync).toBe('SANDBOX_NEVER');
-    expect(after.label!.file).toMatchObject({ downloadable: true, sandboxPrintLimited: true });
+    expect(after.label!.file).toMatchObject({ downloadable: true });
   });
 });

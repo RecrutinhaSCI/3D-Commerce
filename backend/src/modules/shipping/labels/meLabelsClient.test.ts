@@ -188,8 +188,42 @@ describe('sucesso de cada endpoint', () => {
     expect(e.externalMessage).toContain('E-PRT-0007');
   });
 
-  it('allowlist: host S3 do Sandbox continua BLOQUEADO até aprovação explícita', () => {
-    expect(isAllowedLabelFileUrl('https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800')).toBe(false);
+  describe('allowlist estrita do host S3 do Sandbox (aprovado em 06/11/2026)', () => {
+    const S3 = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800&X-Amz-Signature=x';
+    const MOCK_LOCAL = { environment: 'sandbox' as const, baseUrl: 'http://localhost:4010' };
+    const OUTRO_SANDBOX = { environment: 'sandbox' as const, baseUrl: 'https://sandbox.exemplo.test' };
+
+    it('permite SÓ o host exato, SÓ no Sandbox oficial', () => {
+      expect(isAllowedLabelFileUrl(S3, SANDBOX)).toBe(true);
+      expect(isAllowedLabelFileUrl('https://ME-0047-SANDBOX.s3.amazonaws.com./pdf/a.pdf', SANDBOX)).toBe(true); // maiúsculas/ponto final normalizados
+    });
+
+    it('produção, sem contexto, mock local ou "sandbox" de outro host: bloqueado', () => {
+      expect(isAllowedLabelFileUrl(S3, PROD)).toBe(false);
+      expect(isAllowedLabelFileUrl(S3)).toBe(false);
+      expect(isAllowedLabelFileUrl(S3, MOCK_LOCAL)).toBe(false);
+      expect(isAllowedLabelFileUrl(S3, OUTRO_SANDBOX)).toBe(false);
+    });
+
+    it.each([
+      ['outro bucket S3', 'https://me-0047.s3.amazonaws.com/pdf/a.pdf'],
+      ['bucket qualquer', 'https://evil-bucket.s3.amazonaws.com/a.pdf'],
+      ['wildcard amazonaws', 'https://s3.amazonaws.com/me-0047-sandbox/pdf/a.pdf'],
+      ['subdomínio do host aprovado', 'https://x.me-0047-sandbox.s3.amazonaws.com/a.pdf'],
+      ['sufixo enganoso', 'https://me-0047-sandbox.s3.amazonaws.com.evil.test/a.pdf'],
+      ['HTTP', 'http://me-0047-sandbox.s3.amazonaws.com/pdf/a.pdf'],
+      ['porta estranha', 'https://me-0047-sandbox.s3.amazonaws.com:8443/pdf/a.pdf'],
+      ['credenciais na URL', 'https://user:pass@me-0047-sandbox.s3.amazonaws.com/pdf/a.pdf'],
+      ['IP literal', 'https://52.216.0.1/pdf/a.pdf'],
+      ['localhost', 'https://localhost/pdf/a.pdf'],
+      ['nome local', 'https://arquivos.local/pdf/a.pdf'],
+    ])('Sandbox oficial ainda bloqueia: %s', (_n, url) => {
+      expect(isAllowedLabelFileUrl(url, SANDBOX)).toBe(false);
+    });
+
+    it('porta 443 explícita é aceita', () => {
+      expect(isAllowedLabelFileUrl('https://me-0047-sandbox.s3.amazonaws.com:443/pdf/a.pdf', SANDBOX)).toBe(true);
+    });
   });
 
   it('print.file: GET /imprimir/pdf/{id} → URL temporária', async () => {
@@ -517,6 +551,32 @@ describe('download do PDF — redirects validados um a um', () => {
     }
     expect(vi.mocked(fetchImpl).mock.calls.every(([, init]) => init?.redirect === 'manual')).toBe(true);
     expect(getToken).not.toHaveBeenCalled();
+  });
+
+  it('Sandbox: URL S3 aprovada baixa direto (sem redirect, sem token)', async () => {
+    const S3 = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800';
+    handler = routes({ [S3]: pdf });
+    expect((await client(SANDBOX).downloadLabelPdf(S3)).subarray(0, 5).toString()).toBe('%PDF-');
+    expect(JSON.stringify(calls[0].headers)).not.toContain(TOKEN);
+  });
+
+  it('produção NÃO baixa da URL S3 do Sandbox (nada vai à rede); log só com o host, sem a assinatura', async () => {
+    const S3 = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800&X-Amz-Signature=SEGREDO123';
+    handler = routes({ [S3]: pdf });
+    const e = await caught(client(PROD).downloadLabelPdf(S3));
+    expect(e).toMatchObject({ code: 'BAD_RESPONSE', outcome: 'not_sent', fields: ['host_not_allowed'] });
+    expect(calls).toHaveLength(0);
+    expect(logs.join(" | ")).toContain('me-0047-sandbox.s3.amazonaws.com');
+    expect(logs.join(" | ")).not.toContain('SEGREDO123');
+    expect(logs.join(" | ")).not.toContain('/pdf/abc.pdf');
+  });
+
+  it('Sandbox: S3 aprovado redirecionando para OUTRO bucket → bloqueado no salto', async () => {
+    const S3 = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf';
+    handler = routes({ [S3]: () => redirect('https://outro-bucket.s3.amazonaws.com/abc.pdf'), 'https://outro-bucket.s3.amazonaws.com/abc.pdf': pdf });
+    const e = await caught(client(SANDBOX).downloadLabelPdf(S3));
+    expect(e.code).toBe('BAD_RESPONSE');
+    expect(calls.map((c) => c.url)).toEqual([S3]);
   });
 
   it('redirect relativo dentro do mesmo host permitido → ok', async () => {

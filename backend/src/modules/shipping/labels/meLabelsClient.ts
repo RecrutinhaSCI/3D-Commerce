@@ -254,15 +254,51 @@ const MESSAGES: Record<LabelApiErrorCode, string> = {
 
 /**
  * Allowlist EXPLÍCITA dos hosts de onde o backend aceita baixar o PDF (a URL
- * inicial e CADA redirect). Novo host/CDN só entra aqui depois de visto no
- * Sandbox. Só HTTPS; IP literal e nomes locais nunca passam.
+ * inicial e CADA redirect). Novo host/CDN só entra aqui depois de visto e
+ * aprovado. Só HTTPS; IP literal e nomes locais nunca passam.
+ *
+ *  - `LABEL_FILE_ALLOWED_DOMAINS`: domínio do Melhor Envio (e subdomínios), em
+ *    qualquer ambiente.
+ *  - `LABEL_FILE_SANDBOX_HOSTS`: hosts EXATOS (nunca sufixo) aceitos SÓ quando
+ *    o cliente fala com o Sandbox oficial. Observado em 06/11/2026: o endpoint
+ *    autenticado `imprimir/pdf` do Sandbox devolve URL pré-assinada desse
+ *    bucket (PDF conferido). Produção NÃO herda: o host de produção só entra
+ *    depois de observado na primeira etiqueta real.
  */
 export const LABEL_FILE_ALLOWED_DOMAINS: readonly string[] = ['melhorenvio.com.br'];
+export const LABEL_FILE_SANDBOX_HOSTS: readonly string[] = ['me-0047-sandbox.s3.amazonaws.com'];
+export const ME_SANDBOX_HOST = 'sandbox.melhorenvio.com.br';
 export const MAX_LABEL_FILE_REDIRECTS = 3;
 const MAX_LABEL_PDF_BYTES = 10 * 1024 * 1024;
 
-/** URL permitida para baixar o PDF? (HTTPS + host da allowlist ou subdomínio; sem credenciais/porta estranha.) */
-export function isAllowedLabelFileUrl(raw: string | URL): boolean {
+const hostOf = (u: string | URL) => {
+  try {
+    return (typeof u === 'string' ? new URL(u) : u).host.slice(0, 120) || '?';
+  } catch {
+    return '<url inválida>';
+  }
+};
+
+/** Contexto do download: só Sandbox OFICIAL (ambiente + host da API) libera os hosts de Sandbox. */
+export type LabelFileContext = Pick<MeLabelsRuntimeConfig, 'environment' | 'baseUrl'>;
+
+function isOfficialSandbox(ctx: LabelFileContext | undefined): boolean {
+  if (!ctx || ctx.environment !== 'sandbox') return false;
+  try {
+    const u = new URL(ctx.baseUrl);
+    return u.protocol === 'https:' && u.hostname.toLowerCase() === ME_SANDBOX_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * URL permitida para baixar o PDF? HTTPS, porta 443, sem credenciais, nunca IP
+ * literal/nome local; host do Melhor Envio (ou subdomínio) em qualquer
+ * ambiente; host EXATO de `LABEL_FILE_SANDBOX_HOSTS` só no Sandbox oficial.
+ * Sem contexto = regra de produção (a mais estrita).
+ */
+export function isAllowedLabelFileUrl(raw: string | URL, ctx?: LabelFileContext): boolean {
   let u: URL;
   try {
     u = typeof raw === 'string' ? new URL(raw) : raw;
@@ -274,7 +310,8 @@ export function isAllowedLabelFileUrl(raw: string | URL): boolean {
   const host = u.hostname.toLowerCase().replace(/\.$/, '');
   // IP literal (v4/v6) ou nome local: nunca, mesmo que a allowlist mude.
   if (/^\[.*\]$/.test(host) || /^\d+(\.\d+){3}$/.test(host) || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
-  return LABEL_FILE_ALLOWED_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  if (LABEL_FILE_ALLOWED_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`))) return true;
+  return isOfficialSandbox(ctx) && LABEL_FILE_SANDBOX_HOSTS.includes(host);
 }
 
 const ALREADY_PAID_RE =/j[áa]\s+(foram|foi)\s+pag|already\s+(been\s+)?paid/i;
@@ -527,7 +564,11 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
     async downloadLabelPdf(url: string): Promise<Buffer> {
       const op = 'print.file';
       const cfg = guard(op);
-      if (!isAllowedLabelFileUrl(url)) return fail(op, 'BAD_RESPONSE', 'not_sent');
+      if (!isAllowedLabelFileUrl(url, cfg)) {
+        // Só o host (nunca a URL assinada): é o dado que o operador precisa para aprovar.
+        log(`[melhor-envio:etiquetas] print.file → host do PDF NÃO autorizado (${cfg.environment}): ${hostOf(url)}`);
+        return fail(op, 'BAD_RESPONSE', 'not_sent', { fields: ['host_not_allowed'] });
+      }
       let target = new URL(url);
       // Um timeout para a cadeia inteira (redirects inclusos).
       const controller = new AbortController();
@@ -556,7 +597,10 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
           } catch {
             return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
           }
-          if (!isAllowedLabelFileUrl(next)) return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
+          if (!isAllowedLabelFileUrl(next, cfg)) {
+            log(`[melhor-envio:etiquetas] print.file → redirect para host NÃO autorizado (${cfg.environment}): ${hostOf(next)}`);
+            return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status, fields: ['host_not_allowed'] });
+          }
           target = next;
         }
         if (!res.ok) return fail(op, res.status === 404 ? 'NOT_FOUND' : res.status >= 500 ? 'SERVER_ERROR' : 'UNKNOWN', 'rejected', { httpStatus: res.status });

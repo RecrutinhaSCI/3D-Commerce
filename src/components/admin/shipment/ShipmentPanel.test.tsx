@@ -30,7 +30,7 @@ const label = (p: Partial<ApiShipmentLabel> = {}): ApiShipmentLabel => ({
   values: { customerShippingValue: 24.9, quotedPrice: 23.45, paidPrice: null, difference: -1.45, differenceBasis: 'quoted' },
   package: { weightKg: 1.2, widthCm: 20, heightCm: 10, lengthCm: 30, source: 'admin' }, declaredValue: 212.3,
   fiscal: { mode: 'DECLARATION', nfeKeyEnd: null }, tracking: { code: null, melhorEnvio: null, orderSync: 'SANDBOX_NEVER' },
-  file: { requestedAt: null, verifiedAt: null, downloadable: false, sandboxPrintLimited: true },
+  file: { requestedAt: null, verifiedAt: null, downloadable: false },
   pendingConfirmation: { price: 23.45, expiresAt: FUTURE },
   dates: { createdAt: '2026-10-28T12:00:00.000Z', preparedAt: '2026-10-28T12:00:00.000Z', purchasedAt: null, generatedAt: null, postedAt: null, deliveredAt: null, canceledAt: null, lastSyncedAt: null },
   cancelReason: null, lastError: null, requiresReconciliation: false, inProgress: false,
@@ -60,7 +60,7 @@ const PURCHASED = label({
 });
 const READY = label({
   ...PURCHASED, status: 'LABEL_READY', tracking: { code: 'AB123456789BR', melhorEnvio: null, orderSync: 'SANDBOX_NEVER' },
-  file: { requestedAt: FUTURE, verifiedAt: FUTURE, downloadable: true, sandboxPrintLimited: true },
+  file: { requestedAt: FUTURE, verifiedAt: FUTURE, downloadable: true },
   availableActions: ['DOWNLOAD', 'SYNC_STATUS', 'CHECK_CANCELLABLE', 'CANCEL', 'RECONCILE', 'ADD_NOTE'],
 });
 
@@ -308,15 +308,15 @@ describe('download, erros e mobile', () => {
     anchorClick.mockRestore();
   });
 
-  it('download recusado (ainda gerando / Sandbox): mensagem clara e estado relido', async () => {
+  it('download recusado (ainda gerando / PDF em processamento): mensagem clara e estado relido', async () => {
     await render(overview(READY));
     svc.file.mockRejectedValueOnce(new ApiError(409, { code: 'LABEL_NOT_GENERATED', message: 'x' }));
     await click(btn('DOWNLOAD'));
     expect(byTestId('notice')!.textContent).toContain('Etiqueta ainda sendo gerada');
     expect(svc.overview).toHaveBeenCalledTimes(2);
-    svc.file.mockRejectedValueOnce(new ApiError(409, { code: 'SANDBOX_PRINT_UNAVAILABLE', message: 'x' }));
+    svc.file.mockRejectedValueOnce(new ApiError(409, { code: 'LABEL_FILE_NOT_READY', message: 'x' }));
     await click(btn('PRINT'));
-    expect(byTestId('notice')!.textContent).toContain('PDF do Sandbox ainda não pode ser baixado');
+    expect(byTestId('notice')!.textContent).toContain('ainda está processando o PDF');
   });
 
   it.each([

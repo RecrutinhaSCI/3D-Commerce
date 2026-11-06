@@ -80,7 +80,7 @@ export interface ApiShipmentLabel {
   declaredValue: number | null;
   fiscal: { mode: 'DECLARATION' | 'NFE'; nfeKeyEnd: string | null };
   tracking: { code: string | null; melhorEnvio: string | null; orderSync: string };
-  file: { requestedAt: string | null; verifiedAt: string | null; downloadable: boolean; sandboxPrintLimited: boolean };
+  file: { requestedAt: string | null; verifiedAt: string | null; downloadable: boolean };
   pendingConfirmation: { price: number | null; expiresAt: string } | null;
   dates: Record<'createdAt' | 'preparedAt' | 'purchasedAt' | 'generatedAt' | 'postedAt' | 'deliveredAt' | 'canceledAt' | 'lastSyncedAt', string | null>;
   cancelReason: string | null;

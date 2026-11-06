@@ -88,14 +88,6 @@ export function orderTrackingSync(environment: string, labelCode: string | null,
   return current === labelCode.trim().toUpperCase() ? 'ALREADY_SAME' : 'MANUAL_CODE_CONFLICT';
 }
 
-/**
- * Serviços dos Correios (PAC/Sedex) no Sandbox: o ME GERA o PDF (visto em
- * 06/11/2026), mas o arquivo vem de um host de arquivos ainda fora da
- * allowlist de download — o painel avisa que o download pode falhar.
- */
-const CORREIOS_SERVICE_IDS = new Set([1, 2]);
-export const sandboxPrintLimited = (l: Pick<ShipmentLabel, 'environment' | 'serviceId'>) =>
-  l.environment !== 'production' && CORREIOS_SERVICE_IDS.has(l.serviceId);
 
 export interface ActionContext {
   order: OrderLabelContext;
@@ -196,9 +188,8 @@ export interface LabelDto {
   tracking: { code: string | null; melhorEnvio: string | null; orderSync: OrderTrackingSync };
   /**
    * Arquivo da etiqueta: `downloadable` só depois que o ME CONFIRMA a geração.
-   * `sandboxPrintLimited`: no Sandbox o download do PDF de PAC/Sedex pode falhar (host de arquivos ainda não liberado).
    */
-  file: { requestedAt: string | null; verifiedAt: string | null; downloadable: boolean; sandboxPrintLimited: boolean };
+  file: { requestedAt: string | null; verifiedAt: string | null; downloadable: boolean };
   /** Confirmação de preço válida no momento (o token só vem na resposta que a criou). */
   pendingConfirmation: { price: number | null; expiresAt: string } | null;
   dates: {
@@ -256,7 +247,6 @@ export function toLabelDto(l: ShipmentLabel, ctx: ActionContext): LabelDto {
       requestedAt: iso(l.generationRequestedAt),
       verifiedAt: iso(l.generatedAt),
       downloadable: actions.includes('DOWNLOAD'),
-      sandboxPrintLimited: sandboxPrintLimited(l),
     },
     pendingConfirmation: pending ? { price: decimalToNumber(l.confirmationPrice), expiresAt: l.confirmationExpiresAt!.toISOString() } : null,
     dates: {

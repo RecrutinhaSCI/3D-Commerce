@@ -364,9 +364,6 @@ export function ShipmentPanel({ orderId }: { orderId: string }) {
       {label?.status === 'LABEL_READY' && !label.file.downloadable && (
         <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800" data-testid="file-pending">Etiqueta ainda sendo gerada pelo Melhor Envio. Use “Atualizar status” em instantes.</p>
       )}
-      {label?.file.downloadable && label.file.sandboxPrintLimited && (
-        <p className="text-xs text-ink-mute">Ambiente de teste: o download do PDF pode não estar disponível por aqui — confira no painel do Melhor Envio Sandbox.</p>
-      )}
       {label?.requiresReconciliation && (
         <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 p-3 text-xs text-amber-800" data-testid="needs-reconciliation">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {messageForCode('NEEDS_RECONCILIATION')} Nada é comprado de novo automaticamente.

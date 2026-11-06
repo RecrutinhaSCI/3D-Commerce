@@ -250,14 +250,15 @@ describe('download da etiqueta (GET …/label/file)', () => {
     expect(wf.labelFile).toHaveBeenCalledWith('ord1', 'admin-1');
   });
 
-  it('não gerada / limitação do Sandbox: JSON de erro padrão, sem PDF', async () => {
+  it('não gerada / PDF em processamento: JSON de erro padrão, sem PDF', async () => {
     wf.labelFile.mockRejectedValueOnce(new HttpError(409, 'LABEL_NOT_GENERATED', 'Etiqueta ainda sendo gerada.'));
     let r = await get();
     expect(r.status).toBe(409);
     expect(await r.json()).toMatchObject({ ok: false, error: { code: 'LABEL_NOT_GENERATED' } });
-    wf.labelFile.mockRejectedValueOnce(new HttpError(409, 'SANDBOX_PRINT_UNAVAILABLE', 'Limitação do Sandbox.'));
+    wf.labelFile.mockRejectedValueOnce(new HttpError(409, 'LABEL_FILE_NOT_READY', 'PDF em processamento.'));
     r = await get();
-    expect((await r.json()).error.code).toBe('SANDBOX_PRINT_UNAVAILABLE');
+    expect(r.status).toBe(409);
+    expect((await r.json()).error.code).toBe('LABEL_FILE_NOT_READY');
   });
 
   it('usa a cota de CONSULTA ao ME (cada download revalida lá)', async () => {

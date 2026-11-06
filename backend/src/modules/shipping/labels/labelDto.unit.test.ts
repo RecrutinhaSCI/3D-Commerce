@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Prisma, type ShipmentLabel } from '@prisma/client';
-import { buildLabelOverview, labelActions, orderTrackingSync, sandboxPrintLimited, toLabelDto, type ActionContext } from './labelDto';
+import { buildLabelOverview, labelActions, orderTrackingSync, toLabelDto, type ActionContext } from './labelDto';
 
 const now = new Date('2026-10-28T12:00:00Z');
 const later = new Date('2026-10-28T12:05:00Z');
@@ -121,10 +121,5 @@ describe('rastreio do pedido e impressão no Sandbox', () => {
     expect(orderTrackingSync('production', 'AB123456789BR', null)).toBe('AVAILABLE');
     expect(orderTrackingSync('production', 'AB123456789BR', ' ab123456789br ')).toBe('ALREADY_SAME');
     expect(orderTrackingSync('production', 'AB123456789BR', 'XY999999999BR')).toBe('MANUAL_CODE_CONFLICT');
-  });
-  it('PDF de PAC/Sedex limitado só no Sandbox', () => {
-    expect(sandboxPrintLimited({ environment: 'sandbox', serviceId: 1 })).toBe(true);
-    expect(sandboxPrintLimited({ environment: 'sandbox', serviceId: 3 })).toBe(false);
-    expect(sandboxPrintLimited({ environment: 'production', serviceId: 2 })).toBe(false);
   });
 });

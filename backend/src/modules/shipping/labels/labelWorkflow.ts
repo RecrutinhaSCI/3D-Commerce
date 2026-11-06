@@ -8,7 +8,7 @@ import { LabelApiError, sanitizeExternalMessage } from './labelErrors';
 import { createMeLabelsClient, labelsRuntimeConfig, type MeLabelsClient, type MeLabelsRuntimeConfig, type MeOrderInfo } from './meLabelsClient';
 import { packageSchema, suggestPackage, type StoredPackage } from './package';
 import { buildCartPayload, PayloadError, resolveLabelServiceId, type OrderAddressSnapshot } from './payload';
-import { buildLabelOverview, sandboxPrintLimited, toLabelEventDto, type LabelOverview } from './labelDto';
+import { buildLabelOverview, toLabelEventDto, type LabelOverview } from './labelDto';
 import { parseStoredSender, senderReadiness } from './sender';
 import { env } from '../../../config/env';
 import { resolveMelhorEnvioConfig, resolveMelhorEnvioOAuthConfig } from '../melhorEnvioConfig';
@@ -1220,11 +1220,14 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
       pdf = await client().downloadLabelPdf(url);
     } catch (err) {
       if (!(err instanceof LabelApiError)) throw err;
-      if (sandboxPrintLimited(row)) {
-        throw conflict(
-          'SANDBOX_PRINT_UNAVAILABLE',
-          'Ambiente de teste: o PDF do Sandbox ainda não pode ser baixado por aqui (o Melhor Envio o entrega por um servidor de arquivos ainda não liberado no sistema). Confira no painel do Melhor Envio Sandbox — nenhuma etiqueta real existe.',
-        );
+      // PDF recém-gerado ainda não processado (visto no Sandbox, PAC e SEDEX):
+      // o ME responde 404 "E-PRT-0007 … Aguarde 3 minutos", ou entrega a URL e
+      // o arquivo ainda não existe no storage (404). Não é falha: tentar depois.
+      if (err.code === 'NOT_FOUND') {
+        throw conflict('LABEL_FILE_NOT_READY', 'O Melhor Envio ainda está processando o PDF da etiqueta. Tente de novo em 1 a 3 minutos.');
+      }
+      if (err.fields.includes('host_not_allowed')) {
+        throw new HttpError(502, 'LABEL_FILE_HOST_BLOCKED', 'O PDF veio de um endereço de arquivos ainda não autorizado no sistema. Baixe pelo painel do Melhor Envio e peça a liberação do host (registrado no log do servidor).');
       }
       throw new HttpError(502, 'LABEL_FILE_UNAVAILABLE', 'O Melhor Envio não entregou o arquivo da etiqueta agora. Tente de novo em instantes.', { error: err.toSafeJSON() });
     }
