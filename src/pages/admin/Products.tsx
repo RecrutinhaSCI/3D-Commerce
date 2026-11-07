@@ -15,6 +15,13 @@ import { productService } from '@/services/productService';
 import { editOnDoubleClick } from '@/utils/rowEdit';
 import { hasAllPhysical } from '@/shared/physicalLimits';
 
+/**
+ * Filtros no celular: dois por linha, mais baixos; do `md` para cima voltam ao
+ * tamanho de antes (largura própria, `max-w-*` de cada um).
+ */
+const FILTER_SELECT =
+  'min-w-0 flex-1 basis-[calc(50%-0.25rem)] pl-3 py-2 md:flex-initial md:basis-auto md:pl-4 md:py-2.5';
+
 /** R19-E — dd/MM/aaaa HH:mm em pt-BR; `null` → traço. */
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -197,34 +204,37 @@ export default function Products() {
 
   return (
     <div>
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Produtos</h1>
-          <p className="text-sm text-ink-mute">
+      {/* Celular: "Novo produto" na linha do título e os botões de Excel abaixo.
+          Do `md` para cima: mesma ordem de antes (Excel… e depois Novo produto). */}
+      <header className="mb-4 flex flex-wrap items-end gap-x-2 gap-y-3 md:mb-6">
+        <div className="mr-auto">
+          <h1 className="text-xl font-bold md:text-2xl">Produtos</h1>
+          <p className="text-xs text-ink-mute md:text-sm">
             {filtered.length} produto(s)
             {products.some((p) => !p.active) && (
               <> · {products.filter((p) => !p.active).length} inativo(s)</>
             )}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="order-last flex w-full flex-wrap items-center gap-2 md:order-none md:w-auto">
           <Button variant="secondary" size="sm" onClick={doExport} loading={exporting} disabled={products.length === 0}>
-            <Download className="h-4 w-4" /> Exportar Excel
+            <Download className="h-4 w-4" /> Exportar<span className="hidden sm:inline"> Excel</span>
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-            <Upload className="h-4 w-4" /> Importar Excel
+            <Upload className="h-4 w-4" /> Importar<span className="hidden sm:inline"> Excel</span>
           </Button>
           <Button variant="ghost" size="sm" onClick={downloadProductTemplate}>
-            <FileSpreadsheet className="h-4 w-4" /> Baixar modelo
+            <FileSpreadsheet className="h-4 w-4" /> <span className="sm:hidden">Modelo</span>
+            <span className="hidden sm:inline">Baixar modelo</span>
           </Button>
-          <Link to="/admin/produtos/novo" className="btn-primary">
-            <Plus className="h-4 w-4" /> Novo produto
-          </Link>
         </div>
+        <Link to="/admin/produtos/novo" className="btn-primary px-3 py-1.5 text-xs md:px-4 md:py-2.5 md:text-sm">
+          <Plus className="h-4 w-4" /> Novo produto
+        </Link>
       </header>
 
       {lowStockOnly && (
-        <div className="mb-4 flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 md:px-4 md:py-3 md:text-sm">
           <span className="font-semibold">Mostrando apenas produtos com estoque baixo (≤ 5 unidades)</span>
           <button
             onClick={() => {
@@ -240,15 +250,15 @@ export default function Products() {
         </div>
       )}
 
-      <div className="card mb-4 flex flex-wrap items-center gap-3 p-4">
-        <div className="relative flex-1 min-w-[220px]">
+      <div className="card mb-4 flex flex-wrap items-center gap-2 p-3 md:gap-3 md:p-4">
+        <div className="relative min-w-[220px] flex-1 basis-full md:basis-0">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
-          <Input value={q} onChange={(e) => setFilter('busca', e.target.value)} placeholder="Buscar produto..." className="!pl-9" />
+          <Input value={q} onChange={(e) => setFilter('busca', e.target.value)} placeholder="Buscar produto..." className="!pl-9 py-2 md:py-2.5" />
         </div>
         <Select
           value={cat === 'all' ? '' : catSlug}
           onChange={(e) => setFilter('categoria', e.target.value)}
-          className="max-w-[220px]"
+          className={`max-w-[220px] ${FILTER_SELECT}`}
           aria-label="Filtrar por categoria"
         >
           <option value="">Todas as categorias</option>
@@ -261,7 +271,7 @@ export default function Products() {
         <Select
           value={brand}
           onChange={(e) => setFilter('marca', e.target.value)}
-          className="max-w-[200px]"
+          className={`max-w-[200px] ${FILTER_SELECT}`}
           aria-label="Filtrar por marca"
         >
           <option value="">Todas as marcas</option>
@@ -276,7 +286,7 @@ export default function Products() {
         <Select
           value={status === 'active' ? 'ativos' : status === 'inactive' ? 'inativos' : ''}
           onChange={(e) => setFilter('status', e.target.value)}
-          className="max-w-[180px]"
+          className={`max-w-[180px] ${FILTER_SELECT}`}
           aria-label="Filtrar por status"
         >
           <option value="">Todos os status</option>
@@ -300,7 +310,8 @@ export default function Products() {
             Limpar filtros
           </Button>
         )}
-        <label className="ml-auto flex items-center gap-2 text-xs text-ink-soft">
+        {/* Datas só existem na tabela larga (lg+): no celular o controle não faria nada. */}
+        <label className="ml-auto hidden items-center gap-2 text-xs text-ink-soft lg:flex">
           <input
             type="checkbox"
             checked={showDates}
@@ -313,7 +324,7 @@ export default function Products() {
 
       {/* R19-E — Barra de ação em massa. Só aparece quando há seleção. */}
       {someSelected && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink-line bg-bg-soft px-4 py-3 text-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ink-line bg-bg-soft px-3 py-2 text-xs md:gap-3 md:px-4 md:py-3 md:text-sm">
           <span className="font-semibold">
             {selected.size} produto(s) selecionado(s)
           </span>
@@ -328,7 +339,99 @@ export default function Products() {
         </div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Celular: lista compacta (mais produtos por tela, sem rolagem lateral). */}
+      <div className="card overflow-hidden md:hidden">
+        <div className="flex items-center justify-between gap-2 border-b border-ink-line bg-bg-soft px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-mute">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              aria-label="Selecionar todos"
+              checked={allVisibleSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = someSelected && !allVisibleSelected;
+              }}
+              onChange={toggleAllVisible}
+              className="accent-ink"
+            />
+            Produto
+          </label>
+          <span>Ativo</span>
+        </div>
+        <ul className="divide-y divide-ink-line">
+          {filtered.map((p) => {
+            const meta = [p.brand?.trim(), p.material && p.material !== '-' ? p.material : '', p.purchaseMode]
+              .filter(Boolean)
+              .join(' · ');
+            return (
+              <li
+                key={p.id}
+                {...editOnDoubleClick(() => navigate(`/admin/produtos/${p.id}`))}
+                className={`flex items-start gap-2.5 px-3 py-2 ${selected.has(p.id) ? 'bg-bg-soft/60' : ''} ${p.active ? '' : 'text-ink-mute'}`}
+              >
+                <input
+                  type="checkbox"
+                  aria-label={`Selecionar ${p.name}`}
+                  checked={selected.has(p.id)}
+                  onChange={() => toggleOne(p.id)}
+                  className="mt-3.5 shrink-0 accent-ink"
+                />
+                <img
+                  src={p.images[0]}
+                  alt=""
+                  className={`h-11 w-11 shrink-0 rounded-md object-cover ${p.active ? '' : 'opacity-50 grayscale'}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <Link to={`/admin/produtos/${p.id}`} className="line-clamp-2 text-[13px] font-semibold leading-snug">
+                    {p.name}
+                  </Link>
+                  {meta && <p className="truncate text-[11px] capitalize leading-tight text-ink-mute">{meta}</p>}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] leading-tight">
+                    <span className="text-xs font-semibold text-ink">{formatBRL(p.promoPrice ?? p.price)}</span>
+                    <span className={p.stock <= 5 ? 'font-semibold text-rose-600' : 'text-ink-mute'}>Estq. {p.stock}</span>
+                    {!p.active && (
+                      <span className="rounded-full bg-ink/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-ink-mute">
+                        Inativo
+                      </span>
+                    )}
+                    {!hasAllPhysical(p) && (
+                      <span
+                        title="Sem peso/medidas da embalagem — não tem frete calculado por CEP. Edite o produto para completar."
+                        className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+                      >
+                        Sem medidas
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-0.5">
+                  <input
+                    type="checkbox"
+                    checked={p.active}
+                    onChange={(e) => toggleActive(p.id, e.target.checked)}
+                    className="m-1.5 accent-ink"
+                    aria-label={p.active ? `Desativar ${p.name}` : `Ativar ${p.name}`}
+                  />
+                  <div className="flex items-center">
+                    <Link to={`/admin/produtos/${p.id}`} className="rounded-lg p-1.5 text-ink-mute hover:bg-ink/5 hover:text-ink" aria-label="Editar">
+                      <Edit className="h-4 w-4" />
+                    </Link>
+                    <button
+                      onClick={() => setConfirm(p.id)}
+                      className="rounded-lg p-1.5 text-ink-mute hover:bg-rose-50 hover:text-rose-500"
+                      aria-label="Remover"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+          {filtered.length === 0 && <li className="px-3 py-8 text-center text-sm text-ink-mute">Nenhum produto encontrado.</li>}
+        </ul>
+      </div>
+
+      <div className="card hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead className="bg-bg-soft text-left text-xs uppercase tracking-wider text-ink-mute">
             <tr>
