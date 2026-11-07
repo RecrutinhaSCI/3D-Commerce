@@ -56,4 +56,12 @@ describe('effectiveShippingMethod — escolha do cliente preservada', () => {
   it('Sedex sumiu da cotação → primeira disponível', () => {
     expect(effectiveShippingMethod('SEDEX', { options: [opt('PAC'), opt('PICKUP')] })).toBe('PAC');
   });
+
+  it('PAC indisponível (só Sedex + retirada, ex.: limite de valor segurado) → Sedex', () => {
+    expect(effectiveShippingMethod('PAC', { options: [opt('SEDEX'), opt('PICKUP')] })).toBe('SEDEX');
+  });
+
+  it('sem transportadora: PAC e Sedex preferidos viram retirada (nunca frete inexistente)', () => {
+    for (const m of ['PAC', 'SEDEX'] as const) expect(effectiveShippingMethod(m, pickupOnly)).toBe('PICKUP');
+  });
 });

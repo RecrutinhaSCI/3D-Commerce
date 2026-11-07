@@ -17,6 +17,47 @@ Loja: Bento Goncalves/RS, envia pra todo o Brasil.
 
 ---
 
+## Homologação Sandbox das ETIQUETAS — 06/11/2026 (branch `feat/melhor-envio-etiquetas`)
+
+Ambiente: backend local + Postgres isolado (`me_homolog`, 127.0.0.1), Melhor Envio **Sandbox** com OAuth dos 8 scopes, `MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION=false`, `HOMOLOGATION_ONLY=true`. Somente pedidos artificiais, remetente sintético (CNPJ gerado) e destinatário fictício. Nenhuma credencial/banco de produção tocado. Evidências redigidas (sem token, documento, endereço, telefone ou e-mail) ficaram fora do Git.
+
+**Cotação (Fase 1)** — `quoteAvailable=true`, scopes verificados no token. PAC = `id 1`, SEDEX = `id 2`.
+- ⚠️ **CEP de origem precisa ser o do LOGRADOURO da loja.**
+  - `95700000` = CEP **genérico** de Bento Gonçalves — **inadequado**: o ME respondeu `200` com `error: "Transportadora não atende este trecho."` em PAC e SEDEX para todos os destinos (→ checkout "só retirada"). Reconfirmado no fechamento.
+  - `95703154` = CEP **operacional informado pela loja** (Rua 13 de Maio, 877). Configurado só no `.env` local (vem de `SHIPPING_ORIGIN_CEP`, nunca do código). Em produção, o mesmo valor precisa ir para o Render.
+  - Cotações Sandbox com origem 95703154 (pacote 2× 1,25 kg 21×8×21, R$ 199,80; valores de Sandbox, não tarifas reais) — `quoteAvailable=true`, scope `shipping-calculate` aceito na prática (200 com OAuth):
+
+    | Destino | PAC (id 1) | SEDEX (id 2) |
+    |---|---|---|
+    | 01310100 São Paulo/SP | R$ 30,51 · 7 d | R$ 45,75 · 3 d |
+    | 20040002 Rio de Janeiro/RJ | R$ 33,96 · 8 d | R$ 61,16 · 4 d |
+    | 69005000 Manaus/AM | R$ 44,88 · 21 d | R$ 102,96 · 6 d |
+    | 90010000 Porto Alegre/RS | R$ 25,89 · 6 d | R$ 28,46 · 2 d |
+    | 70040010 Brasília/DF | R$ 44,88 · 7 d | R$ 102,96 · 3 d |
+  - O motivo do ME em cotação vazia vai para o log (`[melhor-envio] cotação sem PAC/Sedex (origem 957xx***): …`).
+- Limites dos Correios observados: 42,3 kg 70×80×70 (R$ 30.000) → nenhum serviço (`"Peso ultrapassa o limite máximo de 30,00kg."` e, no PAC, `"Valor segurado ultrapassa o limite máximo de R$ 4.184,84."`). 29 kg 60×60×60 (R$ 9.000) → só SEDEX (R$ 455,93). **O PAC recusa valor segurado acima de R$ 4.184,84** — impressoras caras tendem a ter só SEDEX.
+- **Sem serviço válido = só retirada**, nunca tabela fixa nem frete inventado; o pedido recusa PAC/SEDEX ausentes (409 `SHIPPING_CHANGED`). Coberto por testes com os formatos reais. **Evolução futura (não implementada):** outra transportadora (ex.: Jadlog) pelo próprio Melhor Envio para itens acima dos limites dos Correios.
+
+**Carrinho → compra → geração → PDF → cancelamento (PAC e SEDEX)** — formatos reais:
+- `POST /me/cart` 201: `{ id (UUID), protocol "ORD-…", service_id, price, quote, delivery_min/max, status "pending", … }`. `GET /me/orders/{id}` e `GET /me/orders/search?q=` (id ou protocolo) devolvem o item; busca **sem resultado = 204 sem corpo**.
+- `POST /shipment/checkout` 200: `{ purchase: { id, protocol "PUR-…", total, status "paid", paid_at, transactions[ type "debit", status "authorized" ], orders[ { id, status "released", price } ] } }`. Status do envio pago: **`released`**.
+- Checkout de etiqueta **já paga** → **204 sem corpo** (não o 422 documentado). 422 `"Existe uma ou mais orders que já foram pagas ou inválidas."` aparece para id removido/inexistente.
+- `POST /shipment/generate` 200: `{ generate_key, [id]: { status: true, message: "Envio encaminhado para geração" } }`. **Assíncrono**: status continua `released`; `generated_at`, `tracking` (Correios) e `self_tracking` (ME) aparecem ~3–5 s depois. Gerar de novo durante/após a geração → **204 sem corpo**. Antes de pagar → 200 `{ status: false, message: "O Envio não está pago" }`.
+- `GET /imprimir/pdf/{id}` 200: **lista** com URL pré-assinada S3 `https://me-0047-sandbox.s3.amazonaws.com/pdf/…?X-Amz-…` (`X-Amz-Expires=1800`), sem redirect; GET direto → `application/pdf`, `%PDF-`, ~92 KB, `server: AmazonS3`. Logo após gerar pode vir `404 "E-PRT-0007: Etiqueta pdf não processada."`; antes de gerar, `422 "E-PRT-0011"`. **O Sandbox gera PDF de PAC/Sedex** (a nota antiga "só Jadlog" estava errada). `GET /me/orders/{id}` também traz `files.1.{pdf,zpl,jpeg}` no mesmo host.
+- `POST /shipment/print` (mode private) → `{ url: "https://sandbox.melhorenvio.com.br/portal/imprimir/<código>" }` — página HTML do portal (exige login no ME), não PDF.
+- `POST /shipment/cancellable` → `{ [id]: { cancellable } }` (true pago/gerado; false no carrinho ou já cancelada). `POST /shipment/cancel` com `reason_id "2"` → `{ key, [id]: { canceled: true, status: "pending" } }`; repetir também responde `canceled: true`. `GET /me/orders/{id}` → `status "canceled"`, `canceled_at`. **`/shipment/tracking` continua mostrando `released` e `canceled_at` nulo após o cancelamento** — o workflow usa `GET /me/orders/{id}` (correto).
+- Datas do ME vêm **sem fuso e em UTC** (`"2026-11-06 20:44:41"`).
+- Erros: serviço inválido 422 (`service`); peso 0 → 422 (`volumes`, "entre 0.01 e 1000"); caixa acima do limite → **500** "Dimensões do objeto ultrapassam o limite da transportadora" (o validador local de 30 kg/100 cm barra antes); CEP inválido 422 (`to.postal_code`); endereço vazio 422; CPF inválido 422 (`to.document`); id inexistente: get 404 "Registro não encontrado.", generate 422 `orders.0`, cancel 422 `order.id`, tracking 200 `[]`. Scope ausente: `GET /me/balance` → 403 `"This action is unauthorized."` (→ `FORBIDDEN`).
+- Postado/entregue/expirado: **não observáveis no Sandbox** (sem postagem física). Reembolso do cancelamento: não verificável por API com os scopes atuais (saldo exige outro scope) — conferir no painel/extrato na produção.
+
+**Concorrência (Sandbox real)** — duplo clique em comprar (duas "instâncias"): 1 checkout, a outra recebe 409 `PURCHASE_IN_PROGRESS`; gerar em dobro: 1 chamada; cancelar em dobro: 1 cancelamento, a outra 409; compra repetida: 409 `ALREADY_PURCHASED`; confirmação expirada (10 min): 409 `CONFIRMATION_EXPIRED`; token inválido: 409 `CONFIRMATION_INVALID`; descarte de não paga: `removeFromCart` + `DISCARDED`. Rastreio Sandbox nunca vai para o pedido.
+
+**Correções feitas com essa evidência:** datas sem fuso tratadas como UTC; `imprimir/pdf` aceita a lista; busca 204 = vazia; geração ambígua (204/timeout) reconcilia sozinha; "Verificar" não rebaixa etiqueta com geração aceita (LABEL_READY sem `generatedAt` até o ME confirmar); motivo do ME em cotação vazia no log; textos do painel sobre o PDF do Sandbox.
+
+**Allowlist do PDF (aprovada e implementada no fechamento):** `melhorenvio.com.br` (+ subdomínios) em qualquer ambiente; **`me-0047-sandbox.s3.amazonaws.com` exato, só quando ambiente = sandbox E API = `https://sandbox.melhorenvio.com.br`**. HTTPS, porta 443, sem credenciais, sem IP/localhost/`.local`, sem `*.amazonaws.com`, sem outros buckets, cada redirect revalidado. Produção NÃO herda: host não autorizado → 502 `LABEL_FILE_HOST_BLOCKED` e o host (sem a URL assinada) vai para o log, para aprovação na primeira etiqueta real.
+- Validação final pelo código real (sem bypass): PAC 91.996 bytes e SEDEX 92.768 bytes, `application/pdf`, `%PDF-`, HTTPS, host `me-0047-sandbox.s3.amazonaws.com`, sem redirect, evento `LABEL_FILE_DOWNLOADED`.
+- Logo após gerar, o PDF pode não estar pronto: o ME responde 404 `E-PRT-0007 … Aguarde 3 minutos`, ou entrega a URL e o S3 ainda responde 404. Ambos → 409 `LABEL_FILE_NOT_READY` ("tente em 1 a 3 minutos"), sem registrar download. Visto na 1ª tentativa de PAC e de SEDEX; a 2ª (~4 s depois) baixou.
+
 ## Resultado da homologação Sandbox — 22/10/2026
 
 - OAuth real autorizado pelo usuário somente para shipping-calculate. Callback concluiu a troca de code; admin do preview exibiu Conectado. Access/refresh persistidos com formato cifrado v1 (AES-256-GCM), validade ativa, sem needsReconnect ou lastError. Callback redireciona para APP_URL oficial; no preview, retornar à URL de configurações da branch para continuar os testes.

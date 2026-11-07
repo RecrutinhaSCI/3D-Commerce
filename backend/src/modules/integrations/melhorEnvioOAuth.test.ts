@@ -149,7 +149,7 @@ beforeEach(() => {
 
 // ===========================================================================
 describe('URL de autorização', () => {
-  it('sandbox: endpoint oficial, parâmetros e escopo só de cotação', async () => {
+  it('sandbox: endpoint oficial, parâmetros e scopes de cotação + etiquetas (separados por espaço)', async () => {
     const { authorizationUrl, environment } = await oauth.createAuthorizationUrl('admin1', { config: cfgFor(), now });
     const u = new URL(authorizationUrl);
     expect(environment).toBe('sandbox');
@@ -157,7 +157,9 @@ describe('URL de autorização', () => {
     expect(u.searchParams.get('client_id')).toBe('1234');
     expect(u.searchParams.get('redirect_uri')).toBe('https://staging.example.test/api/integrations/melhor-envio/callback');
     expect(u.searchParams.get('response_type')).toBe('code');
-    expect(u.searchParams.get('scope')).toBe('shipping-calculate');
+    expect(u.searchParams.get('scope')!.split(' ')).toEqual([
+      'shipping-calculate', 'cart-write', 'orders-read', 'shipping-cancel', 'shipping-checkout', 'shipping-generate', 'shipping-print', 'shipping-tracking',
+    ]);
     expect(authorizationUrl).not.toContain(SECRET);
   });
 
@@ -189,7 +191,8 @@ describe('URL de autorização', () => {
 describe('callback', () => {
   it('troca o code e grava os tokens CIFRADOS (nunca em claro)', async () => {
     const { r, fetchImpl } = await connect();
-    expect(r).toEqual({ ok: true });
+    // Token falso sem scopes: OAuth "ok", mas as permissões NÃO estão confirmadas.
+    expect(r).toEqual({ ok: true, missingLabelScopes: [], scopesVerified: false });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://sandbox.melhorenvio.com.br/oauth/token');
     expect(init.method).toBe('POST');
@@ -202,7 +205,8 @@ describe('callback', () => {
       code: 'code-abc',
     });
     const cred = db.creds[0];
-    expect(cred).toMatchObject({ provider: 'melhor_envio', environment: 'sandbox', needsReconnect: false, connectedByUserId: 'admin1', scope: 'shipping-calculate' });
+    expect(cred).toMatchObject({ provider: 'melhor_envio', environment: 'sandbox', needsReconnect: false, connectedByUserId: 'admin1', scopeSource: 'requested' });
+    expect(cred.scope!.split(' ')).toContain('shipping-calculate');
     expect(JSON.stringify(cred)).not.toMatch(/access-1|refresh-1/);
     expect(openSecret(cred.accessTokenEnc, Buffer.from(KEY_HEX, 'hex'), 'melhor_envio:sandbox')).toBe('access-1');
     expect(cred.accessTokenExpiresAt.getTime() - T).toBe(30 * DAY);
@@ -420,5 +424,192 @@ describe('segredos fora de logs', () => {
     for (const secret of [SECRET, state, 'code-abc', 'code-xyz', 'access-1', 'refresh-1', 'access-2', 'refresh-2', KEY_HEX]) {
       expect(all).not.toContain(secret);
     }
+  });
+});
+
+
+// ===========================================================================
+// Etapa 6 — scopes concedidos, reconexão e refresh
+// ===========================================================================
+const LABELS = ['cart-write', 'orders-read', 'shipping-cancel', 'shipping-checkout', 'shipping-generate', 'shipping-print', 'shipping-tracking'];
+const ALL = ['shipping-calculate', ...LABELS];
+/** JWT falso (como o access token do ME) com a claim `scopes`. */
+const jwtWith = (scopes: unknown, n: number) =>
+  `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify({ sub: 'x', scopes, jti: `j${n}` })).toString('base64url')}.assinatura`;
+function scopedFetch(scopesFor: (n: number) => { jwt?: unknown; field?: unknown }) {
+  return vi.fn(async () => {
+    const n = ++issued;
+    const s = scopesFor(n);
+    return new Response(
+      JSON.stringify({
+        token_type: 'Bearer', expires_in: 2592000, refresh_token: `refresh-${n}`,
+        access_token: s.jwt !== undefined ? jwtWith(s.jwt, n) : `access-${n}`,
+        ...(s.field !== undefined ? { scope: s.field } : {}),
+      }),
+      { status: 200 },
+    );
+  });
+}
+async function connectWith(fetchImpl: ReturnType<typeof scopedFetch>, cfg = cfgFor()) {
+  const { authorizationUrl } = await oauth.createAuthorizationUrl('admin1', { config: cfg, now });
+  const state = new URL(authorizationUrl).searchParams.get('state')!;
+  return oauth.handleOAuthCallback({ code: 'code-xyz', state }, { config: cfg, now, fetchImpl });
+}
+const labelsOn = { enabled: true, purchaseAllowed: true };
+const access = (labels = labelsOn) => oauth.labelsAccess(db.creds[0] as never, true, labels);
+
+describe('scopes concedidos', () => {
+  it('conexão ANTIGA (só shipping-calculate, sem origem): legada → reconexão necessária para etiquetas', () => {
+    db.creds.push({ id: 'old', provider: 'melhor_envio', environment: 'sandbox', needsReconnect: false, scope: 'shipping-calculate' } as Cred);
+    const a = access();
+    expect(a).toMatchObject({ readiness: 'reconnect_required', needsReconnectForLabels: true, labelsReady: false, missingScopes: LABELS });
+    expect(a.scopes).toMatchObject({ source: 'legacy', verified: true, quoteScopesOk: true });
+  });
+
+  it('lista completa no campo `scope` da resposta → confirmada e pronta', async () => {
+    const r = await connectWith(scopedFetch(() => ({ field: ALL.join(' ') })));
+    expect(r).toEqual({ ok: true, missingLabelScopes: [], scopesVerified: true });
+    expect(db.creds[0]).toMatchObject({ scopeSource: 'response' });
+    expect(access()).toMatchObject({ readiness: 'ready', labelsReady: true, missingScopes: [], needsReconnectForLabels: false });
+  });
+
+  it('lista completa na claim do JWT (resposta sem `scope`) → confirmada', async () => {
+    await connectWith(scopedFetch(() => ({ jwt: ALL })));
+    expect(db.creds[0]).toMatchObject({ scopeSource: 'token' });
+    expect(access().labelsReady).toBe(true);
+  });
+
+  it('UM scope faltando → reconexão necessária, lista exata do que falta', async () => {
+    const r = await connectWith(scopedFetch(() => ({ field: ALL.filter((s) => s !== 'shipping-checkout').join(' ') })));
+    expect(r).toMatchObject({ ok: true, missingLabelScopes: ['shipping-checkout'] });
+    expect(access()).toMatchObject({ readiness: 'reconnect_required', missingScopes: ['shipping-checkout'], labelsReady: false });
+  });
+
+  it('VÁRIOS faltando (callback devolveu menos do que o pedido)', async () => {
+    const r = await connectWith(scopedFetch(() => ({ jwt: ['shipping-calculate', 'orders-read'] })));
+    expect(r).toMatchObject({
+      ok: true,
+      missingLabelScopes: ['cart-write', 'shipping-cancel', 'shipping-checkout', 'shipping-generate', 'shipping-print', 'shipping-tracking'],
+    });
+    expect(access().labelsReady).toBe(false);
+  });
+
+  it('extras desconhecidos, ordem diferente, duplicados, vírgulas e maiúsculas: normalizados, não atrapalham', async () => {
+    const messy = [...ALL].reverse().concat(['SHIPPING-PRINT', 'cart-write', 'scope-novo-do-me']).join(', ');
+    await connectWith(scopedFetch(() => ({ field: messy })));
+    const a = access();
+    expect(a).toMatchObject({ readiness: 'ready', missingScopes: [] });
+    expect(a.scopes!.unknown).toEqual(['scope-novo-do-me']);
+    expect(a.scopes!.granted).toEqual([...ALL, 'scope-novo-do-me'].sort());
+  });
+
+  it('ME não informa scopes (nem campo nem claim): "requested", NÃO confirmado → etiquetas não ficam prontas', async () => {
+    const r = await connectWith(scopedFetch(() => ({})));
+    expect(r).toEqual({ ok: true, missingLabelScopes: [], scopesVerified: false });
+    expect(access()).toMatchObject({ readiness: 'scopes_unverified', labelsReady: false, labelsScopesReady: false });
+  });
+
+  it('claim "*" (curinga) não é aceita como prova', async () => {
+    await connectWith(scopedFetch(() => ({ jwt: ['*'] })));
+    expect(db.creds[0]).toMatchObject({ scopeSource: 'requested' });
+  });
+});
+
+describe('reconexão sem apagar a conexão anterior', () => {
+  async function connectedLegacy() {
+    await connect(); // conexão atual funcionando (cotação)
+    Object.assign(db.creds[0], { scope: 'shipping-calculate', scopeSource: null });
+    return { ...db.creds[0] };
+  }
+
+  it('iniciar a reconexão NÃO toca na credencial; cotação segue com o token atual', async () => {
+    const before = await connectedLegacy();
+    await oauth.createAuthorizationUrl('admin1', { config: cfgFor(), now });
+    expect(db.creds[0]).toMatchObject({ accessTokenEnc: before.accessTokenEnc, version: before.version, scope: 'shipping-calculate' });
+    expect((await oauth.getMelhorEnvioAccessToken(null, { config: cfgFor(), now }))?.token).toBe('access-1');
+  });
+
+  it.each([
+    ['cancelada no ME (?error=access_denied)', { error: 'access_denied' }, 200],
+    ['code inválido (troca recusada)', { code: 'code-ruim' }, 400],
+  ])('%s: conexão anterior intacta e cotação funcionando', async (_n, query, status) => {
+    const before = await connectedLegacy();
+    const { authorizationUrl } = await oauth.createAuthorizationUrl('admin1', { config: cfgFor(), now });
+    const state = new URL(authorizationUrl).searchParams.get('state')!;
+    const r = await oauth.handleOAuthCallback({ ...query, state }, { config: cfgFor(), now, fetchImpl: tokenFetch({ status }) });
+    expect(r.ok).toBe(false);
+    expect(db.creds).toHaveLength(1);
+    expect(db.creds[0]).toMatchObject({ accessTokenEnc: before.accessTokenEnc, refreshTokenEnc: before.refreshTokenEnc, version: before.version, needsReconnect: false });
+    expect((await oauth.getMelhorEnvioAccessToken(null, { config: cfgFor(), now }))?.token).toBe('access-1');
+  });
+
+  it('state forjado ou expirado: recusa sem trocar o code e mantém a conexão', async () => {
+    const before = await connectedLegacy();
+    const { authorizationUrl } = await oauth.createAuthorizationUrl('admin1', { config: cfgFor(), now });
+    const state = new URL(authorizationUrl).searchParams.get('state')!;
+    const f = scopedFetch(() => ({ field: ALL.join(' ') }));
+    expect(await oauth.handleOAuthCallback({ code: 'c', state: 'forjado' }, { config: cfgFor(), now, fetchImpl: f })).toEqual({ ok: false, reason: 'state' });
+    T += 11 * 60 * 1000;
+    expect(await oauth.handleOAuthCallback({ code: 'c', state }, { config: cfgFor(), now, fetchImpl: f })).toEqual({ ok: false, reason: 'state' });
+    expect(f).not.toHaveBeenCalled();
+    expect(db.creds[0].accessTokenEnc).toBe(before.accessTokenEnc);
+  });
+
+  it('state já usado (replay da reconexão): segunda troca recusada', async () => {
+    await connectedLegacy();
+    const { authorizationUrl } = await oauth.createAuthorizationUrl('admin1', { config: cfgFor(), now });
+    const state = new URL(authorizationUrl).searchParams.get('state')!;
+    const f = scopedFetch(() => ({ field: ALL.join(' ') }));
+    expect((await oauth.handleOAuthCallback({ code: 'c', state }, { config: cfgFor(), now, fetchImpl: f })).ok).toBe(true);
+    expect(await oauth.handleOAuthCallback({ code: 'c', state }, { config: cfgFor(), now, fetchImpl: f })).toEqual({ ok: false, reason: 'state' });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconexão bem-sucedida troca tokens e scopes de uma vez (mesma linha)', async () => {
+    await connectedLegacy();
+    await connectWith(scopedFetch(() => ({ field: ALL.join(' ') })));
+    expect(db.creds).toHaveLength(1);
+    expect(access().labelsReady).toBe(true);
+  });
+});
+
+describe('refresh e scopes', () => {
+  it('refresh com MENOS scopes: grava a lista nova e labelsReady cai na hora', async () => {
+    await connectWith(scopedFetch(() => ({ field: ALL.join(' ') })));
+    expect(access().labelsReady).toBe(true);
+    T += 25 * DAY;
+    await oauth.refreshMelhorEnvioToken({}, { config: cfgFor(), now, fetchImpl: scopedFetch(() => ({ jwt: ['shipping-calculate'] })) });
+    expect(db.creds[0]).toMatchObject({ scope: 'shipping-calculate', scopeSource: 'token' });
+    expect(access()).toMatchObject({ labelsReady: false, readiness: 'reconnect_required', missingScopes: LABELS });
+  });
+
+  it('refresh SEM informar scopes: mantém os gravados (RFC 6749 §6)', async () => {
+    await connectWith(scopedFetch(() => ({ field: ALL.join(' ') })));
+    T += 25 * DAY;
+    await oauth.refreshMelhorEnvioToken({}, { config: cfgFor(), now, fetchImpl: scopedFetch(() => ({})) });
+    expect(db.creds[0]).toMatchObject({ scopeSource: 'response' });
+    expect(access().labelsReady).toBe(true);
+  });
+});
+
+describe('flags continuam mandando (OAuth ≠ etiquetas liberadas)', () => {
+  it('todos os scopes, MELHOR_ENVIO_LABELS_ENABLED=false → "disabled"', async () => {
+    await connectWith(scopedFetch(() => ({ field: ALL.join(' ') })));
+    expect(access({ enabled: false, purchaseAllowed: false })).toMatchObject({ readiness: 'disabled', labelsReady: false, labelsScopesReady: true });
+  });
+
+  it('todos os scopes, produção sem ALLOW_PRODUCTION → "production_blocked"', async () => {
+    await connectWith(scopedFetch(() => ({ field: ALL.join(' ') })), cfgFor('https://melhorenvio.com.br'));
+    expect(access({ enabled: true, purchaseAllowed: false })).toMatchObject({ readiness: 'production_blocked', labelsReady: false });
+  });
+
+  it('needsReconnect (refresh recusado) → reconexão, mesmo com scopes completos', async () => {
+    await connectWith(scopedFetch(() => ({ field: ALL.join(' ') })));
+    db.creds[0].needsReconnect = true;
+    expect(access()).toMatchObject({ readiness: 'reconnect_required', needsReconnectForLabels: true, labelsReady: false });
+  });
+
+  it('não conectado → "not_connected" com a lista exigida como faltante', () => {
+    expect(oauth.labelsAccess(null, true, labelsOn)).toMatchObject({ readiness: 'not_connected', missingScopes: LABELS, needsReconnectForLabels: false });
   });
 });

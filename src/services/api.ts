@@ -210,6 +210,39 @@ function withRetryHint(err: ApiErrorPayload, res: Response): ApiErrorPayload {
   return { ...err, message: `${base} Tente novamente em ${wait}.` };
 }
 
+/**
+ * GET de arquivo binário (ex.: PDF da etiqueta). Mesmo token por escopo e
+ * mesmos erros tipados; resposta JSON de erro vira `ApiError`.
+ */
+async function requestBlob(path: string, opts: RequestOptions = {}): Promise<Blob> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), opts.timeoutMs ?? 60_000);
+  const token = opts.anonymous ? null : opts.token ?? resolveToken(path);
+  let res: Response;
+  try {
+    res = await fetch(buildUrl(path, opts.query), {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw new ApiError(0, { code: 'TIMEOUT', message: 'Tempo esgotado.' });
+    throw ApiError.network();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+  if (!res.ok) {
+    if (res.status === 401) handleUnauthorized(routeScope(path));
+    const payload = (res.headers.get('content-type') ?? '').includes('application/json')
+      ? ((await res.json().catch(() => null)) as Envelope<unknown> | null)
+      : null;
+    let errPayload: ApiErrorPayload = payload?.error ?? { code: `HTTP_${res.status}`, message: res.statusText || 'Erro desconhecido.' };
+    if (res.status === 429) errPayload = withRetryHint(errPayload, res);
+    throw new ApiError(res.status, errPayload);
+  }
+  return res.blob();
+}
+
 // -----------------------------------------------------------------------------
 // API pública do módulo
 // -----------------------------------------------------------------------------
@@ -223,6 +256,7 @@ export const api = {
   patch: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
     request<T>('PATCH', path, body, opts),
   del: <T = void>(path: string, opts?: RequestOptions) => request<T>('DELETE', path, undefined, opts),
+  getBlob: (path: string, opts?: RequestOptions) => requestBlob(path, opts),
 };
 
 /** Prefixa URL do backend (útil pra images de /uploads/...). */

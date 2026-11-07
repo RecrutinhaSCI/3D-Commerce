@@ -15,6 +15,27 @@ export interface ApiMelhorEnvioStatus {
   lastError: string | null;
   usingManualToken: boolean;
   issues: string[];
+  /** Etapa 6 — tudo calculado no backend; o front só exibe. */
+  quoteAvailable: boolean;
+  scopes: {
+    granted: string[] | null;
+    /** response | token = confirmado pelo ME; requested = não confirmado; legacy = conexão antiga. */
+    source: 'response' | 'token' | 'requested' | 'legacy' | null;
+    verified: boolean;
+    required: { quote: string[]; labels: string[] };
+    missingForQuote: string[];
+    unknown: string[];
+  };
+  missingScopes: string[];
+  needsReconnectForLabels: boolean;
+  labelsScopesReady: boolean;
+  labelsReady: boolean;
+  labels: {
+    readiness: 'not_connected' | 'reconnect_required' | 'scopes_unverified' | 'disabled' | 'production_blocked' | 'ready';
+    enabled: boolean;
+    purchaseAllowed: boolean;
+    blockedReason: string | null;
+  };
 }
 
 export const integrationsService = {

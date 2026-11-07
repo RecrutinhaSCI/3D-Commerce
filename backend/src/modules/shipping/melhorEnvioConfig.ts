@@ -24,6 +24,9 @@ export interface MelhorEnvioRawEnv {
   MELHOR_ENVIO_CLIENT_SECRET?: string;
   MELHOR_ENVIO_REDIRECT_URI?: string;
   MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY?: string;
+  MELHOR_ENVIO_LABELS_ENABLED?: string;
+  MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION?: string;
+  MELHOR_ENVIO_LABELS_TIMEOUT_MS?: string | number;
 }
 
 export type MelhorEnvioEnvironment = 'sandbox' | 'production';
@@ -211,4 +214,65 @@ export function resolveMelhorEnvioOAuthConfig(raw: MelhorEnvioRawEnv): MelhorEnv
     ...base,
     issues,
   };
+}
+
+// -----------------------------------------------------------------------------
+// Etiquetas (compra de frete) — travas explícitas, DESLIGADAS por padrão
+// -----------------------------------------------------------------------------
+
+export interface MelhorEnvioLabelsConfig {
+  /** MELHOR_ENVIO_LABELS_ENABLED === "true": a seção de etiquetas existe. */
+  enabled: boolean;
+  /** MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION === "true". */
+  allowProduction: boolean;
+  environment: MelhorEnvioEnvironment;
+  /** Sandbox = etiqueta de TESTE: não grava rastreio no pedido nem envia e-mail. */
+  isTest: boolean;
+  /** Pode comprar AGORA (feature ligada e, em produção, liberada explicitamente). */
+  purchaseAllowed: boolean;
+  /** Motivo do bloqueio (texto para o admin), ou null. */
+  blockedReason: string | null;
+  /** Timeout de cada chamada de etiqueta (ms). Maior que o da cotação: menos respostas ambíguas no checkout. */
+  timeoutMs: number;
+  issues: string[];
+}
+
+export const ME_LABELS_DEFAULT_TIMEOUT_MS = 20000;
+export const ME_LABELS_TIMEOUT_RANGE = { min: 1000, max: 60000 } as const;
+
+/** Só o texto exato "true" liga; "false"/vazio desliga; qualquer outro valor desliga + aviso. */
+function strictFlag(name: string, raw: unknown, issues: string[]): boolean {
+  const v = clean(raw);
+  if (v === undefined || v === 'false') return false;
+  if (v === 'true') return true;
+  issues.push(`${name} inválida (use "true" ou "false") — tratada como "false".`);
+  return false;
+}
+
+export function resolveMelhorEnvioLabelsConfig(raw: MelhorEnvioRawEnv): MelhorEnvioLabelsConfig {
+  const issues: string[] = [];
+  const enabled = strictFlag('MELHOR_ENVIO_LABELS_ENABLED', raw.MELHOR_ENVIO_LABELS_ENABLED, issues);
+  const allowProduction = strictFlag('MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION', raw.MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION, issues);
+  // Mesmo critério da cotação: só o host oficial é produção.
+  const rawUrl = clean(raw.MELHOR_ENVIO_BASE_URL);
+  const environment = environmentOf(rawUrl && isHttpUrl(rawUrl) ? rawUrl : ME_DEFAULT_BASE_URL);
+  const isTest = environment !== 'production';
+
+  let blockedReason: string | null = null;
+  if (!enabled) blockedReason = 'Etiquetas do Melhor Envio desligadas no servidor (MELHOR_ENVIO_LABELS_ENABLED).';
+  else if (!isTest && !allowProduction) {
+    blockedReason = 'Compra de etiquetas em PRODUÇÃO bloqueada no servidor (MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION).';
+  }
+  if (allowProduction && !enabled) issues.push('MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION ligada sem MELHOR_ENVIO_LABELS_ENABLED — sem efeito.');
+
+  let timeoutMs = ME_LABELS_DEFAULT_TIMEOUT_MS;
+  const rawTimeout = typeof raw.MELHOR_ENVIO_LABELS_TIMEOUT_MS === 'number' ? raw.MELHOR_ENVIO_LABELS_TIMEOUT_MS : clean(raw.MELHOR_ENVIO_LABELS_TIMEOUT_MS);
+  if (rawTimeout !== undefined) {
+    const n = Number(rawTimeout);
+    const { min, max } = ME_LABELS_TIMEOUT_RANGE;
+    if (Number.isInteger(n) && n >= min && n <= max) timeoutMs = n;
+    else issues.push(`MELHOR_ENVIO_LABELS_TIMEOUT_MS inválido (use ${min} a ${max}) — usando ${ME_LABELS_DEFAULT_TIMEOUT_MS} ms.`);
+  }
+
+  return { enabled, allowProduction, environment, isTest, purchaseAllowed: blockedReason === null, blockedReason, timeoutMs, issues };
 }

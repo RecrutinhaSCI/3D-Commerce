@@ -164,7 +164,7 @@ function toDTO(s: SiteSettings): SettingsDTO {
 }
 
 /** Garante o registro único; cria com defaults se não existir. */
-async function ensureSettings(): Promise<SiteSettings> {
+export async function ensureSettings(): Promise<SiteSettings> {
   return prisma.siteSettings.upsert({
     where: { id: SETTINGS_ID },
     create: { id: SETTINGS_ID, ...DEFAULTS },

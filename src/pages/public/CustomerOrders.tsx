@@ -12,7 +12,7 @@ import { PaymentStatusBadge } from '@/components/admin/PaymentStatusBadge';
 import { Drawer } from '@/components/ui/Drawer';
 import { Button } from '@/components/ui/Button';
 import { formatBRL } from '@/utils/price';
-import { fetchTracking } from '@/services/tracking';
+import { CORREIOS_TRACKING_URL, fetchTracking, isTrackingConfigured, TrackingError, TRACKING_MESSAGES } from '@/services/tracking';
 import type { Order, TrackingResult } from '@/types';
 import { useSEO } from '@/utils/seo';
 
@@ -29,6 +29,7 @@ function formatEventDate(iso: string) {
 }
 
 function TrackingSection({ code }: { code: string }) {
+  const autoTracking = isTrackingConfigured();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TrackingResult | null>(null);
@@ -40,7 +41,8 @@ function TrackingSection({ code }: { code: string }) {
       const data = await fetchTracking(code);
       setResult(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao consultar o rastreio.');
+      // Só mensagens já preparadas para o cliente; qualquer outra vira genérica.
+      setError(e instanceof TrackingError ? e.message : TRACKING_MESSAGES.generic);
     } finally {
       setLoading(false);
     }
@@ -53,10 +55,24 @@ function TrackingSection({ code }: { code: string }) {
           <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Rastreamento</p>
           <p className="mt-0.5 font-mono text-sm font-semibold tracking-wide">{code}</p>
         </div>
-        <Button size="sm" variant="secondary" loading={loading} onClick={handleTrack}>
-          <Truck className="h-4 w-4" /> Rastrear entrega
-        </Button>
+        {autoTracking ? (
+          <Button size="sm" variant="secondary" loading={loading} onClick={handleTrack}>
+            <Truck className="h-4 w-4" /> Rastrear entrega
+          </Button>
+        ) : (
+          <a
+            href={CORREIOS_TRACKING_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ink-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-bg-soft"
+          >
+            <Truck className="h-4 w-4" /> Rastrear nos Correios <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
       </div>
+      {!autoTracking && (
+        <p className="mt-2 text-xs text-ink-mute">Copie o código acima e cole no site dos Correios para acompanhar a entrega.</p>
+      )}
 
       {error && (
         <div className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-600">

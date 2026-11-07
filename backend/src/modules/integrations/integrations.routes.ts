@@ -26,6 +26,7 @@ import {
  *        → status da conexão — NUNCA o token.
  *   GET  /api/integrations/melhor-envio/callback?code&state   (público)
  *        → 302 para /admin/configuracoes?melhorEnvio=conectado|erro&motivo=…
+ *          (+ &permissoes=incompletas|nao-confirmadas quando faltam scopes de etiqueta)
  *        Só motivos genéricos; detalhes técnicos ficam no log (sem segredo).
  */
 export const integrationsRouter = Router();
@@ -74,8 +75,12 @@ integrationsRouter.get(
     res.set('Cache-Control', 'no-store');
     res.set('Referrer-Policy', 'no-referrer');
     const target = new URL('/admin/configuracoes', env.APP_URL);
-    if (result.ok) target.searchParams.set('melhorEnvio', 'conectado');
-    else {
+    if (result.ok) {
+      target.searchParams.set('melhorEnvio', 'conectado');
+      // OAuth ok NÃO significa etiquetas liberadas: o admin vê se faltou permissão.
+      if (result.missingLabelScopes.length) target.searchParams.set('permissoes', 'incompletas');
+      else if (!result.scopesVerified) target.searchParams.set('permissoes', 'nao-confirmadas');
+    } else {
       target.searchParams.set('melhorEnvio', 'erro');
       target.searchParams.set('motivo', CALLBACK_REASONS[result.reason] ?? 'falha');
     }

@@ -184,3 +184,45 @@ export const integrationCallbackRateLimiter = rateLimit({
   legacyHeaders: false,
   handler,
 });
+
+/**
+ * Etiquetas do Melhor Envio (admin) — contadores POR ADMIN e separados por
+ * risco (consulta × ação × compra/cancelamento/descarte). Camada EXTRA: quem
+ * impede compra dupla é o compare-and-set no banco, não este limite.
+ *
+ * `perOrder` conta por (admin + pedido): barra rajada de cliques no MESMO
+ * pedido sem travar o admin que está postando vários pedidos seguidos.
+ * DEVE vir depois do `authMiddleware`.
+ */
+export interface AdminActionLimit {
+  windowMs: number;
+  limit: number;
+  perOrder?: boolean;
+}
+
+export function createAdminActionRateLimiter(name: string, opts: AdminActionLimit) {
+  return rateLimit({
+    windowMs: opts.windowMs,
+    limit: opts.limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler,
+    keyGenerator: (req) => {
+      const who = req.user?.id ? `admin:${req.user.id}` : `ip:${ipKeyGenerator(req.ip ?? '')}`;
+      return opts.perOrder ? `${name}:${who}:order:${String(req.params.orderId ?? '')}` : `${name}:${who}`;
+    },
+  });
+}
+
+export const LABEL_RATE_LIMITS = {
+  /** Leitura do banco (estado, histórico). */
+  read: { windowMs: 60 * 1000, limit: 120 },
+  /** Consulta ao ME sem alterar nada lá (reconciliar, status, "pode cancelar?"). */
+  query: { windowMs: 60 * 1000, limit: 20 },
+  /** Ações que mudam estado (preparar, confirmação, gerar, nota). */
+  write: { windowMs: 60 * 1000, limit: 30 },
+  /** Compra, cancelamento e descarte — por pedido… */
+  financial: { windowMs: 60 * 1000, limit: 5, perOrder: true },
+  /** …e no total do admin. */
+  financialTotal: { windowMs: 10 * 60 * 1000, limit: 30 },
+} satisfies Record<string, AdminActionLimit>;

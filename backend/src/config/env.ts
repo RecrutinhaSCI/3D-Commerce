@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
-import { resolveMelhorEnvioConfig, resolveMelhorEnvioOAuthConfig } from '../modules/shipping/melhorEnvioConfig';
+import { resolveMelhorEnvioConfig, resolveMelhorEnvioLabelsConfig, resolveMelhorEnvioOAuthConfig } from '../modules/shipping/melhorEnvioConfig';
 
 /**
  * Schema único de variáveis de ambiente.
@@ -109,6 +109,13 @@ const envSchema = z.object({
   MELHOR_ENVIO_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().optional()),
   // 32 bytes em hex (64 caracteres) ou base64 — cifra os tokens no banco.
   MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Etiquetas (compra de frete). Travas DESLIGADAS por padrão; só o texto
+  // exato "true" liga (ver resolveMelhorEnvioLabelsConfig). Produção exige a
+  // segunda trava, além da primeira.
+  MELHOR_ENVIO_LABELS_ENABLED: z.preprocess(emptyToUndefined, z.string().optional()),
+  MELHOR_ENVIO_LABELS_ALLOW_PRODUCTION: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Timeout das chamadas de etiqueta (ms, 1000–60000; padrão 20000).
+  MELHOR_ENVIO_LABELS_TIMEOUT_MS: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // --- Pix Banco Inter / mock (R19) — módulo modules/pix-inter, SEM rotas ativas ---
   // A integração de pagamento em uso é o Mercado Pago (acima).
@@ -206,7 +213,11 @@ export const paymentWebhookSecret =
  * dev), porque um valor inválido desliga a cotação sem derrubar o servidor.
  */
 export function melhorEnvioConfigWarnings(): string[] {
-  return [...resolveMelhorEnvioConfig(env).issues, ...resolveMelhorEnvioOAuthConfig(env).issues];
+  return [
+    ...resolveMelhorEnvioConfig(env).issues,
+    ...resolveMelhorEnvioOAuthConfig(env).issues,
+    ...resolveMelhorEnvioLabelsConfig(env).issues,
+  ];
 }
 
 export function productionConfigWarnings(): string[] {

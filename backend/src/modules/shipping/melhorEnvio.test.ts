@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockEnv: Record<string, unknown> = {};
 vi.mock('../../config/env', () => ({ env: mockEnv }));
 
-const { clearQuoteCache, isMelhorEnvioConfigured, MelhorEnvioError, normalizeCep, parseQuoteResponse, quoteMelhorEnvio } =
+const { clearQuoteCache, isMelhorEnvioConfigured, MelhorEnvioError, normalizeCep, parseQuoteResponse, quoteMelhorEnvio, quoteServiceErrors } =
   await import('./melhorEnvio');
 
 const BASE_ENV = {
@@ -93,6 +93,23 @@ describe('parseQuoteResponse', () => {
 
   it('resposta que não é lista = BAD_RESPONSE', () => {
     expect(() => parseQuoteResponse({ message: 'erro' })).toThrow(MelhorEnvioError);
+  });
+});
+
+// Formato REAL do Sandbox (06/11/2026): origem = CEP geral da cidade.
+const SANDBOX_NOT_SERVED = [
+  { id: 1, name: 'PAC', error: 'Transportadora não atende este trecho.', company: { id: 1, name: 'Correios', picture: 'https://sandbox.melhorenvio.com.br/images/shipping-companies/correios.png' } },
+  { id: 2, name: 'SEDEX', error: 'Transportadora não atende este trecho.', company: { id: 1, name: 'Correios', picture: 'https://sandbox.melhorenvio.com.br/images/shipping-companies/correios.png' } },
+];
+
+describe('serviço sem atendimento (resposta real do Sandbox)', () => {
+  it('PAC e Sedex com `error`: nenhuma opção e o motivo do ME é exposto (deduplicado)', () => {
+    expect(parseQuoteResponse(SANDBOX_NOT_SERVED)).toEqual([]);
+    expect(quoteServiceErrors(SANDBOX_NOT_SERVED)).toEqual(['Transportadora não atende este trecho.']);
+  });
+  it('serviços fora de PAC/Sedex e corpo inválido não geram motivo', () => {
+    expect(quoteServiceErrors([{ id: 17, error: 'x' }])).toEqual([]);
+    expect(quoteServiceErrors({ message: 'x' })).toEqual([]);
   });
 });
 

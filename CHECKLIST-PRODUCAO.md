@@ -50,6 +50,15 @@ Revisado em 21/10/2026 contra o código da `main`. Configuração das contas: [C
 
 ---
 
+## Ações obrigatórias de catálogo e frete antes do go-live (auditoria 06/11/2026)
+
+- [ ] **Produto temporário "TESTE"** — id `cmw4j71yj000ne21va20b386y`, slug `teste`, R$ 1,00, estoque 1, categoria Filamentos PLA, sem imagem, criado em 06/11/2026 05:25 (UTC). Está ATIVO e visível na loja. Mantido de propósito para a compra controlada do Mercado Pago; **desativar no admin logo após o teste** (Produtos → TESTE → Ativo: não).
+- [ ] **Imagem quebrada "Impressora 3D BambuLab H2DL-10W"** — id `cmvbolbea000xaa2d9t3m0i3h`, imagem `/uploads/products/017df707d5c60c86f7186f04211c0bc9.png` (gravada no disco efêmero antigo do Render, antes do Blob). O arquivo não existe mais (404 no backend e no Blob); a loja mostra o placeholder. **Reenviar a foto pelo admin** (o upload vai para o Blob). Único produto com imagem fora do Blob.
+- [ ] **`SHIPPING_ORIGIN_CEP=95703154` no Render** — CEP operacional informado pela loja (Rua 13 de Maio, 877 — L'América Shopping). Nunca o CEP geral `95700000`: com ele o Melhor Envio responde "Transportadora não atende este trecho." e o checkout fica só com retirada.
+- [ ] **Itens acima dos limites dos Correios** (peso > 30 kg; no PAC, valor segurado > R$ 4.184,84) ficam só com retirada (ou só SEDEX). Decidir a comunicação ao cliente; outra transportadora é evolução futura.
+
+---
+
 ## Pendências reais / limitações conhecidas
 
 | Item | Situação |
