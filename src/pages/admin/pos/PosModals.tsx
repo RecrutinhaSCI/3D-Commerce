@@ -327,11 +327,15 @@ export function CustomerModal({ open, onClose, onPick }: { open: boolean; onClos
   );
 }
 
-export function PaymentModal({ open, subtotal, discount, submitting, onClose, onConfirm }: {
+export function PaymentModal({ open, subtotal, discount, submitting, customerName, customerOpen, onSelectCustomer, onClose, onConfirm }: {
   open: boolean;
   subtotal: number;
   discount: number;
   submitting: boolean;
+  customerName: string | null;
+  /** Busca de cliente aberta por cima: este modal segue montado, com o que já foi digitado. */
+  customerOpen: boolean;
+  onSelectCustomer: () => void;
   onClose: () => void;
   onConfirm: (p: { paymentMethod: PosPaymentMethod; amountReceived: number | null; notes: string | null; discount: number }) => void;
 }) {
@@ -339,6 +343,15 @@ export function PaymentModal({ open, subtotal, discount, submitting, onClose, on
   const [discountText, setDiscountText] = useState('');
   const [received, setReceived] = useState('');
   const [notes, setNotes] = useState('');
+  const discountRef = useRef<HTMLInputElement>(null);
+  const receivedRef = useRef<HTMLInputElement>(null);
+  const wasCustomerOpen = useRef(false);
+
+  // Volta da busca de cliente com o foco no formulário: Enter continua confirmando.
+  useEffect(() => {
+    if (wasCustomerOpen.current && !customerOpen) (receivedRef.current ?? discountRef.current)?.focus();
+    wasCustomerOpen.current = customerOpen;
+  }, [customerOpen]);
 
   useEffect(() => {
     if (open) { setMethod('PIX'); setDiscountText(discount ? String(discount).replace('.', ',') : ''); setReceived(''); setNotes(''); }
@@ -362,6 +375,15 @@ export function PaymentModal({ open, subtotal, discount, submitting, onClose, on
   return (
     <Modal open={open} onClose={onClose} title="Pagamento" maxWidth="max-w-lg">
       <form onSubmit={submit} className="space-y-4">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-ink-line px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-ink-mute">Cliente</p>
+            <p className="truncate text-sm font-semibold">{customerName ?? 'Consumidor não identificado'}</p>
+          </div>
+          <Button type="button" variant="secondary" size="sm" className="shrink-0" onClick={onSelectCustomer}>
+            {customerName ? 'Trocar cliente · F10' : 'Selecionar cliente · F10'}
+          </Button>
+        </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Forma de pagamento">
           {(Object.keys(PAYMENT_LABELS) as PosPaymentMethod[]).map((m) => (
             <button
@@ -379,12 +401,12 @@ export function PaymentModal({ open, subtotal, discount, submitting, onClose, on
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Desconto (R$)</Label>
-            <Input inputMode="decimal" autoFocus={method !== 'CASH'} value={discountText} onChange={(e) => setDiscountText(e.target.value)} placeholder="0,00" aria-label="Desconto" error={invalidDiscount ? 'Maior que o subtotal' : undefined} />
+            <Input ref={discountRef} inputMode="decimal" autoFocus={method !== 'CASH'} value={discountText} onChange={(e) => setDiscountText(e.target.value)} placeholder="0,00" aria-label="Desconto" error={invalidDiscount ? 'Maior que o subtotal' : undefined} />
           </div>
           {method === 'CASH' && (
             <div>
               <Label>Valor recebido (R$)</Label>
-              <Input inputMode="decimal" autoFocus aria-label="Valor recebido" value={received} onChange={(e) => setReceived(e.target.value)} placeholder="0,00" error={insufficient ? 'Menor que o total' : undefined} />
+              <Input ref={receivedRef} inputMode="decimal" autoFocus aria-label="Valor recebido" value={received} onChange={(e) => setReceived(e.target.value)} placeholder="0,00" error={insufficient ? 'Menor que o total' : undefined} />
             </div>
           )}
         </div>

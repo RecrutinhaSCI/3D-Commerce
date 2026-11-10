@@ -17,7 +17,7 @@ const BY_KEY = new Map(POS_SHORTCUTS.map((s) => [s.key, s.action]));
 
 /**
  * Atalhos globais do PDV. As teclas F só valem com a tela principal à frente:
- * com um modal aberto ficam inertes (Esc fecha o modal). O preventDefault evita
+ * com um modal aberto ficam inertes, salvo `allowedInModal` (Esc fecha o modal). O preventDefault evita
  * o comportamento do navegador (F3 busca, F7 navegação por cursor, F10 menu).
  */
 export function usePosShortcuts(handlers: {
@@ -25,13 +25,15 @@ export function usePosShortcuts(handlers: {
   onEscape: () => void;
   modalOpen: boolean;
   enabled: boolean;
+  /** Única ação liberada com um modal aberto (ex.: F10 no pagamento). */
+  allowedInModal?: PosAction | null;
 }) {
   const latest = useRef(handlers);
   latest.current = handlers;
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      const { onAction, onEscape, modalOpen, enabled } = latest.current;
+      const { onAction, onEscape, modalOpen, enabled, allowedInModal } = latest.current;
       if (!enabled) return;
       if (e.key === 'Escape') {
         if (modalOpen) {
@@ -43,7 +45,7 @@ export function usePosShortcuts(handlers: {
       const action = BY_KEY.get(e.key);
       if (!action) return;
       e.preventDefault();
-      if (!modalOpen) onAction(action);
+      if (!modalOpen || action === allowedInModal) onAction(action);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

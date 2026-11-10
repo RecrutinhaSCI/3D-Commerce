@@ -315,6 +315,96 @@ describe('PDV', () => {
     expect(text()).not.toContain('Maria · ');
   });
 
+  describe('cliente dentro do pagamento', () => {
+    async function typeNotes(value: string) {
+      const area = document.querySelector<HTMLTextAreaElement>('[role=dialog] textarea')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(area, value);
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+    const notes = () => document.querySelector<HTMLTextAreaElement>('[role=dialog] textarea')!.value;
+    const checked = () => document.querySelector('[role=radio][aria-checked=true]')!.textContent;
+
+    async function fillPayment() {
+      await scan('A');
+      await press('F9');
+      await click('Dinheiro');
+      await type(byLabel('Desconto'), '5');
+      await type(byLabel('Valor recebido'), '50');
+      await typeNotes('Retira amanhã');
+    }
+
+    it('F10 escolhe o cliente, volta sem perder nada e a venda sai vinculada', async () => {
+      await render(<Pos />);
+      await fillPayment();
+      expect(text()).toContain('Consumidor não identificado');
+      expect(text()).toContain('Selecionar cliente · F10');
+      await press('F10');
+      await wait();
+      expect(text()).toContain('Cliente da venda');
+      await press('Enter', byLabel('Buscar cliente'));
+      await wait(400);
+      expect(text()).not.toContain('Cliente da venda');
+      expect(text()).toContain('Maria');
+      expect(text()).toContain('Trocar cliente · F10');
+      expect([checked(), byLabel('Desconto').value, byLabel('Valor recebido').value, notes()]).toEqual(['Dinheiro', '5', '50', 'Retira amanhã']);
+      expect(document.activeElement).toBe(byLabel('Valor recebido'));
+      await click('Confirmar venda');
+      expect(service.createSale.mock.calls[0][0]).toMatchObject({
+        customerId: 'c1', paymentMethod: 'CASH', discount: 5, amountReceived: 50, notes: 'Retira amanhã', items: [{ type: 'product', productId: 'A', quantity: 1 }],
+      });
+    });
+
+    it('funciona com o mouse', async () => {
+      await render(<Pos />);
+      await scan('A');
+      await press('F9');
+      await click(/Selecionar cliente/);
+      await wait();
+      await click(/^Maria/);
+      await wait(400);
+      expect(text()).toContain('Trocar cliente · F10');
+    });
+
+    it('Esc fecha só a busca e mantém o pagamento; cliente segue opcional', async () => {
+      await render(<Pos />);
+      await fillPayment();
+      await press('F10');
+      await wait();
+      await press('Escape');
+      await wait(400);
+      expect(text()).not.toContain('Cliente da venda');
+      expect(byLabel('Desconto').value).toBe('5');
+      await click('Confirmar venda');
+      expect(service.createSale.mock.calls[0][0]).toMatchObject({ customerId: null, discount: 5 });
+    });
+
+    it('cadastro rápido reaproveita o mesmo fluxo e volta ao pagamento', async () => {
+      customers.create.mockResolvedValue({ customer: { id: 'c2', name: 'João Novo' } });
+      await render(<Pos />);
+      await fillPayment();
+      await press('F10');
+      await wait();
+      await click(/Novo$/);
+      await type(document.querySelector<HTMLInputElement>('[role=dialog] input[required]')!, 'João Novo');
+      await click('Cadastrar e usar na venda');
+      await wait(400);
+      expect(text()).toContain('João Novo');
+      expect(byLabel('Valor recebido').value).toBe('50');
+      await click('Confirmar venda');
+      expect(service.createSale.mock.calls[0][0]).toMatchObject({ customerId: 'c2' });
+    });
+
+    it('F10 segue inerte nos outros modais', async () => {
+      await render(<Pos />);
+      await press('F7');
+      await press('F10');
+      await wait();
+      expect(text()).not.toContain('Cliente da venda');
+    });
+  });
+
   it('F10 cadastro rápido, sem login', async () => {
     customers.create.mockResolvedValue({ customer: { id: 'c2', name: 'João Novo' } });
     await render(<Pos />);

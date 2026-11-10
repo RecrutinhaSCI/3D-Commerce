@@ -106,6 +106,8 @@ function Terminal({ session }: { session: CashSession }) {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [discount, setDiscount] = useState(0);
   const [modal, setModal] = useState<ModalName>(null);
+  // Busca de cliente por cima do pagamento, que continua aberto por baixo.
+  const [customerOverPayment, setCustomerOverPayment] = useState(false);
   const [scan, setScan] = useState('');
   const [searchSeed, setSearchSeed] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -208,8 +210,13 @@ function Terminal({ session }: { session: CashSession }) {
       case 'freeItem': return setModal('free');
       case 'cancel': return cart.length ? setModal('cancel') : undefined;
       case 'payment': return cart.length ? setModal('payment') : void toast.error('Adicione ao menos um item.');
-      case 'customer': return setModal('customer');
+      case 'customer': return modal === 'payment' ? setCustomerOverPayment(true) : setModal('customer');
     }
+  }
+
+  function closeCustomer() {
+    if (customerOverPayment) setCustomerOverPayment(false);
+    else setModal(null);
   }
 
   function removeSelected() {
@@ -220,7 +227,7 @@ function Terminal({ session }: { session: CashSession }) {
     setSelected(next[Math.min(index, next.length - 1)]?.key ?? null);
   }
 
-  usePosShortcuts({ onAction, onEscape: () => { if (modal === 'inactive') answerInactive(false); else if (!submitting) setModal(null); }, modalOpen: modal !== null, enabled: true });
+  usePosShortcuts({ onAction, onEscape: () => { if (customerOverPayment) setCustomerOverPayment(false); else if (modal === 'inactive') answerInactive(false); else if (!submitting) setModal(null); }, modalOpen: modal !== null || customerOverPayment, allowedInModal: modal === 'payment' && !customerOverPayment && !submitting ? 'customer' : null, enabled: true });
 
   async function finishSale(p: { paymentMethod: PosPaymentMethod; amountReceived: number | null; notes: string | null }, saleDiscount: number) {
     const body = {
@@ -409,14 +416,22 @@ function Terminal({ session }: { session: CashSession }) {
       />
       <FreeItemModal open={modal === 'free'} onClose={() => setModal(null)} onConfirm={(i) => { applyResult(addFreeItem(cartRef.current, i)); setModal(null); }} />
       <InternalUseModal open={modal === 'internal'} onClose={() => setModal(null)} onDone={() => setModal(null)} />
-      <CustomerModal open={modal === 'customer'} onClose={() => setModal(null)} onPick={(c) => { setCustomer(c); setModal(null); }} />
       <PaymentModal
         open={modal === 'payment'}
         subtotal={totals.subtotal}
         discount={discount}
         submitting={submitting}
+        customerName={customer?.name ?? null}
+        customerOpen={customerOverPayment}
+        onSelectCustomer={() => setCustomerOverPayment(true)}
         onClose={() => { if (!submitting) setModal(null); }}
         onConfirm={(p) => { setDiscount(p.discount); void finishSale(p, p.discount); }}
+      />
+      {/* Depois do pagamento no DOM, para abrir por cima dele. */}
+      <CustomerModal
+        open={modal === 'customer' || customerOverPayment}
+        onClose={closeCustomer}
+        onPick={(c) => { setCustomer(c); closeCustomer(); }}
       />
       <ConfirmModal
         open={modal === 'cancel'}
