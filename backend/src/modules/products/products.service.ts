@@ -212,15 +212,19 @@ async function hardDeleteProducts(ids: string[], actor?: StockActor): Promise<st
     select: { url: true },
   });
   const deleted = await prisma.$transaction(async (tx) => {
-    const found = await tx.product.findMany({
+    // Escrita em products ANTES do histórico, como em toda baixa: é o que dá à
+    // leitura do caixa (LOCK SHARE em products) uma fronteira exata por `seq`.
+    // O UPDATE também trava as linhas e devolve o estoque real, sem corrida.
+    const found = await tx.product.updateManyAndReturn({
       where: { id: { in: ids } },
+      data: { stockUpdatedAt: new Date() },
       select: { id: true, name: true, sku: true, stock: true },
     });
     const foundIds = found.map((p) => p.id);
     if (foundIds.length === 0) return [];
-    await recordProductsDeleted(tx, found, actor);
     await tx.cartItem.deleteMany({ where: { productId: { in: foundIds } } });
     await tx.product.deleteMany({ where: { id: { in: foundIds } } });
+    await recordProductsDeleted(tx, found, actor);
     return foundIds;
   });
   await unlinkOrphanProductFiles(images.map((i) => i.url));
@@ -1006,9 +1010,9 @@ export const productsService = {
           // Se o update do produto ou a operação de galeria falhar, ambos
           // sofrem rollback juntos. Nunca sobra produto "meio-atualizado".
           const result = await prisma.$transaction(async (tx) => {
-            if (stockTarget !== undefined) {
-              await setStockAbsolute(tx, existing!.id, stockTarget, importMeta(row.line));
-            }
+            // Relê dentro da transação: se o estoque já chegou ao valor, nada é gravado.
+            const stockChanged =
+              stockTarget !== undefined && (await setStockAbsolute(tx, existing!.id, stockTarget, importMeta(row.line)));
             const saved = Object.keys(patch).length
               ? await tx.product.update({
                   where: { id: existing!.id },
@@ -1020,9 +1024,9 @@ export const productsService = {
             if (validatedImageUrl !== undefined) {
               imageUpdated = await applyMainImage(tx, saved.id, validatedImageUrl, saved.name);
             }
-            return { saved, imageUpdated };
+            return { saved, imageUpdated, stockChanged };
           });
-          if (Object.keys(patch).length === 0 && stockTarget === undefined && !result.imageUpdated) {
+          if (Object.keys(patch).length === 0 && !result.stockChanged && !result.imageUpdated) {
             // Só trouxe imagem e ela já é a principal atual → nada mudou.
             unchanged.push({
               line: row.line,

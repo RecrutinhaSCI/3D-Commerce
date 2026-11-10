@@ -112,7 +112,7 @@ export default function PosSessionDetail() {
       <section className="card mt-4 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-line px-4 py-3">
           <h2 className="text-sm font-bold">Estoque: todas as origens</h2>
-          <span className="text-xs text-ink-mute">{stock.productsMoved} {stock.productsMoved === 1 ? 'produto movimentado' : 'produtos movimentados'}. Clique para ver cada movimentação.</span>
+          <span className="text-xs text-ink-mute">Inicial + movimentações = final. Pedidos online aparecem aqui, mas não entram no caixa. Clique para ver cada movimentação.</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -124,13 +124,15 @@ export default function PosSessionDetail() {
                 <th className="px-3 py-2">PDV</th>
                 <th className="px-3 py-2">Uso interno</th>
                 <th className="px-3 py-2">Ajustes</th>
-                <th className="px-3 py-2">Devol./Canc.</th>
+                <th className="px-3 py-2">Importação</th>
+                <th className="px-3 py-2">Cancel.</th>
+                <th className="px-3 py-2">Devol.</th>
                 <th className="px-4 py-2">Final</th>
               </tr>
             </thead>
             <tbody>
               {stock.products.map((p) => <StockRow key={p.productId} row={p} />)}
-              {stock.products.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-ink-mute">Nenhuma movimentação de estoque neste caixa.</td></tr>}
+              {stock.products.length === 0 && <tr><td colSpan={10} className="p-8 text-center text-ink-mute">Nenhuma movimentação de estoque neste caixa.</td></tr>}
             </tbody>
             {stock.products.length > 0 && (
               <tfoot className="border-t-2 border-ink-line bg-bg-soft text-right font-semibold tabular-nums">
@@ -141,6 +143,8 @@ export default function PosSessionDetail() {
                   <td className="px-3 py-2">{signed(stock.totals.pos)}</td>
                   <td className="px-3 py-2">{signed(stock.totals.internalUse)}</td>
                   <td className="px-3 py-2">{signed(stock.totals.adjustments)}</td>
+                  <td className="px-3 py-2">{signed(stock.totals.imports)}</td>
+                  <td className="px-3 py-2">{signed(stock.totals.cancellations)}</td>
                   <td className="px-3 py-2">{signed(stock.totals.returns)}</td>
                   <td className="px-4 py-2" />
                 </tr>
@@ -212,12 +216,14 @@ function StockRow({ row }: { row: ReportProductRow }) {
         <td className="px-3 py-2">{row.pos ? signed(row.pos) : '—'}</td>
         <td className="px-3 py-2">{row.internalUse ? signed(row.internalUse) : '—'}</td>
         <td className="px-3 py-2">{row.adjustments ? signed(row.adjustments) : '—'}</td>
+        <td className="px-3 py-2">{row.imports ? signed(row.imports) : '—'}</td>
+        <td className="px-3 py-2">{row.cancellations ? signed(row.cancellations) : '—'}</td>
         <td className="px-3 py-2">{row.returns ? signed(row.returns) : '—'}</td>
         <td className="px-4 py-2 font-bold">{row.final}</td>
       </tr>
       {/* Na impressão o detalhe sai sempre: é o papel da auditoria. */}
       <tr className={`bg-bg-soft ${open ? '' : 'hidden print:table-row'}`} data-testid="stock-detail">
-          <td colSpan={8} className="px-4 py-2">
+          <td colSpan={10} className="px-4 py-2">
             <ul className="space-y-1 text-xs">
               {row.movements.map((m) => (
                 <li key={m.seq} className="grid grid-cols-[52px_100px_1fr_auto] items-baseline gap-2">

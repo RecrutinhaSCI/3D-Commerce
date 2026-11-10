@@ -37,7 +37,13 @@ export const lookupSchema = z.object({ code: z.string().trim().min(1).max(60) })
 const quantity = z.number().int().positive().max(100_000);
 
 const saleItemSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('product'), productId: z.string().trim().min(1).max(60), quantity }),
+  z.object({
+    type: z.literal('product'),
+    productId: z.string().trim().min(1).max(60),
+    quantity,
+    /** O operador confirmou vender um produto inativo no e-commerce. */
+    confirmInactive: z.boolean().optional(),
+  }),
   z.object({
     type: z.literal('free'),
     description: z.string().trim().min(2, 'Descreva o item livre.').max(200),

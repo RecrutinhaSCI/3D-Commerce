@@ -381,6 +381,15 @@ export const posService = {
         const byId = new Map(products.map((p) => [p.id, p]));
         for (const id of productQty.keys()) if (!byId.has(id)) throw HttpError.badRequest('Um dos produtos não existe mais. Atualize a venda.');
 
+        // Inativo no site ainda pode ser vendido no balcão, mas só com confirmação.
+        const confirmed = new Set(input.items.flatMap((it) => (it.type === 'product' && it.confirmInactive ? [it.productId] : [])));
+        const unconfirmed = products.filter((p) => !p.active && !confirmed.has(p.id));
+        if (unconfirmed.length > 0) {
+          throw new HttpError(409, 'INACTIVE_PRODUCT_NOT_CONFIRMED', 'Este produto está inativo no e-commerce. Confirme para continuar.', {
+            products: unconfirmed.map((p) => ({ id: p.id, name: p.name })),
+          });
+        }
+
         // Preço SEMPRE do banco; do cliente só vem o valor do item livre.
         const seen = new Set<string>();
         type Line = { productId: string | null; isFreeItem: boolean; description: string; productSku: string | null; quantity: number; unitCents: number };

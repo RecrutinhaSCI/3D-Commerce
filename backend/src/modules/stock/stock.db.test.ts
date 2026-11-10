@@ -194,6 +194,53 @@ describe.skipIf(!dbEnabled)('estoque — Postgres real', () => {
       expect(rows[0]).toMatchObject({ type: 'IMPORT', source: 'IMPORT', quantityBefore: 5, quantityAfter: 9, note: 'Importação Excel — linha 2' });
     });
 
+    it('registra anterior, delta e posterior reais, com responsável', async () => {
+      const p = await product(11, 'XL-2');
+      await productsService.bulkImport({ rows: [{ line: 5, sku: 'XL-2', stock: 4 }] } as never, actor);
+      expect((await movements(p.id))[0]).toMatchObject({ type: 'IMPORT', quantityBefore: 11, quantityDelta: -7, quantityAfter: 4, userName: 'Operador', productSku: 'XL-2' });
+      expect((await h.db.product.findUniqueOrThrow({ where: { id: p.id } })).stock).toBe(4);
+    });
+
+    it('zero explícito é alteração válida e fica registrado', async () => {
+      const p = await product(6, 'XL-3');
+      await productsService.bulkImport({ rows: [{ line: 2, sku: 'XL-3', stock: 0 }] } as never, actor);
+      expect((await movements(p.id))[0]).toMatchObject({ quantityBefore: 6, quantityDelta: -6, quantityAfter: 0 });
+    });
+
+    it('estoque igual ou coluna vazia: nenhuma movimentação e carimbo intacto, mesmo mudando outro campo', async () => {
+      const p = await product(5, 'XL-4');
+      const report = await productsService.bulkImport({
+        rows: [{ line: 2, sku: 'XL-4', stock: 5 }],
+      } as never, actor);
+      expect(report.summary.unchanged).toBe(1);
+      await productsService.bulkImport({ rows: [{ line: 2, sku: 'XL-4', stock: 5, price: 77 }] } as never, actor);
+      await productsService.bulkImport({ rows: [{ line: 2, sku: 'XL-4', price: 78 }] } as never, actor);
+      const fresh = await h.db.product.findUniqueOrThrow({ where: { id: p.id } });
+      expect([fresh.stock, Number(fresh.price), fresh.stockUpdatedAt]).toEqual([5, 78, null]);
+      expect(await movements(p.id)).toHaveLength(0);
+    });
+
+    it('falha em outro campo da linha reverte estoque e movimentação juntos', async () => {
+      const p = await product(5, 'XL-5');
+      // Estoura numeric(12,2) no UPDATE que roda depois da baixa do estoque.
+      const report = await productsService.bulkImport({ rows: [{ line: 2, sku: 'XL-5', stock: 9, price: 99_999_999_999 }] } as never, actor);
+      expect(report.summary.skipped).toBe(1);
+      expect((await h.db.product.findUniqueOrThrow({ where: { id: p.id } })).stock).toBe(5);
+      expect(await movements(p.id)).toHaveLength(0);
+    });
+
+    it('importação concorrente com vendas mantém a cadeia e o saldo real', async () => {
+      const p = await product(50, 'XL-6');
+      await Promise.all([
+        ...Array.from({ length: 8 }, () => h.db.$transaction((tx) => applyStockMoves(tx, [{ productId: p.id, delta: -1 }], POS), { maxWait: 20_000, timeout: 20_000 })),
+        productsService.bulkImport({ rows: [{ line: 2, sku: 'XL-6', stock: 100 }] } as never, actor),
+      ]);
+      const rows = await movements(p.id);
+      expect(rows.filter((m) => m.type === 'IMPORT')).toHaveLength(1);
+      expectChained(rows);
+      expect((await h.db.product.findUniqueOrThrow({ where: { id: p.id } })).stock).toBe(rows[rows.length - 1].quantityAfter);
+    });
+
     it('produto criado pela planilha registra o estoque inicial', async () => {
       await productsService.bulkImport({ rows: [{ line: 2, sku: 'NOVO-1', name: 'Novo produto', categoryName: 'Filamentos', price: 10, stock: 7 }] } as never, actor);
       const fresh = await h.db.product.findFirstOrThrow({ where: { sku: 'NOVO-1' } });

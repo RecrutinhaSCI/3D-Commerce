@@ -169,6 +169,22 @@ describe.skipIf(!dbEnabled)('PDV — Postgres real', () => {
       expect(await stockOf(p.id)).toBe(0);
     });
 
+    it('produto inativo: sem confirmação é recusado e nada acontece', async () => {
+      const p = await product('INATIVO', 5, 10, { active: false });
+      await expect(posService.createSale(sale([line(p.id)]), op)).rejects.toMatchObject({
+        status: 409, code: 'INACTIVE_PRODUCT_NOT_CONFIRMED', details: { products: [{ id: p.id, name: p.name }] },
+      });
+      expect(await stockOf(p.id)).toBe(5);
+      expect(await h.db.posSale.count()).toBe(0);
+    });
+
+    it('produto inativo: com confirmação explícita vende e baixa o estoque', async () => {
+      const p = await product('INATIVO', 5, 10, { active: false });
+      const { sale: s } = await posService.createSale(sale([{ ...line(p.id, 2), confirmInactive: true }]), op);
+      expect(s.total).toBe(20);
+      expect(await stockOf(p.id)).toBe(3);
+    });
+
     it('vincula cliente e guarda snapshot do nome', async () => {
       const p = await product('A', 5);
       const c = await customersService.create({ name: 'Maria Silva', phone: '(54) 99999-1234' });
@@ -320,7 +336,7 @@ describe.skipIf(!dbEnabled)('PDV — Postgres real', () => {
       expect(p.movements[2].note).toBe('Produção interna');
 
       const v = report.stock.products.find((x) => x.productId === verde.id)!;
-      expect(v).toMatchObject({ initial: 5, adjustments: 3, pos: -2, returns: 1, final: 7, discrepancy: 0 });
+      expect(v).toMatchObject({ initial: 5, adjustments: 3, pos: -2, cancellations: 1, returns: 0, final: 7, discrepancy: 0 });
 
       expect(report.stock.products).toHaveLength(2);
       expect(report.stock.discrepancies).toBe(0);
@@ -337,6 +353,49 @@ describe.skipIf(!dbEnabled)('PDV — Postgres real', () => {
       expect(closed).toMatchObject({ status: 'CLOSED', salesCount: 2, totalSold: 570 });
     });
 
+    it('janela lógica: toda origem entra, inicial + colunas = final, e online fica fora do caixa', async () => {
+      const p = await product('TODAS', 30, 10);
+      const session = await posService.openSession({ openingCash: 0 }, op);
+
+      await applyStockForOrder(await paidOrder(p.id, 2));
+      const canceled = await paidOrder(p.id, 1);
+      await applyStockForOrder(canceled);
+      await cancelOrderRecord(canceled, 'CANCELED');
+      const refunded = await paidOrder(p.id, 1);
+      await applyStockForOrder(refunded);
+      await cancelOrderRecord(refunded, 'REFUNDED');
+      await posService.createSale(sale([line(p.id, 3)]), op);
+      await stockService.registerInternalUse({ clientRequestId: key('uso'), productId: p.id, quantity: 1 }, op);
+      await productsService.update(p.id, { stock: 26, expectedStock: 24 } as never, op);
+      await productsService.bulkImport({ rows: [{ line: 2, sku: 'TODAS', stock: 20 }] } as never, op);
+
+      const { report } = await posService.closeSession(session.id, {}, op);
+      const row = report.stock.products[0];
+      expect(row).toMatchObject({ initial: 30, ecommerce: -4, cancellations: 1, returns: 1, pos: -3, internalUse: -1, adjustments: 2, imports: -6, final: 20, discrepancy: 0 });
+      expect(row.initial + row.ecommerce + row.pos + row.internalUse + row.adjustments + row.imports + row.cancellations + row.returns).toBe(row.final);
+      expect(report.stock.totals).toMatchObject({ ecommerce: -4, imports: -6, cancellations: 1, returns: 1 });
+      expect(report.summary).toMatchObject({ salesCount: 1, totalSold: 30 });
+      expect(await stockOf(p.id)).toBe(20);
+    });
+
+    it('a janela segue a sequência, não o horário gravado', async () => {
+      const p = await product('SEQ', 10);
+      const s1 = await posService.openSession({ openingCash: 0 }, op);
+      await stockService.registerInternalUse({ clientRequestId: key('uso'), productId: p.id, quantity: 1 }, op);
+      // Relógio "antes da abertura", mas gravado depois do snapshot: entra.
+      await h.db.$executeRawUnsafe(`UPDATE stock_movements SET created_at = now() - interval '2 days'`);
+      const closed = await posService.closeSession(s1.id, {}, op);
+      expect(closed.report.stock.products[0]).toMatchObject({ initial: 10, internalUse: -1, final: 9, discrepancy: 0 });
+
+      // Depois do fechamento, com horário de dentro da sessão: não entra na próxima.
+      await stockService.registerInternalUse({ clientRequestId: key('uso'), productId: p.id, quantity: 2 }, op);
+      await h.db.$executeRawUnsafe(`UPDATE stock_movements SET created_at = '${s1.openedAt}' WHERE quantity_delta = -2`);
+      const s2 = await posService.openSession({ openingCash: 0 }, op);
+      await stockService.registerInternalUse({ clientRequestId: key('uso'), productId: p.id, quantity: 3 }, op);
+      const next = await posService.closeSession(s2.id, {}, op);
+      expect(next.report.stock.products[0]).toMatchObject({ initial: 7, internalUse: -3, final: 4, discrepancy: 0 });
+    });
+
     it('cancelamento de pedido online aparece no estoque e não no caixa', async () => {
       const p = await product('A', 10);
       const orderId = await paidOrder(p.id, 2);
@@ -344,7 +403,7 @@ describe.skipIf(!dbEnabled)('PDV — Postgres real', () => {
       const session = await posService.openSession({ openingCash: 0 }, op);
       await cancelOrderRecord(orderId, 'CANCELED');
       const { report } = await posService.closeSession(session.id, {}, op);
-      expect(report.stock.products[0]).toMatchObject({ initial: 8, returns: 2, final: 10 });
+      expect(report.stock.products[0]).toMatchObject({ initial: 8, cancellations: 2, final: 10 });
       expect(report.summary.salesCount).toBe(0);
     });
 
@@ -532,13 +591,25 @@ describe.skipIf(!dbEnabled)('PDV — Postgres real', () => {
         ['GET', '/api/admin/pos/sessions/x'], ['POST', '/api/admin/pos/sessions/x/close'],
         ['GET', '/api/admin/pos/products/search'], ['GET', '/api/admin/pos/products/lookup?code=1'],
         ['POST', '/api/admin/pos/sales'], ['GET', '/api/admin/pos/sales/x'], ['POST', '/api/admin/pos/sales/x/cancel'], ['POST', '/api/admin/pos/sales/x/returns'],
-        ['GET', '/api/admin/customers'], ['POST', '/api/admin/customers'], ['GET', '/api/admin/customers/x'], ['PUT', '/api/admin/customers/x'],
+        ['POST', '/api/admin/customers/search'], ['POST', '/api/admin/customers'], ['GET', '/api/admin/customers/x'], ['PUT', '/api/admin/customers/x'],
         ['GET', '/api/admin/stock/movements'], ['POST', '/api/admin/stock/internal-use'],
       ];
       for (const [method, path] of routes) {
         expect((await call(method, path, method === 'GET' ? undefined : {}, { 'Content-Type': 'application/json' })).status, path).toBe(401);
         expect((await call(method, path, method === 'GET' ? undefined : {}, customer)).status, path).toBe(403);
       }
+    });
+
+    it('busca de cliente: CPF vai no corpo e a URL não aceita busca', async () => {
+      await customersService.create({ name: 'Com CPF', document: '52998224725', phone: '54999991234' });
+      const found = await call('POST', '/api/admin/customers/search', { search: '52998224725' });
+      expect(found.status).toBe(200);
+      expect(found.json.data.customers.map((c: { name: string }) => c.name)).toEqual(['Com CPF']);
+      const byPhone = await call('POST', '/api/admin/customers/search', { search: '(54) 99999-1234' });
+      expect(byPhone.json.data.customers).toHaveLength(1);
+      const viaUrl = await call('GET', '/api/admin/customers?search=52998224725');
+      expect(viaUrl.status).toBe(404);
+      expect(JSON.stringify(viaUrl.json)).not.toContain('Com CPF');
     });
 
     it('fluxo completo: abrir caixa → venda → uso interno → fechar → relatório → histórico', async () => {

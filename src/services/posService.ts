@@ -55,7 +55,7 @@ export interface CashSession {
 }
 
 export type SaleItemPayload =
-  | { type: 'product'; productId: string; quantity: number }
+  | { type: 'product'; productId: string; quantity: number; confirmInactive?: boolean }
   | { type: 'free'; description: string; quantity: number; unitPrice: number };
 
 export interface SalePayload {
@@ -129,6 +129,8 @@ export interface ReportProductRow {
   pos: number;
   internalUse: number;
   adjustments: number;
+  imports: number;
+  cancellations: number;
   returns: number;
   final: number;
   expectedFinal: number;
@@ -151,7 +153,7 @@ export interface SessionReport {
   cash: { opening: number; expected: number; counted: number | null; difference: number | null };
   stock: {
     products: ReportProductRow[];
-    totals: { ecommerce: number; pos: number; internalUse: number; adjustments: number; returns: number };
+    totals: { ecommerce: number; pos: number; internalUse: number; adjustments: number; imports: number; cancellations: number; returns: number };
     productsMoved: number;
     discrepancies: number;
     untracked: Array<{ productId: string; name: string; sku: string | null; initial: number; final: number }>;

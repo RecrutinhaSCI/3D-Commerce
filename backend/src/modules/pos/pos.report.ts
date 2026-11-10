@@ -3,8 +3,10 @@ import type { PosPaymentMethod, StockMovementSource, StockMovementType } from '@
 /**
  * Relatório de fechamento: função PURA sobre dados já lidos no banco.
  *
- * Estoque: considera TODAS as origens (loja, PDV, uso interno, ajustes...).
- * Financeiro: só as vendas físicas deste caixa.
+ * Estoque: considera TODAS as origens (loja, PDV, uso interno, ajustes,
+ * importação, cancelamento, devolução) com `seq` dentro da janela lógica
+ * abertura → fechamento, para valer: inicial + movimentações = final.
+ * Financeiro: só as vendas físicas deste caixa; pedido online não entra.
  *
  * O estoque final NÃO é calculado por subtração: vem da leitura real do produto
  * e é conferido contra inicial + movimentações. Qualquer diferença vira
@@ -85,13 +87,17 @@ export interface ReportInput {
 const PAYMENT_METHODS: PosPaymentMethod[] = ['CASH', 'PIX', 'DEBIT_CARD', 'CREDIT_CARD', 'OTHER'];
 const toMoney = (cents: number) => Number((cents / 100).toFixed(2));
 
-function bucket(type: StockMovementType): 'ecommerce' | 'pos' | 'internalUse' | 'adjustments' | 'returns' {
+const emptyBuckets = () => ({ ecommerce: 0, pos: 0, internalUse: 0, adjustments: 0, imports: 0, cancellations: 0, returns: 0 });
+type Bucket = keyof ReturnType<typeof emptyBuckets>;
+
+function bucket(type: StockMovementType): Bucket {
   switch (type) {
     case 'ECOMMERCE_SALE': return 'ecommerce';
     case 'POS_SALE': return 'pos';
     case 'INTERNAL_USE': return 'internalUse';
-    case 'RETURN':
-    case 'CANCELLATION': return 'returns';
+    case 'IMPORT': return 'imports';
+    case 'CANCELLATION': return 'cancellations';
+    case 'RETURN': return 'returns';
     default: return 'adjustments';
   }
 }
@@ -110,7 +116,7 @@ export function buildSessionReport(input: ReportInput) {
 
   const products = [...grouped.entries()].map(([productId, list]) => {
     const last = list[list.length - 1];
-    const totals = { ecommerce: 0, pos: 0, internalUse: 0, adjustments: 0, returns: 0 };
+    const totals = emptyBuckets();
     for (const m of list) totals[bucket(m.type)] += m.quantityDelta;
     // Sem foto na abertura = produto criado depois (começa do primeiro registro).
     const initial = opening.get(productId)?.stock ?? list[0].quantityBefore;
@@ -148,16 +154,10 @@ export function buildSessionReport(input: ReportInput) {
     .filter((e) => !grouped.has(e.productId) && currentStock.has(e.productId) && currentStock.get(e.productId) !== e.stock)
     .map((e) => ({ productId: e.productId, name: e.name, sku: e.sku, initial: e.stock, final: currentStock.get(e.productId) as number }));
 
-  const stockTotals = products.reduce(
-    (acc, p) => ({
-      ecommerce: acc.ecommerce + p.ecommerce,
-      pos: acc.pos + p.pos,
-      internalUse: acc.internalUse + p.internalUse,
-      adjustments: acc.adjustments + p.adjustments,
-      returns: acc.returns + p.returns,
-    }),
-    { ecommerce: 0, pos: 0, internalUse: 0, adjustments: 0, returns: 0 },
-  );
+  const stockTotals = emptyBuckets();
+  for (const p of products) {
+    for (const key of Object.keys(stockTotals) as Bucket[]) stockTotals[key] += p[key];
+  }
 
   // ---- Financeiro (só PDV) ------------------------------------------------
   const completed = sales.filter((s) => s.status === 'COMPLETED');

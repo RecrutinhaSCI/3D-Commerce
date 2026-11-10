@@ -14,6 +14,7 @@ import {
   posService,
   type CashSession,
   type PosPaymentMethod,
+  type PosProduct,
   type PosSale,
   type SessionReport,
 } from '@/services/posService';
@@ -22,7 +23,7 @@ import { addFreeItem, addProduct, cartTotals, lineTotal, parseScan, removeLine, 
 import { POS_SHORTCUTS, usePosShortcuts, type PosAction } from './posShortcuts';
 import { ConfirmModal, CustomerModal, FreeItemModal, InternalUseModal, parseMoney, PaymentModal, ProductSearchModal, QuantityModal } from './PosModals';
 
-type ModalName = 'search' | 'quantity' | 'free' | 'customer' | 'payment' | 'cancel' | 'internal' | 'close' | 'done' | null;
+type ModalName = 'search' | 'quantity' | 'free' | 'customer' | 'payment' | 'cancel' | 'internal' | 'close' | 'done' | 'inactive' | null;
 
 const errorMessage = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
 
@@ -114,6 +115,8 @@ function Terminal({ session }: { session: CashSession }) {
   // e o carrinho mais recente fica neste ref, para nenhum bipe se perder.
   const cartRef = useRef<CartLine[]>([]);
   const scanQueue = useRef<Promise<void>>(Promise.resolve());
+  const [inactiveName, setInactiveName] = useState('');
+  const inactiveAnswer = useRef<((ok: boolean) => void) | null>(null);
   // Mesma venda (itens/pagamento iguais) reusa o id: se a resposta se perdeu,
   // tentar de novo devolve a venda já feita em vez de vender duas vezes.
   const attempt = useRef<{ hash: string; id: string } | null>(null);
@@ -139,12 +142,35 @@ function Terminal({ session }: { session: CashSession }) {
     return true;
   }
 
+  /** Pergunta e espera a resposta; a fila de bipes aguarda junto. */
+  function askInactive(name: string): Promise<boolean> {
+    setInactiveName(name);
+    setModal('inactive');
+    return new Promise((resolve) => { inactiveAnswer.current = resolve; });
+  }
+
+  function answerInactive(ok: boolean) {
+    inactiveAnswer.current?.(ok);
+    inactiveAnswer.current = null;
+    setModal(null);
+  }
+
+  async function addChecked(product: PosProduct, quantity = 1): Promise<boolean> {
+    let confirmed = false;
+    if (!product.active) {
+      confirmed = cartRef.current.some((l) => l.kind === 'product' && l.productId === product.id && l.inactiveConfirmed === true);
+      if (!confirmed && !(await askInactive(product.name))) return false;
+      confirmed = true;
+    }
+    return applyResult(addProduct(cartRef.current, product, quantity, confirmed));
+  }
+
   async function processScan(raw: string) {
     const { code, quantity } = parseScan(raw);
     try {
       const { product } = await posService.lookupProduct(code);
       if (product) {
-        applyResult(addProduct(cartRef.current, product, quantity));
+        await addChecked(product, quantity);
       } else {
         // Não é um código exato: vira pesquisa por nome.
         setSearchSeed(code);
@@ -194,7 +220,7 @@ function Terminal({ session }: { session: CashSession }) {
     setSelected(next[Math.min(index, next.length - 1)]?.key ?? null);
   }
 
-  usePosShortcuts({ onAction, onEscape: () => { if (!submitting) setModal(null); }, modalOpen: modal !== null, enabled: true });
+  usePosShortcuts({ onAction, onEscape: () => { if (modal === 'inactive') answerInactive(false); else if (!submitting) setModal(null); }, modalOpen: modal !== null, enabled: true });
 
   async function finishSale(p: { paymentMethod: PosPaymentMethod; amountReceived: number | null; notes: string | null }, saleDiscount: number) {
     const body = {
@@ -219,6 +245,16 @@ function Terminal({ session }: { session: CashSession }) {
       // Recusa do servidor é definitiva para esta tentativa. Falha de rede
       // mantém o id, porque a venda pode ter sido gravada.
       if (err instanceof ApiError && err.status > 0) attempt.current = null;
+      if (err instanceof ApiError && err.code === 'INACTIVE_PRODUCT_NOT_CONFIRMED') {
+        // Ficou inativo depois de entrar no carrinho.
+        const products = (err.details as { products?: Array<{ id: string; name: string }> } | undefined)?.products ?? [];
+        for (const p of products) {
+          if (!(await askInactive(p.name))) return;
+          commitCart(cartRef.current.map((l) => (l.kind === 'product' && l.productId === p.id ? { ...l, inactiveConfirmed: true } : l)));
+        }
+        toast.success('Produto confirmado. Finalize a venda novamente (F9).');
+        return;
+      }
       toast.error(errorMessage(err, 'Não foi possível concluir a venda.'));
     } finally {
       setSubmitting(false);
@@ -362,7 +398,7 @@ function Terminal({ session }: { session: CashSession }) {
         open={modal === 'search'}
         initialQuery={searchSeed}
         onClose={() => setModal(null)}
-        onPick={(p) => { if (applyResult(addProduct(cartRef.current, p))) setModal(null); }}
+        onPick={(p) => { void addChecked(p).then((ok) => { if (ok) setModal(null); }); }}
       />
       <QuantityModal
         open={modal === 'quantity'}
@@ -389,6 +425,15 @@ function Terminal({ session }: { session: CashSession }) {
         confirmLabel="Descartar venda"
         onClose={() => setModal(null)}
         onConfirm={() => { resetSale(); setModal(null); }}
+      />
+      <ConfirmModal
+        open={modal === 'inactive'}
+        title={inactiveName}
+        message="Este produto está inativo no e-commerce. Deseja continuar?"
+        confirmLabel="Continuar"
+        safeFocus
+        onClose={() => answerInactive(false)}
+        onConfirm={() => answerInactive(true)}
       />
       <CloseCashModal
         open={modal === 'close'}

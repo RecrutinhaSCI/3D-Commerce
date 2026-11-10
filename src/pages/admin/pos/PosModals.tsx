@@ -401,15 +401,18 @@ export function PaymentModal({ open, subtotal, discount, submitting, onClose, on
   );
 }
 
-export function ConfirmModal({ open, title, message, confirmLabel, onClose, onConfirm }: {
-  open: boolean; title: string; message: string; confirmLabel: string; onClose: () => void; onConfirm: () => void;
+export function ConfirmModal({ open, title, message, confirmLabel, safeFocus = false, onClose, onConfirm }: {
+  open: boolean; title: string; message: string; confirmLabel: string;
+  /** Foco em "Voltar": o Enter de um leitor não confirma sem querer. */
+  safeFocus?: boolean;
+  onClose: () => void; onConfirm: () => void;
 }) {
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <p className="text-sm text-ink-soft">{message}</p>
       <div className="mt-5 flex gap-2">
-        <Button variant="secondary" className="flex-1" onClick={onClose}>Voltar</Button>
-        <Button variant="danger" className="flex-1" autoFocus onClick={onConfirm}>{confirmLabel}</Button>
+        <Button variant="secondary" className="flex-1" autoFocus={safeFocus} onClick={onClose}>Voltar</Button>
+        <Button variant="danger" className="flex-1" autoFocus={!safeFocus} onClick={onConfirm}>{confirmLabel}</Button>
       </div>
     </Modal>
   );

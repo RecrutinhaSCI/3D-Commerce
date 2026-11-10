@@ -14,10 +14,12 @@ export const customersRouter = Router();
 
 customersRouter.use('/admin/customers', authMiddleware, adminMiddleware);
 
-customersRouter.get(
-  '/admin/customers',
+// POST de propósito: o termo pode ser CPF ou telefone, e query string vai para
+// logs de acesso, histórico e proxies. No corpo, nada disso fica registrado.
+customersRouter.post(
+  '/admin/customers/search',
   asyncHandler(async (req, res) => {
-    ok(res, await customersService.list(customersQuerySchema.parse(req.query)));
+    ok(res, await customersService.list(customersQuerySchema.parse(req.body ?? {})));
   }),
 );
 customersRouter.post(

@@ -267,6 +267,18 @@ describe('bulkDelete + stockUpdatedAt (R19-E)', () => {
     await expect(productsService.remove('p-a')).rejects.toMatchObject({ status: 404 });
   });
 
+  it('§3e exclusão escreve em products ANTES do histórico (fronteira exata do caixa)', async () => {
+    seedThree();
+    const [first] = db.products;
+    first.stock = 7;
+    await productsService.remove(first.id);
+    const lock = mockPrisma.product.updateManyAndReturn.mock.invocationCallOrder[0];
+    const removal = mockPrisma.product.deleteMany.mock.invocationCallOrder.at(-1);
+    const ledger = mockPrisma.stockMovement.createMany.mock.invocationCallOrder.at(-1);
+    expect(lock).toBeLessThan(removal);
+    expect(removal).toBeLessThan(ledger);
+  });
+
   // §4 -----------------------------------------------------------------
   it('§4 createdAt nunca é sobrescrito por edições', async () => {
     seedThree();

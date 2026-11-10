@@ -137,6 +137,92 @@ describe('PDV', () => {
     expect(document.querySelector('tbody')).toBeNull();
   });
 
+  describe('produto inativo no e-commerce', () => {
+    const MESSAGE = 'Este produto está inativo no e-commerce. Deseja continuar?';
+    const inactive = (id = 'I') => ({ ...product(id), active: false });
+
+    it('pergunta antes de adicionar, com foco seguro em Voltar', async () => {
+      service.lookupProduct.mockResolvedValue({ product: inactive() });
+      await render(<Pos />);
+      await scan('I');
+      expect(text()).toContain(MESSAGE);
+      expect(document.activeElement?.textContent).toBe('Voltar');
+      expect(document.querySelector('tbody')).toBeNull();
+    });
+
+    it('Continuar adiciona e a venda leva a confirmação', async () => {
+      service.lookupProduct.mockResolvedValue({ product: inactive() });
+      await render(<Pos />);
+      await scan('I');
+      await click('Continuar');
+      expect(document.querySelector('tbody tr')).toBeTruthy();
+      await wait(400);
+      await press('F9');
+      await click('Confirmar venda');
+      expect(service.createSale.mock.calls[0][0].items).toEqual([{ type: 'product', productId: 'I', quantity: 1, confirmInactive: true }]);
+    });
+
+    it('Voltar e Esc não adicionam, e a leitura seguinte continua', async () => {
+      service.lookupProduct.mockResolvedValueOnce({ product: inactive() }).mockResolvedValueOnce({ product: inactive() });
+      await render(<Pos />);
+      await scan('I');
+      await click('Voltar');
+      await wait(400);
+      expect(document.querySelector('tbody')).toBeNull();
+      await scan('I');
+      await press('Escape');
+      await wait(400);
+      expect(document.querySelector('tbody')).toBeNull();
+      await scan('A');
+      expect(text()).toContain('Produto A');
+    });
+
+    it('bipar de novo o item já confirmado não pergunta outra vez', async () => {
+      service.lookupProduct.mockResolvedValue({ product: inactive() });
+      await render(<Pos />);
+      await scan('I');
+      await click('Continuar');
+      await wait(400);
+      await scan('I');
+      await wait(400);
+      expect(text()).not.toContain(MESSAGE);
+      expect(document.querySelector('tbody tr td:nth-child(2)')!.textContent).toBe('2');
+    });
+
+    it('produto ativo não pergunta', async () => {
+      await render(<Pos />);
+      await scan('A');
+      expect(text()).not.toContain(MESSAGE);
+    });
+
+    it('pela pesquisa F3 também pergunta', async () => {
+      service.searchProducts.mockResolvedValue({ products: [inactive('Z')] });
+      await render(<Pos />);
+      await press('F3');
+      await wait();
+      await press('Enter', byLabel('Pesquisar produto'));
+      expect(text()).toContain(MESSAGE);
+      await click('Continuar');
+      expect(document.querySelector('tbody tr')).toBeTruthy();
+    });
+
+    it('ficou inativo depois de entrar no carrinho: backend recusa e a tela pede confirmação', async () => {
+      service.createSale.mockRejectedValueOnce(new ApiError(409, {
+        code: 'INACTIVE_PRODUCT_NOT_CONFIRMED', message: 'x', details: { products: [{ id: 'A', name: 'Produto A' }] },
+      }));
+      await render(<Pos />);
+      await scan('A');
+      await press('F9');
+      await click('Confirmar venda');
+      expect(text()).toContain(MESSAGE);
+      await click('Continuar');
+      await wait(400);
+      await press('F9');
+      await click('Confirmar venda');
+      expect(service.createSale.mock.calls[1][0].items[0]).toMatchObject({ productId: 'A', confirmInactive: true });
+    });
+  });
+
   it('F3 pesquisa e Enter adiciona o produto', async () => {
     await render(<Pos />);
     await press('F3');
@@ -339,10 +425,10 @@ const report = (over: Partial<SessionReport['stock']> = {}): SessionReport => ({
   cash: { opening: 0, expected: 0, counted: null, difference: null },
   stock: {
     products: [{
-      productId: 'p1', name: 'Filamento Preto', sku: 'F', initial: 20, ecommerce: -2, pos: -5, internalUse: -1, adjustments: 0, returns: 1, final: 13, expectedFinal: 13, discrepancy: 0,
+      productId: 'p1', name: 'Filamento Preto', sku: 'F', initial: 20, ecommerce: -2, pos: -5, internalUse: -1, adjustments: 0, imports: 0, cancellations: 0, returns: 1, final: 13, expectedFinal: 13, discrepancy: 0,
       movements: [{ seq: 1, at: '2026-11-10T12:15:00Z', type: 'POS_SALE', source: 'POS', delta: -2, before: 20, after: 18, reference: 'Venda #PDV-104', orderId: null, note: null, userName: 'Ana' }],
     }],
-    totals: { ecommerce: -2, pos: -5, internalUse: -1, adjustments: 0, returns: 1 },
+    totals: { ecommerce: -2, pos: -5, internalUse: -1, adjustments: 0, imports: 0, cancellations: 0, returns: 1 },
     productsMoved: 1, discrepancies: 0, untracked: [], ...over,
   },
   sales: [{ id: 'v1', number: 104, createdAt: '2026-11-10T12:15:00Z', status: 'COMPLETED', total: 500, discount: 0, paymentMethod: 'PIX', customerName: null, operatorName: 'Ana', itemsCount: 5 }],
@@ -355,7 +441,7 @@ describe('fechamento', () => {
     service.getSession.mockResolvedValue({ report: report(), live: false });
     await render(route, '/admin/pdv/historico/s1');
     const row = document.querySelector('tbody tr')!;
-    expect([...row.querySelectorAll('td')].slice(1).map((td) => td.textContent)).toEqual(['20', '-2', '-5', '-1', '—', '+1', '13']);
+    expect([...row.querySelectorAll('td')].slice(1).map((td) => td.textContent)).toEqual(['20', '-2', '-5', '-1', '—', '—', '—', '+1', '13']);
     const detail = document.querySelector('[data-testid="stock-detail"]')!;
     expect(detail.className).toContain('hidden');
     expect(detail.className).toContain('print:table-row');

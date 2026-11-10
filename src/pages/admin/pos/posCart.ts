@@ -12,6 +12,8 @@ export interface ProductLine {
   quantity: number;
   /** Estoque visto na busca: só para avisar cedo; quem decide é o backend. */
   stock: number;
+  /** O operador aceitou vender este produto inativo no e-commerce. */
+  inactiveConfirmed?: boolean;
 }
 
 export interface FreeLine {
@@ -28,20 +30,20 @@ export type CartResult = { ok: true; cart: CartLine[]; key: string } | { ok: fal
 
 export const toCents = (v: number) => Math.round(v * 100);
 
-export function addProduct(cart: CartLine[], product: PosProduct, quantity = 1): CartResult {
+export function addProduct(cart: CartLine[], product: PosProduct, quantity = 1, inactiveConfirmed = false): CartResult {
   const existing = cart.find((l): l is ProductLine => l.kind === 'product' && l.productId === product.id);
   const total = (existing?.quantity ?? 0) + quantity;
   if (total > product.stock) {
     return { ok: false, error: `Estoque insuficiente para "${product.name}" (disponível: ${product.stock}).` };
   }
   if (existing) {
-    return { ok: true, key: existing.key, cart: cart.map((l) => (l === existing ? { ...existing, quantity: total, stock: product.stock, unitPrice: product.price } : l)) };
+    return { ok: true, key: existing.key, cart: cart.map((l) => (l === existing ? { ...existing, quantity: total, stock: product.stock, unitPrice: product.price, ...(inactiveConfirmed ? { inactiveConfirmed } : {}) } : l)) };
   }
   const key = `p:${product.id}`;
   return {
     ok: true,
     key,
-    cart: [...cart, { key, kind: 'product', productId: product.id, name: product.name, sku: product.sku, unitPrice: product.price, quantity, stock: product.stock }],
+    cart: [...cart, { key, kind: 'product', productId: product.id, name: product.name, sku: product.sku, unitPrice: product.price, quantity, stock: product.stock, ...(inactiveConfirmed ? { inactiveConfirmed } : {}) }],
   };
 }
 
@@ -81,7 +83,7 @@ export function cartTotals(cart: CartLine[], discount: number) {
 export function toSaleItems(cart: CartLine[]): SaleItemPayload[] {
   return cart.map((l) =>
     l.kind === 'product'
-      ? { type: 'product', productId: l.productId, quantity: l.quantity }
+      ? { type: 'product', productId: l.productId, quantity: l.quantity, ...(l.inactiveConfirmed ? { confirmInactive: true } : {}) }
       : { type: 'free', description: l.name, quantity: l.quantity, unitPrice: l.unitPrice },
   );
 }

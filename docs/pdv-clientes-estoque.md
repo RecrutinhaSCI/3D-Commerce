@@ -32,6 +32,10 @@ Leitor USB funciona sem integração: ele digita o código e envia Enter no camp
 
 **Edição de produto.** O formulário envia `expectedStock`. Sem alteração no campo, o estoque atual é preservado. Com alteração e valor defasado, a API responde 409 `STOCK_CHANGED`.
 
+**Produto inativo.** Pode ser vendido no balcão, mas exige confirmação do operador, e a API recusa a venda sem ela (409 `INACTIVE_PRODUCT_NOT_CONFIRMED`).
+
+**Busca de clientes.** O termo vai no corpo de `POST /api/admin/customers/search`, para CPF e telefone não aparecerem em URL nem em log de acesso.
+
 **Excel.** Estoque diferente do atual vira movimentação `IMPORT`. Reimportar a mesma planilha não gera nada. Uma planilha antiga ainda sobrescreve o estoque, mas fica registrada com o valor anterior.
 
 **Clientes.** `User` é login e `Customer` é a pessoa compradora. Clientes da loja entram em `customers` automaticamente nas buscas, sem tocar em autenticação ou checkout. Quem comprou no balcão e cria conta depois é vinculado pelo e-mail.

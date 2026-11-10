@@ -47,8 +47,9 @@ export interface CustomerInput {
 }
 
 export const customerService = {
-  list: (query?: { search?: string; page?: number; limit?: number }) =>
-    api.get<{ customers: CustomerRow[]; pagination: ApiPagination }>('/api/admin/customers', { query }),
+  /** POST: o termo pode ser CPF/telefone e não deve aparecer em URL nem em log de acesso. */
+  list: (query: { search?: string; page?: number; limit?: number } = {}) =>
+    api.post<{ customers: CustomerRow[]; pagination: ApiPagination }>('/api/admin/customers/search', query),
   get: (id: string) => api.get<CustomerDetail>(`/api/admin/customers/${id}`),
   create: (input: CustomerInput) => api.post<{ customer: Customer }>('/api/admin/customers', input),
   update: (id: string, input: Partial<CustomerInput>) => api.put<{ customer: Customer }>(`/api/admin/customers/${id}`, input),
