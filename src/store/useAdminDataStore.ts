@@ -248,8 +248,10 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.material !== undefined) payload.material = patch.material === '-' ? null : patch.material;
     if (patch.sku !== undefined) payload.sku = patch.sku || null;
     if (patch.color !== undefined) payload.color = patch.color || null;
+    // Só envia medida informada: a API não aceita null aqui (recusava o save
+    // inteiro de produto sem medidas). Ausente preserva o valor do banco.
     for (const k of ['weight', 'width', 'height', 'depth'] as const) {
-      if (k in patch) payload[k] = patch[k] ?? null;
+      if (patch[k] !== undefined) payload[k] = patch[k];
     }
 
     // Erros SOBEM (ApiError): quem chama mostra a mensagem real.
