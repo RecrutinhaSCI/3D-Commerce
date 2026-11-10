@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import type { Product } from '@/types';
 import Products from './Products';
+import { productService } from '@/services/productService';
+import type { ApiProduct } from '@/services/types';
 
 vi.mock('@/components/admin/RemoteImageUploader', () => ({ RemoteImageUploader: () => null }));
 vi.mock('@/components/admin/ProductImportModal', () => ({ ProductImportModal: () => null }));
@@ -49,7 +51,8 @@ beforeEach(async () => {
     { id: 'cat', name: 'Categoria', slug: 'categoria', showInMenu: true, showInHome: true, order: 0 },
   ], updateProduct: update, ready: true, loading: false });
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
-  await act(async () => root.render(<MemoryRouter initialEntries={['/admin/produtos?marca=Marca']}><Products /><Location /></MemoryRouter>));
+  // StrictMode como no main.tsx: sem ele o falso "alterado" do formulário não aparece.
+  await act(async () => root.render(<StrictMode><MemoryRouter initialEntries={['/admin/produtos?marca=Marca']}><Products /><Location /></MemoryRouter></StrictMode>));
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -108,6 +111,22 @@ it('salva pela operação existente, bloqueia troca durante salvamento e limpa d
   await click('Produto B'); expect(name().value).toBe('Produto salvo');
   await act(async () => finish());
   await click('Produto B'); expect(name().value).toBe('Produto B');
+  expect(discardDialog()).toBeNull();
+});
+const apiProduct = (id: string, stock: number) => ({
+  id, slug: id, name: `Produto ${id}`, categoryId: 'cat', category: null, description: 'Descrição completa',
+  shortDescription: 'Descrição curta', price: 20, promotionalPrice: null, sku: null, stock, active: true, featured: false,
+  weight: null, width: null, height: null, depth: null, brand: 'Marca', material: 'PLA', color: null, printTime: null,
+  purchaseMode: 'DIRECT', createdAt: '2026-01-01', updatedAt: '2026-01-01', stockUpdatedAt: null, images: [],
+}) as unknown as ApiProduct;
+const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+it('dados vindos do backend não marcam o formulário como alterado: A → B sem perguntar', async () => {
+  vi.mocked(productService.getAdminById).mockImplementation(async (id) => ({ product: apiProduct(id, 10) }));
+  await click('Produto A'); await flush();
+  expect(host.textContent).not.toContain('Alterações não salvas');
+  await click('Produto B'); await flush();
+  expect(name().value).toBe('Produto B');
   expect(discardDialog()).toBeNull();
 });
 it('mobile mantém edição por navegação', async () => {

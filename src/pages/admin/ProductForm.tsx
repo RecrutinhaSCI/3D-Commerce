@@ -71,6 +71,14 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
+/**
+ * Valor inicial de campo numérico opcional. Input vazio guarda '', então o
+ * default precisa ser '' também: com `undefined` o React Hook Form compara os
+ * dois, vê diferença e marca o formulário como alterado sem ninguém ter mexido.
+ * O schema trata '' como "não informado".
+ */
+const emptyWhenUnset = (value: number | undefined) => (value ?? '') as number;
+
 // Produto NOVO precisa de peso e medidas da embalagem: sem eles a cotação de
 // frete não funciona. Na edição continuam opcionais, para não travar ajustes
 // de preço/estoque nos produtos antigos que ainda não têm esses dados.
@@ -134,17 +142,17 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
           shortDescription: existing.shortDescription,
           description: existing.description,
           price: existing.price,
-          promoPrice: existing.promoPrice,
+          promoPrice: emptyWhenUnset(existing.promoPrice),
           stock: existing.stock,
           categoryId: existing.categoryIds[0] ?? categories[0]?.id,
           material: existing.material ?? '-',
           purchaseMode: existing.purchaseMode,
           sku: existing.sku ?? '',
           color: existing.color ?? '',
-          weight: existing.weight,
-          width: existing.width,
-          height: existing.height,
-          depth: existing.depth,
+          weight: emptyWhenUnset(existing.weight),
+          width: emptyWhenUnset(existing.width),
+          height: emptyWhenUnset(existing.height),
+          depth: emptyWhenUnset(existing.depth),
           isHighlight: existing.isHighlight,
           active: existing.active,
         }
