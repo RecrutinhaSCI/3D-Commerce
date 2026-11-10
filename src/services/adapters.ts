@@ -113,6 +113,7 @@ export function apiProductToInternal(p: ApiProduct): Product {
     active: p.active,
     createdAt: p.createdAt,
     sku: p.sku ?? null,
+    barcode: p.barcode ?? null,
     color: p.color ?? undefined,
     weight: p.weight ?? undefined,
     width: p.width ?? undefined,

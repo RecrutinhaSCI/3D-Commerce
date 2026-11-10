@@ -13,6 +13,8 @@ import {
   Ticket,
   MessageCircle,
   Mail,
+  ScanBarcode,
+  Users,
   type LucideIcon,
   Newspaper,
 } from 'lucide-react';
@@ -36,7 +38,11 @@ interface NavGroup {
 const groups: NavGroup[] = [
   {
     title: 'Geral',
-    items: [{ to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true }],
+    items: [
+      { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
+      { to: '/admin/pdv', label: 'PDV', icon: ScanBarcode },
+      { to: '/admin/clientes', label: 'Clientes', icon: Users },
+    ],
   },
   {
     title: 'Catálogo',
@@ -82,7 +88,7 @@ export function AdminSidebar({ onNavigate, variant = 'desktop' }: Props) {
     <aside
       className={
         isDesktop
-          ? 'sticky top-0 hidden h-screen w-64 flex-shrink-0 border-r border-ink-line bg-bg-card lg:flex lg:flex-col'
+          ? 'sticky top-0 hidden h-screen w-64 flex-shrink-0 border-r border-ink-line bg-bg-card lg:flex lg:flex-col print:!hidden'
           : 'flex h-full flex-col bg-bg-card'
       }
     >

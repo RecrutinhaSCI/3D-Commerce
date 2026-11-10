@@ -61,6 +61,12 @@ const schema = z.object({
     .max(60)
     .regex(/^[A-Za-z0-9._-]*$/, 'Use letras, números, ponto, hífen ou _')
     .optional(),
+  barcode: z
+    .string()
+    .trim()
+    .max(60)
+    .regex(/^[A-Za-z0-9._-]*$/, 'Use apenas letras, números, ponto, hífen ou _')
+    .optional(),
   color: z.string().trim().max(80).optional(),
   weight: optionalPhysical('weight'),
   width: optionalPhysical('width'),
@@ -141,7 +147,11 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
   const [saving, setSaving] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
 
-  const { register, handleSubmit, formState: { errors, isDirty }, watch, setValue, reset, getValues } = useForm<FormData>({
+  // Estoque que o admin está vendo. O backend usa esse valor para não sobrescrever
+  // uma venda (loja ou PDV) feita depois que o formulário abriu.
+  const stockBaseline = useRef<number | undefined>(existing?.stock);
+
+  const { register, handleSubmit, formState: { errors, isDirty }, watch, setValue, reset, resetField, getValues } = useForm<FormData>({
     resolver: zodResolver(isEdit ? editSchema : newProductSchema),
     defaultValues: existing
       ? {
@@ -156,6 +166,7 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
           material: existing.material ?? '-',
           purchaseMode: existing.purchaseMode,
           sku: existing.sku ?? '',
+          barcode: existing.barcode ?? '',
           color: existing.color ?? '',
           weight: emptyWhenUnset(existing.weight),
           width: emptyWhenUnset(existing.width),
@@ -243,6 +254,12 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
       try {
         const { product } = await productService.getAdminById(existing.id);
         if (cancelled) return;
+        // Cache da listagem pode estar defasado: mostra o estoque real, salvo se
+        // o admin já começou a alterar o campo.
+        if (Number(getValues('stock')) === stockBaseline.current) {
+          stockBaseline.current = product.stock;
+          resetField('stock', { defaultValue: product.stock });
+        }
         // Sempre substitui pelo que está no banco — inclusive lista vazia
         // (o cache da listagem pode ter fotos já removidas).
         applyServerMedia(product);
@@ -267,6 +284,7 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
       purchaseMode: d.purchaseMode,
       brand: d.brand ?? '',
       sku: d.sku ?? '',
+      barcode: d.barcode ?? '',
       color: d.color ?? '',
       weight: d.weight,
       width: d.width,
@@ -280,8 +298,11 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
     try {
       if (isEdit && existing) {
         const submitted = getValues();
-        await updateProduct(existing.id, fields);
-        reset(submitted);
+        await updateProduct(existing.id, { ...fields, expectedStock: stockBaseline.current });
+        // O backend pode ter preservado um estoque mais novo que o da tela.
+        const savedStock = useAdminDataStore.getState().products.find((p) => p.id === existing.id)?.stock ?? d.stock;
+        stockBaseline.current = savedStock;
+        reset({ ...submitted, stock: savedStock });
         toast.success('Produto atualizado');
       } else {
         const created = await addProduct({
@@ -441,6 +462,10 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
               <div>
                 <Label>SKU (código interno)</Label>
                 <Input {...register('sku')} placeholder="ex.: PLA-PRETO-1KG" error={errors.sku?.message} />
+              </div>
+              <div>
+                <Label>Código de barras (EAN)</Label>
+                <Input {...register('barcode')} placeholder="Opcional: leitura no PDV" error={errors.barcode?.message} />
               </div>
               <div>
                 <Label>Cor</Label>

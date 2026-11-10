@@ -130,6 +130,25 @@ it('dados vindos do backend não marcam o formulário como alterado: A → B sem
   expect(name().value).toBe('Produto B');
   expect(discardDialog()).toBeNull();
 });
+const stockInput = () => host.querySelector<HTMLInputElement>('input[name="stock"]')!;
+it('estoque defasado na lista: mostra o real sem criar rascunho', async () => {
+  vi.mocked(productService.getAdminById).mockImplementation(async (id) => ({ product: apiProduct(id, 7) }));
+  await click('Produto A'); await flush();
+  expect(stockInput().value).toBe('7');
+  expect(host.textContent).not.toContain('Alterações não salvas');
+  await click('Produto B'); await flush();
+  expect(name().value).toBe('Produto B');
+  expect(discardDialog()).toBeNull();
+});
+it('resposta que chega depois de começar a editar não apaga o rascunho', async () => {
+  let respond!: (value: { product: ApiProduct }) => void;
+  vi.mocked(productService.getAdminById).mockImplementation(() => new Promise((resolve) => { respond = resolve; }));
+  await click('Produto A'); await type(name(), 'Rascunho em andamento');
+  await act(async () => respond({ product: apiProduct('A', 7) }));
+  await flush();
+  expect(name().value).toBe('Rascunho em andamento');
+  expect(host.textContent).toContain('Alterações não salvas');
+});
 it('mobile mantém edição por navegação', async () => {
   desktop = false;
   await click('Produto A');

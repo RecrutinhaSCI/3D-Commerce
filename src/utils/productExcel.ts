@@ -25,6 +25,7 @@ const HEADERS = {
   nome: 'nome',
   slug: 'slug',
   sku: 'sku',
+  codigoBarras: 'codigo_barras',
   marca: 'marca',
   material: 'material',
   imagem: 'imagem',
@@ -52,6 +53,11 @@ const HEADERS = {
  * "marca" NUNCA vira `material`, "material" NUNCA vira `brand`.
  */
 const COLUMN_ALIASES: Record<string, string> = {
+  // Código de barras
+  ean: HEADERS.codigoBarras,
+  gtin: HEADERS.codigoBarras,
+  barcode: HEADERS.codigoBarras,
+  codigo_de_barras: HEADERS.codigoBarras,
   // Marca
   marca: HEADERS.marca,
   brand: HEADERS.marca,
@@ -109,6 +115,7 @@ export function buildExportRows(products: ApiProduct[]): Array<Record<string, st
   return products.map((p) => ({
     [HEADERS.id]: p.id,
     [HEADERS.sku]: p.sku ?? '',
+    [HEADERS.codigoBarras]: p.barcode ?? '',
     [HEADERS.nome]: p.name,
     [HEADERS.slug]: p.slug,
     // R19-B — marca e material em colunas SEPARADAS. Nunca compartilham célula.
@@ -458,6 +465,8 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     const id = optText(row[HEADERS.id], 60);
     const sku = optText(row[HEADERS.sku], 60);
     const slug = optText(row[HEADERS.slug], 160);
+    const barcode = optText(row[HEADERS.codigoBarras], 60);
+    if (barcode !== undefined && !/^[A-Za-z0-9._-]+$/.test(barcode)) errors.push('Código de barras inválido.');
     const name = optText(row[HEADERS.nome], 200);
     const categoryName = optText(row[HEADERS.categoria], 120);
 
@@ -529,6 +538,7 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
         id,
         sku,
         slug,
+        barcode,
         name,
         categoryName,
         shortDescription: optText(row[HEADERS.descricaoCurta], 300),

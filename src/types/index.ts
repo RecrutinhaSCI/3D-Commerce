@@ -41,6 +41,7 @@ export interface Product {
   /** Ficha técnica/envio (persistidos no backend). Peso em kg, medidas em cm.
    *  SKU real do backend (`null` = sem SKU). Opcional para mocks/criação otimista. */
   sku?: string | null;
+  barcode?: string | null;
   color?: string;
   weight?: number;
   width?: number;

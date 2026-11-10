@@ -257,7 +257,7 @@ export const authService = {
   async findActiveUserById(userId: string) {
     return prisma.user.findFirst({
       where: { id: userId, active: true },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, name: true },
     });
   },
 };

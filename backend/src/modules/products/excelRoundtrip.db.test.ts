@@ -136,7 +136,7 @@ describe.skipIf(!enabled)('Catálogo + Excel — integração com Postgres real'
     expect(rows).toHaveLength(3);
     expect(Object.keys(rows[0]).sort()).toEqual([
       // + peso/medidas da embalagem (frete).
-      'altura_cm', 'ativo', 'categoria', 'criado_em', 'descricao_completa', 'descricao_curta', 'destaque_home',
+      'altura_cm', 'ativo', 'categoria', 'codigo_barras', 'criado_em', 'descricao_completa', 'descricao_curta', 'destaque_home',
       'estoque', 'estoque_atualizado_em', 'id', 'imagem', 'largura_cm', 'marca', 'material', 'nome',
       'peso_kg', 'preco', 'preco_promocional', 'profundidade_cm', 'sku', 'slug',
     ]);

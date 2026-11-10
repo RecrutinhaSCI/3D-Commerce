@@ -23,6 +23,7 @@
  *     G  Protocolos perigosos (javascript:, data:, file:, ftp:) rejeitados um a um.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { installStockFake } from './stockFake.testdata';
 
 interface FakeProduct {
   id: string; name: string; slug: string; sku: string | null;
@@ -183,6 +184,8 @@ vi.mock('../../lib/upload', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/upload')>()),
   isBlobStorage: () => blobOn,
 }));
+
+installStockFake(mockPrisma, () => db.products);
 
 const { productsService, isSafeImageUrl } = await import('./products.service');
 

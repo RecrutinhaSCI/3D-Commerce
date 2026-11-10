@@ -54,7 +54,7 @@ export const productService = {
   create(input: Partial<ApiProduct> & { categoryId: string; name: string; price: number }) {
     return api.post<{ product: ApiProduct }>('/api/admin/products', input);
   },
-  update(id: string, input: Partial<ApiProduct>) {
+  update(id: string, input: Partial<ApiProduct> & { expectedStock?: number }) {
     return api.put<{ product: ApiProduct }>(`/api/admin/products/${id}`, input);
   },
   /** Exclusão definitiva (pedidos antigos mantêm o snapshot do item). */
@@ -113,6 +113,7 @@ export interface BulkImportRow {
   id?: string;
   sku?: string;
   slug?: string;
+  barcode?: string;
   name?: string;
   categoryName?: string;
   shortDescription?: string;

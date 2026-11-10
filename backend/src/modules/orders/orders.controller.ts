@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { created, ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
 import { ordersService } from './orders.service';
+import { actorFrom } from '../stock/stock.routes';
 import {
   adminOrdersQuerySchema,
   createOrderSchema,
@@ -55,7 +56,7 @@ export const ordersController = {
   async updateStatus(req: Request, res: Response) {
     const { id } = idParam.parse(req.params);
     const input = updateOrderStatusSchema.parse(req.body);
-    const order = await ordersService.updateStatus(id, input);
+    const order = await ordersService.updateStatus(id, input, actorFrom(req));
     return ok(res, { order });
   },
 

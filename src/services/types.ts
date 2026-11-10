@@ -182,6 +182,8 @@ export interface ApiProduct {
   price: number;
   promotionalPrice: number | null;
   sku: string | null;
+  /** EAN/código de barras (backend antigo não manda). */
+  barcode?: string | null;
   stock: number;
   active: boolean;
   featured: boolean;

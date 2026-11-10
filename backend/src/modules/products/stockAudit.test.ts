@@ -16,6 +16,7 @@
  *  §12 produtos legados (stockUpdatedAt=null) continuam válidos.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { installStockFake } from './stockFake.testdata';
 
 interface FakeProduct {
   id: string;
@@ -168,6 +169,8 @@ Object.assign(mockPrisma, {
   $transaction: vi.fn(async (fn: any) => fn(mockPrisma)),
 });
 
+installStockFake(mockPrisma, () => db.products);
+
 const { productsService } = await import('./products.service');
 
 const RICH: Pick<FakeProduct, 'weight' | 'width' | 'height' | 'depth' | 'color' | 'printTime' | 'purchaseMode'> = {
@@ -262,6 +265,18 @@ describe('bulkDelete + stockUpdatedAt (R19-E)', () => {
     await expect(productsService.remove('p-a')).resolves.toEqual({ deleted: true, id: 'p-a' });
     expect(db.products.find((p) => p.id === 'p-a')).toBeUndefined();
     await expect(productsService.remove('p-a')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('§3e exclusão escreve em products ANTES do histórico (fronteira exata do caixa)', async () => {
+    seedThree();
+    const [first] = db.products;
+    first.stock = 7;
+    await productsService.remove(first.id);
+    const lock = mockPrisma.product.updateManyAndReturn.mock.invocationCallOrder[0];
+    const removal = mockPrisma.product.deleteMany.mock.invocationCallOrder.at(-1);
+    const ledger = mockPrisma.stockMovement.createMany.mock.invocationCallOrder.at(-1);
+    expect(lock).toBeLessThan(removal);
+    expect(removal).toBeLessThan(ledger);
   });
 
   // §4 -----------------------------------------------------------------
