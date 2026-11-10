@@ -46,6 +46,11 @@ const AdminMessages = lazy(() => import('@/pages/admin/Messages'));
 const AdminCoupons = lazy(() => import('@/pages/admin/Coupons'));
 const AdminScripts = lazy(() => import('@/pages/admin/Scripts'));
 const AdminSettings = lazy(() => import('@/pages/admin/Settings'));
+const AdminPos = lazy(() => import('@/pages/admin/pos/Pos'));
+const AdminPosHistory = lazy(() => import('@/pages/admin/pos/PosHistory'));
+const AdminPosSession = lazy(() => import('@/pages/admin/pos/PosSessionDetail'));
+const AdminPosMovements = lazy(() => import('@/pages/admin/pos/PosMovements'));
+const AdminCustomers = lazy(() => import('@/pages/admin/Customers'));
 
 function PageFallback() {
   return (
@@ -106,6 +111,11 @@ export const router = createBrowserRouter([
     element: <AdminLayout />,
     children: [
       { index: true, element: <L><AdminDashboard /></L> },
+      { path: 'pdv', element: <L><AdminPos /></L> },
+      { path: 'pdv/historico', element: <L><AdminPosHistory /></L> },
+      { path: 'pdv/historico/:id', element: <L><AdminPosSession /></L> },
+      { path: 'pdv/movimentacoes', element: <L><AdminPosMovements /></L> },
+      { path: 'clientes', element: <L><AdminCustomers /></L> },
       { path: 'produtos', element: <L><AdminProducts /></L> },
       { path: 'produtos/novo', element: <L><AdminProductFormRoute /></L> },
       { path: 'produtos/:id', element: <L><AdminProductFormRoute /></L> },

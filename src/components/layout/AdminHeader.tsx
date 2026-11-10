@@ -9,7 +9,7 @@ export function AdminHeader({ onMenu }: { onMenu?: () => void }) {
   const logout = useAdminAuthStore((s) => s.logout);
   const resetAll = useAdminDataStore((s) => s.resetAll);
   return (
-    <header className="sticky top-0 z-30 border-b border-ink-line bg-bg/90 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-ink-line bg-bg/90 backdrop-blur print:hidden">
       <div className="flex h-14 items-center justify-between gap-3 px-5">
         <div className="flex items-center gap-2">
           {onMenu && (
