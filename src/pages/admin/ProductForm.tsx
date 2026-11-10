@@ -108,19 +108,24 @@ export default function ProductFormPage() {
       <p className="mt-10 text-center text-sm text-ink-mute">Carregando produto...</p>
     );
   }
-  return <ProductForm key={id ?? 'novo'} />;
+  return <ProductForm key={id ?? 'novo'} id={id} />;
 }
 
-function ProductForm() {
-  const { id } = useParams();
+export function ProductForm({ id, embedded = false, externalBusy = false, onGuardChange }: {
+  id?: string;
+  embedded?: boolean;
+  externalBusy?: boolean;
+  onGuardChange?: (dirty: boolean, busy: boolean) => void;
+}) {
   const isEdit = Boolean(id);
   useSEO(isEdit ? 'Editar produto' : 'Novo produto');
   const navigate = useNavigate();
   const { products, categories, addProduct, updateProduct } = useAdminDataStore();
   const existing = id ? products.find((p) => p.id === id) : undefined;
   const [saving, setSaving] = useState(false);
+  const [mediaBusy, setMediaBusy] = useState(false);
 
-  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors, isDirty }, watch, setValue, reset, getValues } = useForm<FormData>({
     resolver: zodResolver(isEdit ? schema : newProductSchema),
     defaultValues: existing
       ? {
@@ -152,6 +157,21 @@ function ProductForm() {
           price: 0,
         },
   });
+
+  useEffect(() => {
+    onGuardChange?.(isDirty, saving || mediaBusy);
+    return () => onGuardChange?.(false, false);
+  }, [isDirty, saving, mediaBusy, onGuardChange]);
+
+  useEffect(() => {
+    if (!isDirty && !saving && !mediaBusy) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [isDirty, saving, mediaBusy]);
 
   const descriptionValue = watch('description') ?? '';
   const materialValue = watch('material');
@@ -243,7 +263,9 @@ function ProductForm() {
     setSaving(true);
     try {
       if (isEdit && existing) {
+        const submitted = getValues();
         await updateProduct(existing.id, fields);
+        reset(submitted);
         toast.success('Produto atualizado');
       } else {
         const created = await addProduct({
@@ -273,13 +295,15 @@ function ProductForm() {
 
   return (
     <div>
-      <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1 text-xs font-semibold text-ink-mute hover:text-ink">
+      {!embedded && <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1 text-xs font-semibold text-ink-mute hover:text-ink">
         <ChevronLeft className="h-3 w-3" /> Voltar
-      </button>
+      </button>}
       <h1 className="mt-3 text-2xl font-bold">{isEdit ? 'Editar produto' : 'Novo produto'}</h1>
+      {embedded && <p className="mt-1 text-sm text-ink-mute">{existing?.name}{isDirty ? ' · Alterações não salvas' : ''}</p>}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
+      <fieldset disabled={saving || mediaBusy || externalBusy} className="min-w-0">
+      <form onSubmit={handleSubmit(onSubmit)} className={`mt-6 grid grid-cols-1 gap-6 ${embedded ? '' : 'lg:grid-cols-3'}`}>
+        <div className={`space-y-5 ${embedded ? '' : 'lg:col-span-2'}`}>
           <section className="card p-5">
             <h2 className="text-base font-bold">Informações</h2>
             <div className="mt-4 space-y-3">
@@ -444,6 +468,7 @@ function ProductForm() {
                   if (!isEdit || !existing) {
                     throw new Error('Salve o produto antes de enviar mídias.');
                   }
+                  setMediaBusy(true);
                   try {
                     const { product } = await productService.addImages(existing.id, files);
                     // As mídias já foram salvas no upload: só sincroniza tela + cache.
@@ -452,6 +477,8 @@ function ProductForm() {
                   } catch (err) {
                     const msg = err instanceof ApiError ? err.message : 'Falha ao enviar mídias.';
                     throw new Error(msg);
+                  } finally {
+                    setMediaBusy(false);
                   }
                 }}
                 onRemoveAt={async (idx) => {
@@ -462,6 +489,7 @@ function ProductForm() {
                     // sumir da tela (e voltar ao recarregar).
                     throw new Error('Não foi possível identificar esta mídia. Recarregue a página e tente de novo.');
                   }
+                  setMediaBusy(true);
                   try {
                     await productService.removeImage(img.id);
                     // Relê do banco: confirma a remoção e atualiza a listagem.
@@ -469,6 +497,8 @@ function ProductForm() {
                     applyServerMedia(product);
                   } catch (err) {
                     throw new Error(err instanceof ApiError ? err.message : 'Erro ao remover mídia.');
+                  } finally {
+                    setMediaBusy(false);
                   }
                 }}
                 hint="Fotos JPG, PNG ou WEBP de qualquer tamanho (reduzidas automaticamente); GIF ou MP4 até 4MB. A primeira mídia vira a principal."
@@ -490,6 +520,7 @@ function ProductForm() {
           </Button>
         </aside>
       </form>
+      </fieldset>
     </div>
   );
 }

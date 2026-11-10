@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Edit, FileSpreadsheet, Plus, Search, Trash2, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -13,6 +13,7 @@ import { ProductImportModal } from '@/components/admin/ProductImportModal';
 import { ApiError } from '@/services/api';
 import { productService } from '@/services/productService';
 import { editOnDoubleClick } from '@/utils/rowEdit';
+import { ProductForm } from './ProductForm';
 import { hasAllPhysical } from '@/shared/physicalLimits';
 
 /**
@@ -40,6 +41,30 @@ export default function Products() {
   useSEO('Admin Produtos');
   const { products, categories, removeProduct, updateProduct, bulkRemoveProducts, refresh } = useAdminDataStore();
   const navigate = useNavigate();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editorVersion, setEditorVersion] = useState(0);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const editorGuard = useRef({ dirty: false, busy: false });
+  const onGuardChange = useCallback((dirty: boolean, busy: boolean) => {
+    editorGuard.current = { dirty, busy };
+  }, []);
+  function canLeaveEditor() {
+    if (statusBusy || editorGuard.current.busy) {
+      toast.error('Aguarde a operação do produto terminar.');
+      return false;
+    }
+    return !editorGuard.current.dirty || window.confirm('Descartar alterações não salvas deste produto?');
+  }
+  function openProduct(id: string) {
+    if (!window.matchMedia('(min-width: 1280px)').matches) {
+      if (!canLeaveEditor()) return;
+      navigate(`/admin/produtos/${id}`);
+      return;
+    }
+    if (id === editingId || !canLeaveEditor()) return;
+    setEditingId(id);
+  }
+  const editingProduct = products.find((p) => p.id === editingId);
   const [importOpen, setImportOpen] = useState(false);
   const [params, setParams] = useSearchParams();
   // Filtros vivem na URL (?busca=&categoria=&marca=&status=): sobrevivem a
@@ -120,15 +145,21 @@ export default function Products() {
   const someSelected = selected.size > 0;
 
   async function toggleActive(id: string, active: boolean) {
+    if (id === editingId && !canLeaveEditor()) return;
+    if (id === editingId) setStatusBusy(true);
     try {
       await updateProduct(id, { active });
+      if (id === editingId) setEditorVersion((v) => v + 1);
       toast.success(active ? 'Produto ativado (visível na loja)' : 'Produto desativado (oculto da loja)');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Não foi possível alterar o status do produto.');
+    } finally {
+      if (id === editingId) setStatusBusy(false);
     }
   }
 
   async function doRemove(id: string) {
+    if (id === editingId && !canLeaveEditor()) return;
     setConfirm(null);
     try {
       await removeProduct(id);
@@ -181,6 +212,7 @@ export default function Products() {
 
   async function doBulkRemove() {
     if (selected.size === 0) return;
+    if (editingId && selected.has(editingId) && !canLeaveEditor()) return;
     setBulkBusy(true);
     const ids = Array.from(selected);
     const report = await bulkRemoveProducts(ids);
@@ -203,7 +235,12 @@ export default function Products() {
   }
 
   return (
-    <div>
+    <div onClickCapture={(event) => {
+      if ((event.target as HTMLElement).closest('a[href]') && !canLeaveEditor()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }}>
       {/* Celular: "Novo produto" na linha do título e os botões de Excel abaixo.
           Do `md` para cima: mesma ordem de antes (Excel… e depois Novo produto). */}
       <header className="mb-4 flex flex-wrap items-end gap-x-2 gap-y-3 md:mb-6">
@@ -220,7 +257,7 @@ export default function Products() {
           <Button variant="secondary" size="sm" onClick={doExport} loading={exporting} disabled={products.length === 0}>
             <Download className="h-4 w-4" /> Exportar<span className="hidden sm:inline"> Excel</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+          <Button variant="secondary" size="sm" onClick={() => { if (canLeaveEditor()) setImportOpen(true); }}>
             <Upload className="h-4 w-4" /> Importar<span className="hidden sm:inline"> Excel</span>
           </Button>
           <Button variant="ghost" size="sm" onClick={downloadProductTemplate}>
@@ -233,6 +270,8 @@ export default function Products() {
         </Link>
       </header>
 
+      <div className="xl:grid xl:grid-cols-[minmax(320px,2fr)_minmax(0,3fr)] xl:items-start xl:gap-6">
+      <div className="min-w-0 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
       {lowStockOnly && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 md:px-4 md:py-3 md:text-sm">
           <span className="font-semibold">Mostrando apenas produtos com estoque baixo (≤ 5 unidades)</span>
@@ -340,7 +379,7 @@ export default function Products() {
       )}
 
       {/* Celular: lista compacta (mais produtos por tela, sem rolagem lateral). */}
-      <div className="card overflow-hidden md:hidden">
+      <div className="card overflow-hidden md:hidden xl:block">
         <div className="flex items-center justify-between gap-2 border-b border-ink-line bg-bg-soft px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-mute">
           <label className="flex items-center gap-2">
             <input
@@ -365,8 +404,12 @@ export default function Products() {
             return (
               <li
                 key={p.id}
-                {...editOnDoubleClick(() => navigate(`/admin/produtos/${p.id}`))}
-                className={`flex items-start gap-2.5 px-3 py-2 ${selected.has(p.id) ? 'bg-bg-soft/60' : ''} ${p.active ? '' : 'text-ink-mute'}`}
+                {...editOnDoubleClick(() => openProduct(p.id))}
+                onClick={(event) => {
+                  if (window.matchMedia('(min-width: 1280px)').matches &&
+                      !(event.target as HTMLElement).closest('button, input, a, label')) openProduct(p.id);
+                }}
+                className={`flex items-start gap-2.5 px-3 py-2 ${editingId === p.id ? 'bg-bg-soft ring-2 ring-inset ring-ink/30' : selected.has(p.id) ? 'bg-bg-soft/60' : ''} ${p.active ? '' : 'text-ink-mute'}`}
               >
                 <input
                   type="checkbox"
@@ -381,10 +424,13 @@ export default function Products() {
                   className={`h-11 w-11 shrink-0 rounded-md object-cover ${p.active ? '' : 'opacity-50 grayscale'}`}
                 />
                 <div className="min-w-0 flex-1">
-                  <Link to={`/admin/produtos/${p.id}`} className="line-clamp-2 text-[13px] font-semibold leading-snug">
+                  <button type="button" onClick={() => openProduct(p.id)} aria-pressed={editingId === p.id} className="line-clamp-2 text-left text-[13px] font-semibold leading-snug">
                     {p.name}
-                  </Link>
+                  </button>
                   {meta && <p className="truncate text-[11px] capitalize leading-tight text-ink-mute">{meta}</p>}
+                  {showDates && <p className="hidden text-[10px] text-ink-mute xl:block">
+                    Cadastro: {formatDateTime(p.createdAt)} · Estoque: {p.stockUpdatedAt ? formatDateTime(p.stockUpdatedAt) : 'Sem histórico'}
+                  </p>}
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] leading-tight">
                     <span className="text-xs font-semibold text-ink">{formatBRL(p.promoPrice ?? p.price)}</span>
                     <span className={p.stock <= 5 ? 'font-semibold text-rose-600' : 'text-ink-mute'}>Estq. {p.stock}</span>
@@ -412,9 +458,9 @@ export default function Products() {
                     aria-label={p.active ? `Desativar ${p.name}` : `Ativar ${p.name}`}
                   />
                   <div className="flex items-center">
-                    <Link to={`/admin/produtos/${p.id}`} className="rounded-lg p-1.5 text-ink-mute hover:bg-ink/5 hover:text-ink" aria-label="Editar">
+                    <button type="button" onClick={() => openProduct(p.id)} className="rounded-lg p-1.5 text-ink-mute hover:bg-ink/5 hover:text-ink" aria-label="Editar">
                       <Edit className="h-4 w-4" />
-                    </Link>
+                    </button>
                     <button
                       onClick={() => setConfirm(p.id)}
                       className="rounded-lg p-1.5 text-ink-mute hover:bg-rose-50 hover:text-rose-500"
@@ -431,7 +477,7 @@ export default function Products() {
         </ul>
       </div>
 
-      <div className="card hidden overflow-x-auto md:block">
+      <div className="card hidden overflow-x-auto md:block xl:hidden">
         <table className="w-full text-sm">
           <thead className="bg-bg-soft text-left text-xs uppercase tracking-wider text-ink-mute">
             <tr>
@@ -554,6 +600,16 @@ export default function Products() {
             )}
           </tbody>
         </table>
+      </div>
+
+      </div>
+      <section className="hidden min-w-0 xl:block" aria-label="Produto selecionado">
+        {editingProduct ? (
+          <ProductForm key={`${editingProduct.id}-${editorVersion}`} id={editingProduct.id} embedded externalBusy={statusBusy} onGuardChange={onGuardChange} />
+        ) : (
+          <div className="card p-8 text-center text-sm text-ink-mute">Selecione um produto na lista para editar.</div>
+        )}
+      </section>
       </div>
 
       <ProductImportModal
