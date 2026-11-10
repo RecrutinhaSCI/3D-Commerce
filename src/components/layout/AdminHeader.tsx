@@ -4,7 +4,7 @@ import { useAdminAuthStore } from '@/store/useAdminAuthStore';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import toast from 'react-hot-toast';
 
-export function AdminHeader({ onMenu }: { onMenu?: () => void }) {
+export function AdminHeader({ onMenu, menuOnWide = false }: { onMenu?: () => void; menuOnWide?: boolean }) {
   const email = useAdminAuthStore((s) => s.email);
   const logout = useAdminAuthStore((s) => s.logout);
   const resetAll = useAdminDataStore((s) => s.resetAll);
@@ -13,8 +13,13 @@ export function AdminHeader({ onMenu }: { onMenu?: () => void }) {
       <div className="flex h-14 items-center justify-between gap-3 px-5">
         <div className="flex items-center gap-2">
           {onMenu && (
-            <button className="rounded-lg p-2 hover:bg-ink/5 lg:hidden" onClick={onMenu} aria-label="Menu">
+            <button
+              className={`rounded-lg p-2 hover:bg-ink/5 lg:hidden ${menuOnWide ? 'xl:inline-flex xl:items-center xl:gap-1.5' : ''}`}
+              onClick={onMenu}
+              aria-label="Menu"
+            >
               <Menu className="h-5 w-5" />
+              {menuOnWide && <span className="hidden text-xs font-semibold xl:inline">Menu</span>}
             </button>
           )}
           <p className="text-xs text-ink-mute">Logado como <strong className="text-ink">{email}</strong></p>
