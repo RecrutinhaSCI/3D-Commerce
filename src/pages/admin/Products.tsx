@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Edit, FileSpreadsheet, Plus, Search, Trash2, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -48,22 +49,59 @@ export default function Products() {
   const onGuardChange = useCallback((dirty: boolean, busy: boolean) => {
     editorGuard.current = { dirty, busy };
   }, []);
-  function canLeaveEditor() {
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const pendingLeave = useRef<(() => void) | null>(null);
+  /**
+   * Roda `proceed` se dá para sair do editor; com rascunho, pergunta antes.
+   * A confirmação é um modal do sistema: `window.confirm` pode ser recusado em
+   * silêncio pelo navegador, e a troca de produto "não acontecia".
+   */
+  function leaveEditor(proceed: () => void) {
     if (statusBusy || editorGuard.current.busy) {
       toast.error('Aguarde a operação do produto terminar.');
-      return false;
+      return;
     }
-    return !editorGuard.current.dirty || window.confirm('Descartar alterações não salvas deste produto?');
+    if (!editorGuard.current.dirty) {
+      proceed();
+      return;
+    }
+    pendingLeave.current = proceed;
+    setDiscardOpen(true);
+  }
+  function answerDiscard(discard: boolean) {
+    const proceed = pendingLeave.current;
+    pendingLeave.current = null;
+    setDiscardOpen(false);
+    if (!discard) return;
+    editorGuard.current = { dirty: false, busy: false };
+    proceed?.();
   }
   function openProduct(id: string) {
     if (!window.matchMedia('(min-width: 1280px)').matches) {
-      if (!canLeaveEditor()) return;
-      navigate(`/admin/produtos/${id}`);
+      leaveEditor(() => navigate(`/admin/produtos/${id}`));
       return;
     }
-    if (id === editingId || !canLeaveEditor()) return;
-    setEditingId(id);
+    if (id === editingId) return;
+    leaveEditor(() => setEditingId(id));
   }
+  // No documento, e não só nesta página: o menu (Drawer) e o cabeçalho ficam fora dela.
+  const linkGuard = useRef({ leaveEditor, navigate, blocked: false });
+  linkGuard.current = { leaveEditor, navigate, blocked: statusBusy };
+  useEffect(() => {
+    function onClick(event: MouseEvent) {
+      if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+      if (!link || link.target === '_blank') return;
+      const guard = linkGuard.current;
+      if (!guard.blocked && !editorGuard.current.dirty && !editorGuard.current.busy) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const href = link.getAttribute('href')!;
+      guard.leaveEditor(() => guard.navigate(href));
+    }
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, []);
   const editingProduct = products.find((p) => p.id === editingId);
   const [importOpen, setImportOpen] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -144,29 +182,35 @@ export default function Products() {
   const allVisibleSelected = filtered.length > 0 && filtered.every((p) => selected.has(p.id));
   const someSelected = selected.size > 0;
 
-  async function toggleActive(id: string, active: boolean) {
-    if (id === editingId && !canLeaveEditor()) return;
-    if (id === editingId) setStatusBusy(true);
-    try {
-      await updateProduct(id, { active });
-      if (id === editingId) setEditorVersion((v) => v + 1);
-      toast.success(active ? 'Produto ativado (visível na loja)' : 'Produto desativado (oculto da loja)');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Não foi possível alterar o status do produto.');
-    } finally {
-      if (id === editingId) setStatusBusy(false);
-    }
+  function toggleActive(id: string, active: boolean) {
+    const run = async () => {
+      if (id === editingId) setStatusBusy(true);
+      try {
+        await updateProduct(id, { active });
+        if (id === editingId) setEditorVersion((v) => v + 1);
+        toast.success(active ? 'Produto ativado (visível na loja)' : 'Produto desativado (oculto da loja)');
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.message : 'Não foi possível alterar o status do produto.');
+      } finally {
+        if (id === editingId) setStatusBusy(false);
+      }
+    };
+    if (id === editingId) leaveEditor(() => void run());
+    else void run();
   }
 
-  async function doRemove(id: string) {
-    if (id === editingId && !canLeaveEditor()) return;
-    setConfirm(null);
-    try {
-      await removeProduct(id);
-      toast.success('Produto excluído');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Não foi possível excluir o produto.');
-    }
+  function doRemove(id: string) {
+    const run = async () => {
+      setConfirm(null);
+      try {
+        await removeProduct(id);
+        toast.success('Produto excluído');
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.message : 'Não foi possível excluir o produto.');
+      }
+    };
+    if (id === editingId) leaveEditor(() => void run());
+    else void run();
   }
 
   /** Exporta direto do banco (não do cache da tela) — SKU e imagem reais. */
@@ -210,9 +254,13 @@ export default function Products() {
     });
   }
 
-  async function doBulkRemove() {
+  function doBulkRemove() {
     if (selected.size === 0) return;
-    if (editingId && selected.has(editingId) && !canLeaveEditor()) return;
+    if (editingId && selected.has(editingId)) leaveEditor(() => void runBulkRemove());
+    else void runBulkRemove();
+  }
+
+  async function runBulkRemove() {
     setBulkBusy(true);
     const ids = Array.from(selected);
     const report = await bulkRemoveProducts(ids);
@@ -235,12 +283,7 @@ export default function Products() {
   }
 
   return (
-    <div onClickCapture={(event) => {
-      if ((event.target as HTMLElement).closest('a[href]') && !canLeaveEditor()) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    }}>
+    <div>
       {/* Celular: "Novo produto" na linha do título e os botões de Excel abaixo.
           Do `md` para cima: mesma ordem de antes (Excel… e depois Novo produto). */}
       <header className="mb-4 flex flex-wrap items-end gap-x-2 gap-y-3 md:mb-6">
@@ -257,7 +300,7 @@ export default function Products() {
           <Button variant="secondary" size="sm" onClick={doExport} loading={exporting} disabled={products.length === 0}>
             <Download className="h-4 w-4" /> Exportar<span className="hidden sm:inline"> Excel</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => { if (canLeaveEditor()) setImportOpen(true); }}>
+          <Button variant="secondary" size="sm" onClick={() => leaveEditor(() => setImportOpen(true))}>
             <Upload className="h-4 w-4" /> Importar<span className="hidden sm:inline"> Excel</span>
           </Button>
           <Button variant="ghost" size="sm" onClick={downloadProductTemplate}>
@@ -641,6 +684,18 @@ export default function Products() {
           </Button>
         </div>
       </Modal>
+
+      {/* No body: precisa ficar acima do Drawer do menu, que vem depois no DOM. */}
+      {createPortal(
+        <Modal open={discardOpen} onClose={() => answerDiscard(false)} title="Descartar alterações?">
+          <p className="text-sm text-ink-mute">As alterações deste produto ainda não foram salvas.</p>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="secondary" autoFocus onClick={() => answerDiscard(false)}>Continuar editando</Button>
+            <Button variant="danger" onClick={() => answerDiscard(true)}>Descartar alterações</Button>
+          </div>
+        </Modal>,
+        document.body,
+      )}
     </div>
   );
 }

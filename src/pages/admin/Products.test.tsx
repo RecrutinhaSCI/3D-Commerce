@@ -27,8 +27,10 @@ let desktop = true;
 const update = vi.fn();
 function Location() { const location = useLocation(); return <output>{location.pathname}{location.search}</output>; }
 const name = () => host.querySelector<HTMLInputElement>('input[name="name"]')!;
+const discardDialog = () => document.querySelector('[role="dialog"][aria-label="Descartar alterações?"]');
+const pressed = (text: string) => [...host.querySelectorAll('button')].find((el) => el.textContent?.trim() === text)!.getAttribute('aria-pressed');
 async function click(text: string) {
-  const button = [...host.querySelectorAll('button')].find((el) => el.textContent?.trim() === text)!;
+  const button = [...document.querySelectorAll('button')].find((el) => el.textContent?.trim() === text)!;
   expect(button).toBeTruthy();
   await act(async () => button.click());
 }
@@ -41,8 +43,7 @@ async function type(el: HTMLInputElement, value: string) {
 }
 beforeEach(async () => {
   desktop = true;
-  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: desktop })));
-  vi.spyOn(window, 'confirm').mockReturnValue(false);
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: desktop, addListener: vi.fn(), removeListener: vi.fn() })));
   update.mockReset().mockResolvedValue(undefined);
   useAdminDataStore.setState({ products: [product('A'), product('B')], categories: [
     { id: 'cat', name: 'Categoria', slug: 'categoria', showInMenu: true, showInHome: true, order: 0 },
@@ -59,14 +60,44 @@ it('troca o formulário correto sem navegar e preserva filtros e seleção múlt
   await click('Produto B'); expect(name().value).toBe('Produto B');
   expect(selected.checked).toBe(true);
   expect(host.querySelector('output')!.textContent).toBe('/admin/produtos?marca=Marca');
-  expect(window.confirm).not.toHaveBeenCalled();
+  expect(discardDialog()).toBeNull();
 });
-it('cancelar mantém o rascunho; confirmar descarta e carrega o outro produto', async () => {
+it('A → B troca o formulário e o destaque da lista', async () => {
+  await click('Produto A');
+  expect(pressed('Produto A')).toBe('true');
+  await click('Produto B');
+  expect(name().value).toBe('Produto B');
+  expect(pressed('Produto A')).toBe('false');
+  expect(pressed('Produto B')).toBe('true');
+});
+it('A editado → B → cancelar: continua em A com o rascunho', async () => {
   await click('Produto A'); await type(name(), 'Produto alterado');
-  await click('Produto B'); expect(name().value).toBe('Produto alterado');
-  expect(window.confirm).toHaveBeenCalledOnce();
-  vi.mocked(window.confirm).mockReturnValue(true);
-  await click('Produto B'); expect(name().value).toBe('Produto B');
+  await click('Produto B');
+  expect(discardDialog()).toBeTruthy();
+  expect(name().value).toBe('Produto alterado');
+  await click('Continuar editando');
+  expect(name().value).toBe('Produto alterado');
+  expect(pressed('Produto A')).toBe('true');
+});
+it('A editado → B → confirmar: abre B', async () => {
+  await click('Produto A'); await type(name(), 'Produto alterado');
+  await click('Produto B');
+  await click('Descartar alterações');
+  expect(name().value).toBe('Produto B');
+  expect(pressed('Produto B')).toBe('true');
+});
+it('rascunho também protege links, inclusive os de fora da página', async () => {
+  const outside = document.createElement('a');
+  outside.href = '/admin/pedidos';
+  outside.setAttribute('href', '/admin/pedidos');
+  document.body.appendChild(outside);
+  await click('Produto A'); await type(name(), 'Produto alterado');
+  await act(async () => outside.click());
+  expect(discardDialog()).toBeTruthy();
+  expect(host.querySelector('output')!.textContent).toBe('/admin/produtos?marca=Marca');
+  await click('Descartar alterações');
+  expect(host.querySelector('output')!.textContent).toBe('/admin/pedidos');
+  outside.remove();
 });
 it('salva pela operação existente, bloqueia troca durante salvamento e limpa dirty após sucesso', async () => {
   let finish!: () => void;
@@ -77,7 +108,7 @@ it('salva pela operação existente, bloqueia troca durante salvamento e limpa d
   await click('Produto B'); expect(name().value).toBe('Produto salvo');
   await act(async () => finish());
   await click('Produto B'); expect(name().value).toBe('Produto B');
-  expect(window.confirm).not.toHaveBeenCalled();
+  expect(discardDialog()).toBeNull();
 });
 it('mobile mantém edição por navegação', async () => {
   desktop = false;
@@ -91,5 +122,5 @@ it('falha ao salvar mantém alterações e exige confirmação para trocar', asy
   await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   await click('Produto B');
   expect(name().value).toBe('Rascunho mantido');
-  expect(window.confirm).toHaveBeenCalledOnce();
+  expect(discardDialog()).toBeTruthy();
 });
