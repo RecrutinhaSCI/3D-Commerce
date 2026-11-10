@@ -85,6 +85,14 @@ type FormData = z.infer<typeof schema>;
  */
 const emptyWhenUnset = (value: number | undefined) => (value ?? '') as number;
 
+// Edição: como peso e medidas, as descrições podem estar vazias (produto antigo
+// ou importado pelo Excel). Sem isso, ajustar o preço era barrado por um campo
+// que o admin nem mexeu. Se preencher, o mínimo continua valendo.
+const editSchema = schema.extend({
+  shortDescription: z.string().refine((v) => v === '' || v.length >= 5, 'Descrição curta com no mínimo 5 caracteres'),
+  description: z.string().refine((v) => v === '' || v.length >= 10, 'Descrição com no mínimo 10 caracteres'),
+});
+
 // Produto NOVO precisa de peso e medidas da embalagem: sem eles a cotação de
 // frete não funciona. Na edição continuam opcionais, para não travar ajustes
 // de preço/estoque nos produtos antigos que ainda não têm esses dados.
@@ -144,7 +152,7 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
   const stockBaseline = useRef<number | undefined>(existing?.stock);
 
   const { register, handleSubmit, formState: { errors, isDirty }, watch, setValue, reset, resetField, getValues } = useForm<FormData>({
-    resolver: zodResolver(isEdit ? schema : newProductSchema),
+    resolver: zodResolver(isEdit ? editSchema : newProductSchema),
     defaultValues: existing
       ? {
           name: existing.name,
@@ -331,7 +339,10 @@ export function ProductForm({ id, embedded = false, externalBusy = false, onGuar
       {embedded && <p className="mt-1 text-sm text-ink-mute">{existing?.name}{isDirty ? ' · Alterações não salvas' : ''}</p>}
 
       <fieldset disabled={saving || mediaBusy || externalBusy} className="min-w-0">
-      <form onSubmit={handleSubmit(onSubmit)} className={`mt-6 grid grid-cols-1 gap-6 ${embedded ? '' : 'lg:grid-cols-3'}`}>
+      <form onSubmit={handleSubmit(onSubmit, (invalid) => {
+        // O campo com erro pode estar longe do botão: salvar nunca falha em silêncio.
+        toast.error(Object.values(invalid)[0]?.message ?? 'Confira os campos destacados.');
+      })} className={`mt-6 grid grid-cols-1 gap-6 ${embedded ? '' : 'lg:grid-cols-3'}`}>
         <div className={`space-y-5 ${embedded ? '' : 'lg:col-span-2'}`}>
           <section className="card p-5">
             <h2 className="text-base font-bold">Informações</h2>

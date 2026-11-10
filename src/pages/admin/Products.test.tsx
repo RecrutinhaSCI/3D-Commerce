@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useAdminDataStore } from '@/store/useAdminDataStore';
 import type { Product } from '@/types';
+import toast from 'react-hot-toast';
 import Products from './Products';
 import { productService } from '@/services/productService';
 import type { ApiProduct } from '@/services/types';
@@ -153,6 +154,27 @@ it('mobile mantém edição por navegação', async () => {
   await click('Produto A');
   expect(host.querySelector('output')!.textContent).toBe('/admin/produtos/A');
   expect(name()).toBeNull();
+});
+const field = (fieldName: string) => host.querySelector<HTMLInputElement>(`[name="${fieldName}"]`)!;
+const submit = () => act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+const withoutDescriptions = () => useAdminDataStore.setState({
+  products: [{ ...product('A'), shortDescription: '', description: '' }, product('B')],
+});
+it('produto sem descrições salva o ajuste de preço', async () => {
+  withoutDescriptions();
+  await click('Produto A');
+  await type(field('price'), '91.5');
+  await submit();
+  expect(update).toHaveBeenCalledWith('A', expect.objectContaining({ price: 91.5, shortDescription: '', description: '' }));
+  expect(host.textContent).not.toContain('Alterações não salvas');
+});
+it('descrição preenchida ainda respeita o mínimo, e o bloqueio avisa', async () => {
+  withoutDescriptions();
+  await click('Produto A');
+  await type(field('shortDescription'), 'abc');
+  await submit();
+  expect(update).not.toHaveBeenCalled();
+  expect(toast.error).toHaveBeenCalledWith('Descrição curta com no mínimo 5 caracteres');
 });
 it('falha ao salvar mantém alterações e exige confirmação para trocar', async () => {
   update.mockRejectedValueOnce(new Error('offline'));
