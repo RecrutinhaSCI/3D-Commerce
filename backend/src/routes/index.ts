@@ -20,6 +20,7 @@ import { dashboardRouter } from '../modules/dashboard/dashboard.routes';
 import { diagnosticsRouter } from './diagnostics.routes';
 import { integrationsRouter } from '../modules/integrations/integrations.routes';
 import { labelsRouter } from '../modules/shipping/labels/labels.routes';
+import { stockRouter } from '../modules/stock/stock.routes';
 
 /**
  * Router raiz. Os routers internos por enquanto estão vazios (R1).
@@ -53,6 +54,7 @@ apiRouter.use('/api', scriptsRouter);
 apiRouter.use('/api', integrationsRouter);
 // Etiquetas do Melhor Envio (admin; travas no backend).
 apiRouter.use('/api', labelsRouter);
+apiRouter.use('/api', stockRouter);
 apiRouter.use('/api', dashboardRouter);
 // Diagnóstico de proxy/IP (admin) — ver diagnostics.routes.ts.
 apiRouter.use('/api', diagnosticsRouter);

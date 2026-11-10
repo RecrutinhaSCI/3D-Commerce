@@ -16,6 +16,7 @@
  *  §12 produtos legados (stockUpdatedAt=null) continuam válidos.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { installStockFake } from './stockFake.testdata';
 
 interface FakeProduct {
   id: string;
@@ -167,6 +168,8 @@ Object.assign(mockPrisma, {
   },
   $transaction: vi.fn(async (fn: any) => fn(mockPrisma)),
 });
+
+installStockFake(mockPrisma, () => db.products);
 
 const { productsService } = await import('./products.service');
 

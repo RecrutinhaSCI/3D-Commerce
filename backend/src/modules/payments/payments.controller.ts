@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { created, ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
 import { env } from '../../config/env';
+import { actorFrom } from '../stock/stock.routes';
 import { paymentsService } from './payments.service';
 import { runMelhorEnvioTokenMaintenance } from '../integrations/melhorEnvioOAuth';
 import { createPaymentSchema } from './payments.schemas';
@@ -96,7 +97,7 @@ export const paymentsController = {
   /** Cancelar/estornar pedido (admin). Estorna no MP quando já foi pago. */
   async cancelOrder(req: Request, res: Response) {
     const { orderId } = orderIdParam.parse(req.params);
-    const result = await paymentsService.cancelOrRefund(orderId);
+    const result = await paymentsService.cancelOrRefund(orderId, actorFrom(req));
     return ok(res, result);
   },
 

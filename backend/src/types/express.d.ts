@@ -10,6 +10,8 @@ declare global {
       id: string;
       email: string;
       role: UserRole;
+      /** Nome para auditoria (operador do PDV, movimentações de estoque). */
+      name?: string;
     }
     interface Request {
       user?: AuthenticatedUser;

@@ -3,6 +3,8 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  StockMovementSource,
+  StockMovementType,
   type ShippingMethod,
   type CouponDiscountType,
   type Order,
@@ -23,6 +25,12 @@ import {
 import { couponsService } from '../coupons/coupons.service';
 import { assertCartPurchasable, effectivePrice } from '../cart/cart.service';
 import { shippingService, toQuoteItems, type CartQuote } from '../shipping/shipping.service';
+import {
+  applyStockMoves,
+  InsufficientStockError,
+  STOCK_TX_OPTIONS,
+  type StockActor,
+} from '../stock/stock.service';
 import type {
   AdminOrdersQuery,
   CreateOrderInput,
@@ -415,7 +423,7 @@ export const ordersService = {
     return toOrderDTO(order);
   },
 
-  async updateStatus(orderId: string, input: UpdateOrderStatusInput): Promise<OrderDTO> {
+  async updateStatus(orderId: string, input: UpdateOrderStatusInput, actor?: StockActor): Promise<OrderDTO> {
     const prev = await prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, status: true, paymentStatus: true },
@@ -437,7 +445,7 @@ export const ordersService = {
     // Cancelamento pelo seletor: mesmo caminho único (estoque + cupom). Não
     // estorna no Mercado Pago — para isso existe "Cancelar/estornar".
     if (input.status === OrderStatus.CANCELED) {
-      await cancelOrderRecord(orderId, input.paymentStatus ?? prev.paymentStatus);
+      await cancelOrderRecord(orderId, input.paymentStatus ?? prev.paymentStatus, undefined, actor);
       const canceled = await prisma.order.findUnique({ where: { id: orderId }, include: includeRelations });
       return toOrderDTO(canceled!);
     }
@@ -454,7 +462,7 @@ export const ordersService = {
     // Marcado como PAGO manualmente → mesma liquidação do Mercado Pago (baixa
     // de estoque idempotente, confirma o pedido, e-mail de pagamento aprovado).
     if (input.paymentStatus === PaymentStatus.PAID && prev.paymentStatus !== PaymentStatus.PAID) {
-      await settlePaidOrder(orderId);
+      await settlePaidOrder(orderId, actor);
       updated = (await prisma.order.findUnique({ where: { id: orderId }, include: includeRelations }))!;
     }
 
@@ -482,7 +490,10 @@ export const ordersService = {
       input.paymentStatus === PaymentStatus.CANCELED ||
       input.paymentStatus === PaymentStatus.REFUNDED;
     if (releasesStock) {
-      await restoreStockForOrder(orderId);
+      await restoreStockForOrder(orderId, {
+        actor,
+        type: input.paymentStatus === PaymentStatus.REFUNDED ? StockMovementType.RETURN : StockMovementType.CANCELLATION,
+      });
     }
 
     return toOrderDTO(updated);
@@ -526,12 +537,9 @@ export const ordersService = {
 // não na criação do pedido. Idempotentes e seguras sob concorrência.
 // ===========================================================================
 
-/** Sinaliza estoque insuficiente no momento da baixa, para abortar a transação. */
-class StockShortfall extends Error {
-  constructor(public readonly productName: string) {
-    super('INSUFFICIENT_STOCK');
-    this.name = 'StockShortfall';
-  }
+/** Rótulo do pedido no histórico de estoque (mesma leitura do admin). */
+function orderReferenceLabel(orderId: string): string {
+  return `Pedido #${orderId.slice(-6).toUpperCase()}`;
 }
 
 export type ApplyStockResult =
@@ -549,13 +557,13 @@ export type ApplyStockResult =
  * duplicado, ou webhook + polling simultâneos) já baixou → no-op
  * (`already_applied`).
  *
- * Concorrência: cada item é decrementado com `updateMany` guardado por
- * `stock: { gte: quantity }`. O guard é reavaliado sob lock de linha do
- * Postgres, então dois pagamentos disputando a última unidade não conseguem
- * vender o mesmo item duas vezes — o segundo encontra `count === 0` e a
- * transação inteira é revertida (inclusive o claim do `stockApplied`).
+ * Concorrência: a baixa passa por `applyStockMoves` (UPDATE guardado por
+ * `stock >= quantidade`, reavaliado sob lock de linha do Postgres), o mesmo
+ * caminho do PDV. Duas vendas disputando a última unidade não passam juntas:
+ * a segunda falha e a transação inteira é revertida (inclusive o claim do
+ * `stockApplied`). Cada item vira uma movimentação ECOMMERCE_SALE.
  */
-export async function applyStockForOrder(orderId: string): Promise<ApplyStockResult> {
+export async function applyStockForOrder(orderId: string, actor?: StockActor): Promise<ApplyStockResult> {
   try {
     return await prisma.$transaction(async (tx) => {
       // O claim também exige pedido NÃO cancelado: pagamento aprovado depois do
@@ -573,22 +581,20 @@ export async function applyStockForOrder(orderId: string): Promise<ApplyStockRes
       }
 
       const items = await tx.orderItem.findMany({ where: { orderId } });
-      for (const item of items) {
-        // Produto removido do catálogo (SetNull): nada a baixar.
-        if (!item.productId) continue;
-        const dec = await tx.product.updateMany({
-          where: { id: item.productId, stock: { gte: item.quantity } },
-          data: { stock: { decrement: item.quantity } },
-        });
-        if (dec.count === 0) {
-          // Reverte tudo (o claim e decrementos já feitos) e sinaliza.
-          throw new StockShortfall(item.productName);
-        }
-      }
+      // Produto removido do catálogo (SetNull): nada a baixar.
+      const moves = items.flatMap((i) => (i.productId ? [{ productId: i.productId, delta: -i.quantity }] : []));
+      await applyStockMoves(tx, moves, {
+        type: StockMovementType.ECOMMERCE_SALE,
+        source: StockMovementSource.ECOMMERCE,
+        actor,
+        orderId,
+        referenceLabel: orderReferenceLabel(orderId),
+      });
       return { status: 'applied' as const };
-    });
+    }, STOCK_TX_OPTIONS);
   } catch (e) {
-    if (e instanceof StockShortfall) {
+    // A exceção reverte tudo (o claim e as baixas já feitas).
+    if (e instanceof InsufficientStockError) {
       return { status: 'insufficient', productName: e.productName };
     }
     throw e;
@@ -605,6 +611,7 @@ export async function cancelOrderRecord(
   orderId: string,
   paymentStatus: PaymentStatus,
   note?: string,
+  actor?: StockActor,
 ): Promise<boolean> {
   const claim = await prisma.order.updateMany({
     where: { id: orderId, status: { not: OrderStatus.CANCELED } },
@@ -612,7 +619,10 @@ export async function cancelOrderRecord(
   });
   if (claim.count === 0) return false;
 
-  await restoreStockForOrder(orderId);
+  await restoreStockForOrder(orderId, {
+    actor,
+    type: paymentStatus === PaymentStatus.REFUNDED ? StockMovementType.RETURN : StockMovementType.CANCELLATION,
+  });
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -648,7 +658,10 @@ const REQUIRES_PAID: OrderStatus[] = [
  * só age se `stockApplied` estava true, e o desmarca no mesmo passo atômico —
  * repetir a reposição não devolve unidades em dobro. Retorna se repôs.
  */
-export async function restoreStockForOrder(orderId: string): Promise<boolean> {
+export async function restoreStockForOrder(
+  orderId: string,
+  opts: { actor?: StockActor; type?: StockMovementType } = {},
+): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     const claim = await tx.order.updateMany({
       where: { id: orderId, stockApplied: true },
@@ -657,15 +670,21 @@ export async function restoreStockForOrder(orderId: string): Promise<boolean> {
     if (claim.count === 0) return false;
 
     const items = await tx.orderItem.findMany({ where: { orderId } });
-    for (const item of items) {
-      if (!item.productId) continue;
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stock: { increment: item.quantity } },
-      });
-    }
+    const moves = items.flatMap((i) => (i.productId ? [{ productId: i.productId, delta: i.quantity }] : []));
+    await applyStockMoves(
+      tx,
+      moves,
+      {
+        type: opts.type ?? StockMovementType.CANCELLATION,
+        source: StockMovementSource.ECOMMERCE,
+        actor: opts.actor,
+        orderId,
+        referenceLabel: orderReferenceLabel(orderId),
+      },
+      { missingProduct: 'skip' },
+    );
     return true;
-  });
+  }, STOCK_TX_OPTIONS);
 }
 
 // ===========================================================================
@@ -728,8 +747,8 @@ async function sendPaymentApprovedEmail(orderId: string): Promise<void> {
   }
 }
 
-export async function settlePaidOrder(orderId: string): Promise<void> {
-  const result = await applyStockForOrder(orderId);
+export async function settlePaidOrder(orderId: string, actor?: StockActor): Promise<void> {
+  const result = await applyStockForOrder(orderId, actor);
 
   // E-mail de pagamento aprovado — enviado UMA única vez. A garantia vem do
   // claim atômico de `applyStockForOrder`: só o primeiro chamador que liquida o

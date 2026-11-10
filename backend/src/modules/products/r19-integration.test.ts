@@ -22,6 +22,7 @@
  *   §32     nenhum produto/imagem some por ausência no Excel
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { installStockFake } from './stockFake.testdata';
 
 type Media = { id: string; productId: string; url: string; alt: string | null; position: number; mediaType: string; mimeType: string | null };
 type Prod = {
@@ -148,6 +149,8 @@ Object.assign(mock, {
     try { return await fn(mock); } catch (e) { restore(s); throw e; }
   }),
 });
+
+installStockFake(mock, () => db.products);
 
 const { productsService } = await import('./products.service');
 

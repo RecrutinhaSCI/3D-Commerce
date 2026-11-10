@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { created, noContent, ok } from '../../utils/apiResponse';
 import { HttpError } from '../../utils/httpError';
 import { productsService } from './products.service';
+import { actorFrom } from '../stock/stock.routes';
 import {
   adminListQuerySchema,
   bulkDeleteSchema,
@@ -50,20 +51,20 @@ export const productsController = {
 
   async create(req: Request, res: Response) {
     const input = createProductSchema.parse(req.body);
-    const product = await productsService.create(input);
+    const product = await productsService.create(input, actorFrom(req));
     return created(res, { product });
   },
 
   async update(req: Request, res: Response) {
     const { id } = idParam.parse(req.params);
     const input = updateProductSchema.parse(req.body);
-    const product = await productsService.update(id, input);
+    const product = await productsService.update(id, input, actorFrom(req));
     return ok(res, { product });
   },
 
   async remove(req: Request, res: Response) {
     const { id } = idParam.parse(req.params);
-    const result = await productsService.remove(id);
+    const result = await productsService.remove(id, actorFrom(req));
     return ok(res, result);
   },
 
@@ -84,14 +85,14 @@ export const productsController = {
   /** R19-A — bulk import de produtos vindo de planilha Excel (parseada no frontend). */
   async bulkImport(req: Request, res: Response) {
     const input = bulkImportSchema.parse(req.body);
-    const report = await productsService.bulkImport(input);
+    const report = await productsService.bulkImport(input, actorFrom(req));
     return ok(res, report);
   },
 
   /** Exclusão definitiva em massa — protegida por auth+admin. */
   async bulkDelete(req: Request, res: Response) {
     const input = bulkDeleteSchema.parse(req.body);
-    const report = await productsService.bulkDelete(input.ids);
+    const report = await productsService.bulkDelete(input.ids, actorFrom(req));
     return ok(res, report);
   },
 };

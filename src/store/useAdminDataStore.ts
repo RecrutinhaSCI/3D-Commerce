@@ -91,7 +91,7 @@ interface AdminDataState {
   /** Erros sobem como ApiError (a tela mostra a mensagem real do backend). */
   addProduct: (p: Product) => Promise<Product>;
   /** Salva no banco e atualiza o cache. Lança ApiError em falha. */
-  updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
+  updateProduct: (id: string, patch: Partial<Product> & { expectedStock?: number }) => Promise<void>;
   /** Exclusão definitiva no banco (e no cache). Lança ApiError em falha. */
   removeProduct: (id: string) => Promise<void>;
   bulkRemoveProducts: (ids: string[]) => Promise<{ deleted: number; notFound: string[]; failed: number } | null>;
@@ -217,6 +217,7 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
       brand: p.brand?.trim() ? p.brand.trim() : null,
       material: p.material === '-' ? null : p.material ?? null,
       sku: p.sku || null,
+      barcode: p.barcode || null,
       color: p.color || null,
       weight: p.weight ?? null,
       width: p.width ?? null,
@@ -236,6 +237,7 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.price !== undefined) payload.price = patch.price;
     if (patch.promoPrice !== undefined) payload.promotionalPrice = patch.promoPrice ?? null;
     if (patch.stock !== undefined) payload.stock = patch.stock;
+    if (patch.expectedStock !== undefined) payload.expectedStock = patch.expectedStock;
     if (patch.active !== undefined) payload.active = patch.active;
     if (patch.isHighlight !== undefined || patch.isBestSeller !== undefined) {
       payload.featured = patch.isHighlight ?? patch.isBestSeller;
@@ -247,6 +249,7 @@ export const useAdminDataStore = create<AdminDataState>((set, get) => ({
     if (patch.brand !== undefined) payload.brand = patch.brand?.trim() ? patch.brand.trim() : null;
     if (patch.material !== undefined) payload.material = patch.material === '-' ? null : patch.material;
     if (patch.sku !== undefined) payload.sku = patch.sku || null;
+    if (patch.barcode !== undefined) payload.barcode = patch.barcode || null;
     if (patch.color !== undefined) payload.color = patch.color || null;
     for (const k of ['weight', 'width', 'height', 'depth'] as const) {
       if (k in patch) payload[k] = patch[k] ?? null;

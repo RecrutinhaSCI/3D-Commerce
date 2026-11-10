@@ -1,9 +1,18 @@
-import { Prisma, ProductPurchaseMode, type Category, type Product, type ProductImage } from '@prisma/client';
+import {
+  Prisma,
+  ProductPurchaseMode,
+  StockMovementSource,
+  StockMovementType,
+  type Category,
+  type Product,
+  type ProductImage,
+} from '@prisma/client';
 import { PHYSICAL_FIELDS, roundPhysical } from '../../shared/physicalLimits';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../utils/httpError';
 import { generateUniqueSlug, slugify } from '../../utils/slug';
 import { decimalToNumber } from '../../utils/decimal';
+import { recordInitialStock, recordProductsDeleted, setStockAbsolute, STOCK_TX_OPTIONS, type StockActor } from '../stock/stock.service';
 import { isLegacyUploadUrl } from '../../lib/legacyUpload';
 import {
   PRODUCT_MEDIA_MAX_IMAGE_BYTES,
@@ -39,6 +48,7 @@ export interface ProductDTO {
   price: number;
   promotionalPrice: number | null;
   sku: string | null;
+  barcode: string | null;
   stock: number;
   active: boolean;
   featured: boolean;
@@ -78,6 +88,7 @@ function toDTO(p: ProductWithRelations): ProductDTO {
     price: decimalToNumber(p.price) ?? 0,
     promotionalPrice: decimalToNumber(p.promotionalPrice),
     sku: p.sku,
+    barcode: p.barcode ?? null,
     stock: p.stock,
     active: p.active,
     featured: p.featured,
@@ -191,18 +202,23 @@ async function unlinkOrphanProductFiles(urls: string[]) {
  *  • order_items guarda snapshot (nome/SKU/preço) e a FK é SET NULL;
  *  • product_images cai junto (FK CASCADE);
  *  • cart_items (FK RESTRICT) são carrinhos em aberto — removidos antes.
+ * O histórico de estoque também sobrevive: a baixa total fica registrada.
  * Retorna os IDs efetivamente apagados.
  */
-async function hardDeleteProducts(ids: string[]): Promise<string[]> {
+async function hardDeleteProducts(ids: string[], actor?: StockActor): Promise<string[]> {
   if (ids.length === 0) return [];
   const images = await prisma.productImage.findMany({
     where: { productId: { in: ids } },
     select: { url: true },
   });
   const deleted = await prisma.$transaction(async (tx) => {
-    const found = await tx.product.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    const found = await tx.product.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, sku: true, stock: true },
+    });
     const foundIds = found.map((p) => p.id);
     if (foundIds.length === 0) return [];
+    await recordProductsDeleted(tx, found, actor);
     await tx.cartItem.deleteMany({ where: { productId: { in: foundIds } } });
     await tx.product.deleteMany({ where: { id: { in: foundIds } } });
     return foundIds;
@@ -277,6 +293,15 @@ async function findConflictingOwner(
   return row;
 }
 
+async function ensureUniqueBarcode(barcode: string | null | undefined, currentId?: string) {
+  if (!barcode) return;
+  const existing = await prisma.product.findFirst({
+    where: { barcode, ...(currentId ? { NOT: { id: currentId } } : {}) },
+    select: { id: true },
+  });
+  if (existing) throw HttpError.conflict('Código de barras já em uso.');
+}
+
 async function ensureCategoryExists(categoryId: string) {
   const cat = await prisma.category.findUnique({ where: { id: categoryId }, select: { id: true } });
   if (!cat) throw HttpError.badRequest('Categoria informada não existe.');
@@ -300,6 +325,7 @@ function buildSearchWhere(search: string): Prisma.ProductWhereInput {
       { shortDescription: { contains: search, mode: 'insensitive' } },
       { description: { contains: search, mode: 'insensitive' } },
       { sku: { contains: search, mode: 'insensitive' } },
+      { barcode: { contains: search, mode: 'insensitive' } },
       { material: { contains: search, mode: 'insensitive' } },
     ],
   };
@@ -406,12 +432,14 @@ export const productsService = {
     return toDTO(row);
   },
 
-  async create(input: CreateProductInput) {
+  async create(input: CreateProductInput, actor?: StockActor) {
     await ensureCategoryExists(input.categoryId);
     await ensureUniqueSku(input.sku);
+    await ensureUniqueBarcode(input.barcode);
     const slug = await ensureSlug(input.name, input.slug);
 
-    const product = await prisma.product.create({
+    const product = await prisma.$transaction(async (tx) => {
+      const saved = await tx.product.create({
       data: {
         categoryId: input.categoryId,
         name: input.name,
@@ -421,6 +449,7 @@ export const productsService = {
         price: input.price,
         promotionalPrice: input.promotionalPrice ?? null,
         sku: input.sku ?? null,
+        barcode: input.barcode ?? null,
         stock: input.stock ?? 0,
         // R19-E — Se o admin informou estoque na criação, marca o carimbo.
         // Sem estoque explícito, deixa NULL (produto criado sem histórico).
@@ -438,11 +467,19 @@ export const productsService = {
         purchaseMode: input.purchaseMode ?? ProductPurchaseMode.DIRECT,
       },
       include: includeRelations,
-    });
+      });
+      await recordInitialStock(tx, saved, saved.stock, {
+        type: StockMovementType.MANUAL_ADJUSTMENT,
+        source: StockMovementSource.ADMIN,
+        actor,
+        note: 'Estoque inicial do cadastro',
+      });
+      return saved;
+    }, STOCK_TX_OPTIONS);
     return toDTO(product);
   },
 
-  async update(id: string, input: UpdateProductInput) {
+  async update(id: string, input: UpdateProductInput, actor?: StockActor) {
     const current = await prisma.product.findUnique({ where: { id } });
     if (!current) throw HttpError.notFound('Produto não encontrado.');
 
@@ -451,6 +488,9 @@ export const productsService = {
     }
     if (input.sku !== undefined && input.sku !== current.sku) {
       await ensureUniqueSku(input.sku, id);
+    }
+    if (input.barcode !== undefined && input.barcode !== current.barcode) {
+      await ensureUniqueBarcode(input.barcode, id);
     }
 
     let slug = current.slug;
@@ -462,9 +502,30 @@ export const productsService = {
     // muda. `stock` ausente OU igual ao atual preserva o carimbo antigo (que
     // pode ser NULL para produtos herdados). Isso vale tanto para edição
     // manual quanto para o caminho do import (mesma regra aplicada lá).
-    const stockChanged = input.stock !== undefined && input.stock !== current.stock;
+    //
+    // Com `expectedStock` (formulário do admin), o que importa é se o ADMIN
+    // alterou o campo: sem alteração o estoque atual é preservado, mesmo que uma
+    // venda tenha acontecido depois de abrir o formulário.
+    const stockChanged =
+      input.stock !== undefined &&
+      input.stock !== (input.expectedStock === undefined ? current.stock : input.expectedStock);
 
-    const updated = await prisma.product.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      if (stockChanged) {
+        await setStockAbsolute(
+          tx,
+          id,
+          input.stock!,
+          {
+            type: StockMovementType.MANUAL_ADJUSTMENT,
+            source: StockMovementSource.ADMIN,
+            actor,
+            note: 'Edição do produto',
+          },
+          input.expectedStock,
+        );
+      }
+      return tx.product.update({
       where: { id },
       data: {
         categoryId: input.categoryId ?? current.categoryId,
@@ -477,8 +538,8 @@ export const productsService = {
         promotionalPrice:
           input.promotionalPrice === undefined ? current.promotionalPrice : input.promotionalPrice,
         sku: input.sku === undefined ? current.sku : input.sku,
-        stock: input.stock === undefined ? current.stock : input.stock,
-        ...(stockChanged ? { stockUpdatedAt: new Date() } : {}),
+        barcode: input.barcode === undefined ? current.barcode : input.barcode,
+        // `stock` fica fora daqui de propósito: só o stock.service o altera.
         active: input.active === undefined ? current.active : input.active,
         featured: input.featured === undefined ? current.featured : input.featured,
         weight: input.weight === undefined ? current.weight : input.weight,
@@ -494,7 +555,8 @@ export const productsService = {
         purchaseMode: input.purchaseMode ?? current.purchaseMode,
       },
       include: includeRelations,
-    });
+      });
+    }, STOCK_TX_OPTIONS);
     return toDTO(updated);
   },
 
@@ -504,8 +566,8 @@ export const productsService = {
    * excluir. Quem só quer tirar da loja usa o toggle "Ativo" (desativar).
    * Pedidos antigos mantêm o snapshot (nome/SKU/preço) — ver hardDeleteProducts.
    */
-  async remove(id: string) {
-    const deleted = await hardDeleteProducts([id]);
+  async remove(id: string, actor?: StockActor) {
+    const deleted = await hardDeleteProducts([id], actor);
     if (deleted.length === 0) throw HttpError.notFound('Produto não encontrado.');
     return { deleted: true, id };
   },
@@ -515,10 +577,10 @@ export const productsService = {
    * só (ou apaga todos os encontrados, ou nenhum). IDs inexistentes são
    * reportados em `notFound` sem derrubar o lote.
    */
-  async bulkDelete(ids: string[]) {
+  async bulkDelete(ids: string[], actor?: StockActor) {
     // Dedup local — mesmo id repetido no payload não deve inflar as contagens.
     const unique = Array.from(new Set(ids));
-    const deletedIds = await hardDeleteProducts(unique);
+    const deletedIds = await hardDeleteProducts(unique, actor);
     const deletedSet = new Set(deletedIds);
     return {
       requested: unique.length,
@@ -606,7 +668,13 @@ export const productsService = {
    *        (não sobrescreve; usuário precisa adicionar id/sku/slug).
    *      • Se não colide → cria novo produto.
    */
-  async bulkImport(input: BulkImportInput) {
+  async bulkImport(input: BulkImportInput, actor?: StockActor) {
+    const importMeta = (line: number) => ({
+      type: StockMovementType.IMPORT,
+      source: StockMovementSource.IMPORT,
+      actor,
+      note: `Importação Excel — linha ${line}`,
+    });
     interface ReportItem {
       line: number;
       id?: string;
@@ -846,10 +914,8 @@ export const productsService = {
           }
           // R19-E — estoque (e o carimbo `stockUpdatedAt`) só muda quando o
           // valor realmente difere do atual (mesma regra da edição manual).
-          if (row.stock !== undefined && row.stock !== existing.stock) {
-            patch.stock = row.stock;
-            patch.stockUpdatedAt = new Date();
-          }
+          // A escrita em si vai pelo stock.service, para registrar IMPORT no histórico.
+          const stockTarget = row.stock !== undefined && row.stock !== existing.stock ? row.stock : undefined;
           if (row.active !== undefined && row.active !== existing.active) patch.active = row.active;
           if (row.featured !== undefined && row.featured !== existing.featured) patch.featured = row.featured;
           // R19-B — brand e material são independentes. Cada um só entra no
@@ -866,6 +932,23 @@ export const productsService = {
           }
           if (resolvedCategoryId && resolvedCategoryId !== existing.categoryId) {
             patch.category = { connect: { id: resolvedCategoryId } };
+          }
+
+          if (row.barcode !== undefined && row.barcode !== existing.barcode) {
+            const taken = await prisma.product.findFirst({
+              where: { barcode: row.barcode, NOT: { id: existing.id } },
+              select: { name: true },
+            });
+            if (taken) {
+              conflicts.push({
+                line: row.line,
+                name: row.name ?? existing.name,
+                reason: `Código de barras "${row.barcode}" já está em uso por "${taken.name}".`,
+                identifier: row.barcode,
+              });
+              continue;
+            }
+            patch.barcode = row.barcode;
           }
 
           // R19-D — Conflito de identidade: quando a linha veio com id/sku/slug
@@ -908,7 +991,7 @@ export const productsService = {
 
           // R19-C — Se a única alteração possível é a imagem, ainda vale
           // rodar a linha (só imagem). Sem imagem E sem diferença → unchanged.
-          if (Object.keys(patch).length === 0 && validatedImageUrl === undefined) {
+          if (Object.keys(patch).length === 0 && stockTarget === undefined && validatedImageUrl === undefined) {
             unchanged.push({
               line: row.line,
               id: existing.id,
@@ -923,6 +1006,9 @@ export const productsService = {
           // Se o update do produto ou a operação de galeria falhar, ambos
           // sofrem rollback juntos. Nunca sobra produto "meio-atualizado".
           const result = await prisma.$transaction(async (tx) => {
+            if (stockTarget !== undefined) {
+              await setStockAbsolute(tx, existing!.id, stockTarget, importMeta(row.line));
+            }
             const saved = Object.keys(patch).length
               ? await tx.product.update({
                   where: { id: existing!.id },
@@ -936,7 +1022,7 @@ export const productsService = {
             }
             return { saved, imageUpdated };
           });
-          if (Object.keys(patch).length === 0 && !result.imageUpdated) {
+          if (Object.keys(patch).length === 0 && stockTarget === undefined && !result.imageUpdated) {
             // Só trouxe imagem e ela já é a principal atual → nada mudou.
             unchanged.push({
               line: row.line,
@@ -1046,6 +1132,19 @@ export const productsService = {
           category: { connect: { id: resolvedCategoryId } },
         };
         if (row.sku !== undefined) createData.sku = row.sku;
+        if (row.barcode !== undefined) {
+          const taken = await prisma.product.findFirst({ where: { barcode: row.barcode }, select: { name: true } });
+          if (taken) {
+            conflicts.push({
+              line: row.line,
+              name: row.name,
+              reason: `Código de barras "${row.barcode}" já está em uso por "${taken.name}".`,
+              identifier: row.barcode,
+            });
+            continue;
+          }
+          createData.barcode = row.barcode;
+        }
         if (row.shortDescription !== undefined) createData.shortDescription = row.shortDescription;
         if (row.description !== undefined) createData.description = row.description;
         if (row.promotionalPrice !== undefined) createData.promotionalPrice = row.promotionalPrice;
@@ -1072,8 +1171,9 @@ export const productsService = {
         const result = await prisma.$transaction(async (tx) => {
           const saved = await tx.product.create({
             data: createData,
-            select: { id: true, name: true },
+            select: { id: true, name: true, sku: true, stock: true },
           });
+          await recordInitialStock(tx, saved, saved.stock, importMeta(row.line));
           let imageUpdated = false;
           if (validatedImageUrl !== undefined) {
             imageUpdated = await applyMainImage(tx, saved.id, validatedImageUrl, saved.name);

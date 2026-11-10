@@ -4,6 +4,7 @@ import { PHYSICAL_LIMITS, physicalError, roundPhysical, type PhysicalField } fro
 
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const skuRegex = /^[A-Za-z0-9._-]+$/;
+const barcodeRegex = /^[A-Za-z0-9._-]+$/;
 
 const nullableNumber = () =>
   z.union([z.number(), z.string(), z.null()]).transform((v) => {
@@ -56,7 +57,11 @@ export const createProductSchema = z.object({
     'Preço promocional precisa ser positivo.',
   ),
   sku: z.string().trim().regex(skuRegex, 'SKU inválido.').max(60).optional().nullable(),
+  barcode: z.string().trim().regex(barcodeRegex, 'Código de barras inválido.').max(60).optional().nullable(),
   stock: nonNegativeInt().optional(),
+  // Estoque que o admin viu ao abrir o formulário. Com ele, salvar sem mexer no
+  // estoque não sobrescreve vendas feitas nesse meio-tempo.
+  expectedStock: z.number().int().nonnegative().optional(),
   active: z.boolean().optional(),
   featured: z.boolean().optional(),
   // Peso (kg) e medidas (cm) da embalagem: OBRIGATÓRIOS na criação (base da
@@ -127,6 +132,8 @@ const importRowSchema = z.object({
   id: z.string().trim().min(1).optional(),
   sku: z.string().trim().regex(skuRegex).max(60).optional(),
   slug: z.string().trim().regex(slugRegex).optional(),
+  // Não é identificador de matching: só atualiza o produto casado.
+  barcode: z.string().trim().regex(barcodeRegex).max(60).optional(),
 
   // Payload — todos opcionais. `undefined` = preservar.
   name: z.string().trim().min(2).max(200).optional(),

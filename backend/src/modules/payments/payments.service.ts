@@ -7,6 +7,7 @@ import { decimalToNumber } from '../../utils/decimal';
 import { sendEmail } from '../../lib/email';
 import { orderCanceledEmail } from '../../lib/emailTemplates';
 import { appendNoteOnce, cancelOrderRecord, settlePaidOrder } from '../orders/orders.service';
+import type { StockActor } from '../stock/stock.service';
 import {
   resolvePaymentKind,
   type CreatePaymentInput,
@@ -821,7 +822,7 @@ export const paymentsService = {
    * Em todos: pedido CANCELED, estoque reposto e cupom devolvido (uma vez),
    * e-mail ao cliente. Se o MP recusar o estorno, nada muda e o erro sobe.
    */
-  async cancelOrRefund(orderId: string): Promise<{ orderId: string; result: 'refunded' | 'canceled' }> {
+  async cancelOrRefund(orderId: string, actor?: StockActor): Promise<{ orderId: string; result: 'refunded' | 'canceled' }> {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw HttpError.notFound('Pedido não encontrado.');
     if (order.status === OrderStatus.CANCELED) {
@@ -855,12 +856,13 @@ export const paymentsService = {
           idempotencyKey: `refund-${order.id}`,
         });
         if (!res.ok) throw providerError(res.status, res.body);
-        await cancelOrderRecord(order.id, PaymentStatus.REFUNDED);
+        await cancelOrderRecord(order.id, PaymentStatus.REFUNDED, undefined, actor);
       } else {
         await cancelOrderRecord(
           order.id,
           PaymentStatus.REFUNDED,
           '[ESTORNO MANUAL] Pago fora do Mercado Pago — devolver o valor ao cliente manualmente.',
+          actor,
         );
       }
       await notifyCanceled(order.id, 'refunded');
@@ -876,7 +878,7 @@ export const paymentsService = {
         throw HttpError.conflict('O pagamento acabou de ser aprovado. Atualize a lista e use "estornar" se precisar.');
       }
     }
-    await cancelOrderRecord(order.id, PaymentStatus.CANCELED);
+    await cancelOrderRecord(order.id, PaymentStatus.CANCELED, undefined, actor);
     await notifyCanceled(order.id, 'canceled');
     return { orderId: order.id, result: 'canceled' };
   },

@@ -29,7 +29,7 @@ export const authMiddleware: RequestHandler = async (req, _res, next) => {
       throw HttpError.unauthorized('Sessão inválida.');
     }
 
-    req.user = { id: dbUser.id, email: dbUser.email, role: dbUser.role };
+    req.user = { id: dbUser.id, email: dbUser.email, role: dbUser.role, name: dbUser.name };
     next();
   } catch (err) {
     next(err);

@@ -13,6 +13,7 @@
  *  H. ID inexistente vira CONFLITO (nunca cria com o id informado).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { installStockFake } from './stockFake.testdata';
 
 interface FakeProduct {
   id: string;
@@ -152,6 +153,8 @@ Object.assign(mockPrisma, {
 });
 
 // Só importar DEPOIS de mockar.
+installStockFake(mockPrisma, () => db.products);
+
 const { productsService } = await import('./products.service');
 
 describe('productsService.bulkImport (R19-A)', () => {
