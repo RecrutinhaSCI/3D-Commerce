@@ -1,3 +1,4 @@
+import { orderReference } from '@/utils/orderReference';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { loginUrl } from '@/utils/redirect';
@@ -315,7 +316,7 @@ export default function Checkout() {
   // Cartão aprovado (ou Pix confirmado no polling): pedido pago, limpa o carrinho.
   function handleApproved() {
     clear().catch(() => {});
-    setDone(createdOrder?.id ?? null);
+    setDone(createdOrder ? orderReference(createdOrder) : null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1053,7 +1054,7 @@ export function PaymentPhase({
       <div className="space-y-4">
         <h2 className="text-lg font-bold">Pague com Pix</h2>
         <p className="text-sm text-ink-mute">
-          Pedido <strong>{order.id}</strong> criado. Escaneie o QR Code no app do seu banco ou use o
+          Pedido <strong>{orderReference(order)}</strong> criado. Escaneie o QR Code no app do seu banco ou use o
           copia-e-cola. Seu pedido é confirmado automaticamente assim que o pagamento cair.
         </p>
         {result.amount !== undefined && (
@@ -1094,7 +1095,7 @@ export function PaymentPhase({
       <div className="space-y-4">
         <h2 className="text-lg font-bold">Boleto gerado</h2>
         <p className="text-sm text-ink-mute">
-          Pedido <strong>{order.id}</strong> criado. Ele fica pendente até a compensação do boleto
+          Pedido <strong>{orderReference(order)}</strong> criado. Ele fica pendente até a compensação do boleto
           (pode levar até 3 dias úteis). Abra o boleto para pagar ou imprimir.
         </p>
         <div className="flex flex-wrap gap-2">
@@ -1119,7 +1120,7 @@ export function PaymentPhase({
         </div>
         <h2 className="text-lg font-bold">Pagamento em processamento</h2>
         <p className="text-sm text-ink-mute">
-          Estamos aguardando a confirmação do seu pagamento para o pedido <strong>{order.id}</strong>.
+          Estamos aguardando a confirmação do seu pagamento para o pedido <strong>{orderReference(order)}</strong>.
           Você pode atualizar o status abaixo.
         </p>
         <Button type="button" loading={checking} onClick={handleManualCheck}>
@@ -1139,7 +1140,7 @@ export function PaymentPhase({
     <div className="space-y-4">
       <h2 className="text-lg font-bold">Pagamento</h2>
       <p className="text-sm text-ink-mute">
-        Pedido <strong>{order.id}</strong> criado. Escolha como pagar — cartão, Pix ou boleto — sem
+        Pedido <strong>{orderReference(order)}</strong> criado. Escolha como pagar — cartão, Pix ou boleto — sem
         sair do site.
       </p>
 

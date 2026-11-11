@@ -56,6 +56,7 @@ type OrderWithRelations = Order & {
 /** DTO — todos os valores monetários como `number`, sem `passwordHash`. */
 export interface OrderDTO {
   id: string;
+  publicCode: string;
   userId: string | null;
   customerName: string;
   customerEmail: string;
@@ -107,6 +108,7 @@ export interface OrderDTO {
 function toOrderDTO(order: OrderWithRelations): OrderDTO {
   return {
     id: order.id,
+    publicCode: order.publicCode,
     userId: order.userId,
     customerName: order.customerName,
     customerEmail: order.customerEmail,
@@ -320,7 +322,7 @@ export const ordersService = {
     await notifyByEmail(
       order.customerEmail,
       orderCreatedEmail({
-        orderId: order.id,
+        orderId: order.publicCode ?? order.id,
         total: decimalToNumber(order.total) ?? 0,
         items: order.items.map((it) => ({ productName: it.productName, quantity: it.quantity })),
       }),
@@ -376,6 +378,7 @@ export const ordersService = {
     if (query.search) {
       where.OR = [
         { id: { equals: query.search } },
+        { publicCode: { equals: query.search, mode: 'insensitive' } },
         { customerName: { contains: query.search, mode: 'insensitive' } },
         { customerEmail: { contains: query.search, mode: 'insensitive' } },
         { customerPhone: { contains: query.search, mode: 'insensitive' } },
@@ -478,7 +481,7 @@ export const ordersService = {
     ) {
       await notifyByEmail(
         updated.customerEmail,
-        orderShippedEmail(updated.trackingCode, updated.id),
+        orderShippedEmail(updated.trackingCode, updated.publicCode ?? updated.id),
       );
     }
 
@@ -524,7 +527,7 @@ export const ordersService = {
     ) {
       await notifyByEmail(
         updated.customerEmail,
-        orderShippedEmail(updated.trackingCode, updated.id),
+        orderShippedEmail(updated.trackingCode, updated.publicCode ?? updated.id),
       );
     }
 
@@ -728,11 +731,11 @@ async function sendPaymentApprovedEmail(orderId: string): Promise<void> {
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      select: { customerEmail: true, total: true },
+      select: { customerEmail: true, total: true, publicCode: true },
     });
     if (!order) return;
     const content = paymentApprovedEmail({
-      orderId,
+      orderId: order.publicCode ?? orderId,
       total: decimalToNumber(order.total) ?? 0,
     });
     await sendEmail({

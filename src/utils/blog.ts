@@ -1,7 +1,7 @@
 import type { BlogPost } from '@/types';
 
 /** Campos do post editáveis no admin (o slug é fixo). */
-export type BlogPostOverride = Partial<Pick<BlogPost, 'title' | 'category' | 'excerpt' | 'readTime' | 'content'>>;
+export type BlogPostOverride = Partial<Pick<BlogPost, 'title' | 'category' | 'excerpt' | 'readTime' | 'content' | 'active'>>;
 
 /** Palavras de um texto em Markdown (ignora a sintaxe). */
 export function countWords(markdown: string): number {
@@ -26,19 +26,20 @@ export function resolveBlogPost(
   override?: BlogPostOverride,
   cover?: string,
 ): BlogPost & { customized: boolean } {
-  const pick = (k: keyof BlogPostOverride) => {
+  const pick = (k: Exclude<keyof BlogPostOverride, 'active'>) => {
     const v = override?.[k];
     return typeof v === 'string' && v.trim() ? v : base[k];
   };
   return {
     ...base,
+    active: override?.active ?? base.active ?? base.slug !== 'quando-usar-resina-impressao-3d',
     title: pick('title'),
     category: pick('category'),
     excerpt: pick('excerpt'),
     readTime: pick('readTime'),
     content: pick('content'),
     cover: cover || base.cover,
-    customized: !!override && Object.values(override).some((v) => typeof v === 'string' && v.trim()),
+    customized: !!override && Object.values(override).some((v) => typeof v === 'boolean' || (typeof v === 'string' && v.trim())),
   };
 }
 

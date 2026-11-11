@@ -13,7 +13,7 @@
   <url><loc>/orcamento</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
   <url><loc>/sobre</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>/materiais</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>/blog</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>/cursos</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
   <url><loc>/faq</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>/como-comprar</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>/trocas-devolucoes</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>

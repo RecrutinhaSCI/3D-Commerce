@@ -20,7 +20,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Draft = Pick<BlogPost, 'title' | 'category' | 'excerpt' | 'readTime' | 'content'>;
+type Draft = Pick<BlogPost, 'title' | 'category' | 'excerpt' | 'readTime' | 'content' | 'active'>;
 
 /**
  * Editor de um post: título, categoria, resumo, tempo de leitura e conteúdo
@@ -29,6 +29,7 @@ type Draft = Pick<BlogPost, 'title' | 'category' | 'excerpt' | 'readTime' | 'con
  */
 export function BlogPostEditor({ post, base, onClose }: Props) {
   const [draft, setDraft] = useState<Draft>({
+    active: post.active ?? true,
     title: post.title,
     category: post.category,
     excerpt: post.excerpt,
@@ -53,13 +54,13 @@ export function BlogPostEditor({ post, base, onClose }: Props) {
     // Só grava o que difere do padrão: o resto continua acompanhando o código.
     const diff = Object.fromEntries(
       (Object.keys(draft) as (keyof Draft)[])
-        .filter((k) => draft[k].trim() !== base[k].trim())
-        .map((k) => [k, draft[k].trim()]),
+        .filter((k) => k !== 'active' && String(draft[k]).trim() !== String(base[k] ?? '').trim())
+        .map((k) => [k, String(draft[k]).trim()]),
     );
     setBusy(true);
     try {
-      const { settings } = Object.keys(diff).length
-        ? await settingsService.updateBlogContent(post.slug, diff)
+      const { settings } = (Object.keys(diff).length || draft.active !== (base.active ?? base.slug !== 'quando-usar-resina-impressao-3d'))
+        ? await settingsService.updateBlogContent(post.slug, { ...diff, active: draft.active })
         : await settingsService.resetBlogContent(post.slug);
       applySettings(settings);
       toast.success('Post salvo.');
@@ -92,6 +93,7 @@ export function BlogPostEditor({ post, base, onClose }: Props) {
         <p className="text-xs text-ink-mute">
           URL fixa: <span className="font-mono">/blog/{post.slug}</span>
         </p>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.active ?? true} onChange={(e) => setDraft((d) => ({ ...d, active: e.target.checked }))} className="accent-ink" /> Guia ativo no site</label>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_1fr]">
           <div>
             <Label>Título</Label>

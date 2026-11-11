@@ -181,6 +181,7 @@ export const customersService = {
       },
       orders: orders.map((o) => ({
         id: o.id,
+        publicCode: o.publicCode,
         createdAt: o.createdAt.toISOString(),
         total: num(o.total),
         status: o.status,

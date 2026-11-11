@@ -19,6 +19,7 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
+import { sendEmail } from '../../lib/email';
 
 // ---------------------------------------------------------------------------
 // Banco em memória (mock do Prisma)
@@ -46,7 +47,7 @@ const db = {
   storedOrder: null as unknown,
 };
 const orderCreate = vi.fn(async ({ data }: { data: Record<string, any> }) => ({
-  id: 'ord_1', userId: data.userId, ...data,
+  id: 'ord_1', publicCode: '3DCOMMERCE00001', userId: data.userId, ...data,
   paymentDiscount: new Prisma.Decimal(0), mpPaymentId: null, trackingCode: null,
   createdAt: new Date(), updatedAt: new Date(),
   items: data.items.create.map((i: Record<string, unknown>, n: number) => ({ id: `it${n}`, ...i, createdAt: new Date() })),
@@ -229,6 +230,8 @@ describe('cotação → criação do pedido', () => {
 
     const order = await ordersService.createFromCart('u1', orderInput({ shippingMethod: 'SEDEX', expectedShippingValue: sedex.price }));
     expect(order.shippingValue).toBe(sedex.price);
+    expect(order).toMatchObject({ id: 'ord_1', publicCode: '3DCOMMERCE00001' });
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ html: expect.stringContaining('3DCOMMERCE00001') }));
     expect(num(savedData().shippingValue)).toBe(41.3);
     expect(num(savedData().total)).toBe(141.3);
     expect(savedData()).toMatchObject({

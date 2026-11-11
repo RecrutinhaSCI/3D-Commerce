@@ -1,3 +1,4 @@
+import { orderReference } from '@/utils/orderReference';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { Edit, Plus, Search } from 'lucide-react';
@@ -155,7 +156,7 @@ function DetailModal({ id, onClose, onEdit }: { id: string | null; onClose: () =
           </History>
           <History title="Compras online" empty="Nenhum pedido no site.">
             {data.orders.map((o) => (
-              <Entry key={o.id} title={`Pedido #${o.id.slice(-6).toUpperCase()}`} date={o.createdAt} total={o.total} canceled={o.status === 'CANCELED'} detail={summarize(o.items)} />
+              <Entry key={o.id} title={`Pedido ${orderReference(o)}`} date={o.createdAt} total={o.total} canceled={o.status === 'CANCELED'} detail={summarize(o.items)} />
             ))}
           </History>
 

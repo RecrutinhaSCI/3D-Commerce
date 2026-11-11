@@ -15,19 +15,19 @@ export default function BlogPost() {
   // Texto padrão do código + versão salva no admin + capa. Nunca fica vazio.
   const post = base ? resolveBlogPost(base, overrides?.[base.slug], covers?.[base.slug]) : undefined;
   useSEO(post?.title ?? 'Post', post?.excerpt);
-  if (!post) {
+  if (!post || !post.active) {
     return (
       <div className="container-x py-20 text-center">
         <h1 className="text-2xl font-bold">Post não encontrado</h1>
-        <Link to="/blog" className="mt-4 inline-block underline">Voltar ao blog</Link>
+        <Link to="/cursos" className="mt-4 inline-block underline">Voltar a Cursos e Guias</Link>
       </div>
     );
   }
   const index = seedBlogPosts.findIndex((p) => p.slug === slug);
   return (
     <div className="container-x py-10">
-      <Link to="/blog" className="inline-flex items-center gap-1 text-xs font-semibold text-ink-mute hover:text-ink">
-        <ChevronLeft className="h-3 w-3" /> Voltar ao blog
+      <Link to="/cursos" className="inline-flex items-center gap-1 text-xs font-semibold text-ink-mute hover:text-ink">
+        <ChevronLeft className="h-3 w-3" /> Voltar a Cursos e Guias
       </Link>
       <article className="mx-auto mt-5 max-w-3xl">
         <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">{post.category}</p>

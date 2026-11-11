@@ -188,6 +188,33 @@ describe('sucesso de cada endpoint', () => {
     expect(e.externalMessage).toContain('E-PRT-0007');
   });
 
+  describe('allowlist exata do PDF S3 observado em produção', () => {
+    const S3 = 'https://me-0047-prod.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Signature=FAKE-TEST';
+    it('permite somente o host exato em produção, sem herdar no Sandbox ou sem contexto', () => {
+      expect(isAllowedLabelFileUrl(S3, PROD)).toBe(true);
+      expect(isAllowedLabelFileUrl('https://me-0047-prod.s3.amazonaws.com:443/pdf/a.pdf', PROD)).toBe(true);
+      expect(isAllowedLabelFileUrl(S3, SANDBOX)).toBe(false);
+      expect(isAllowedLabelFileUrl(S3)).toBe(false);
+    });
+    it.each([
+      'https://me-0047-prod.s3.amazonaws.com.evil.test/a.pdf',
+      'https://x.me-0047-prod.s3.amazonaws.com/a.pdf',
+      'https://me-0047-prod-evil.s3.amazonaws.com/a.pdf',
+      'https://me-0047-prods.s3.amazonaws.com/a.pdf',
+      'https://outro-bucket.s3.amazonaws.com/a.pdf',
+      'https://s3.amazonaws.com/me-0047-prod/a.pdf',
+      'https://me-0047-prod.s3.us-east-1.amazonaws.com/a.pdf',
+      'http://me-0047-prod.s3.amazonaws.com/a.pdf',
+      'https://me-0047-prod.s3.amazonaws.com:8443/a.pdf',
+      'https://user:pass@me-0047-prod.s3.amazonaws.com/a.pdf',
+      'https://me-0047-prod.s3.amazonaws.com@evil.test/a.pdf',
+    ])('bloqueia destino semelhante/inseguro sem enviar requisição: %s', async (url) => {
+      expect(isAllowedLabelFileUrl(url, PROD)).toBe(false);
+      expect(await caught(client(PROD).downloadLabelPdf(url))).toMatchObject({ code: 'BAD_RESPONSE', fields: ['host_not_allowed'] });
+      expect(calls).toHaveLength(0);
+    });
+  });
+
   describe('allowlist estrita do host S3 do Sandbox (aprovado em 06/11/2026)', () => {
     const S3 = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800&X-Amz-Signature=x';
     const MOCK_LOCAL = { environment: 'sandbox' as const, baseUrl: 'http://localhost:4010' };
@@ -560,6 +587,25 @@ describe('download do PDF — redirects validados um a um', () => {
     expect(JSON.stringify(calls[0].headers)).not.toContain(TOKEN);
   });
 
+  it('produção baixa PDF do host exato diretamente ou por redirect validado, sem token', async () => {
+    const S3 = 'https://me-0047-prod.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Signature=FAKE-TEST';
+    handler = routes({ [START]: () => redirect(S3), [S3]: pdf });
+    expect((await client(PROD).downloadLabelPdf(S3)).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await client(PROD).downloadLabelPdf(START)).subarray(0, 5).toString()).toBe('%PDF-');
+    expect(calls.map((c) => c.url)).toEqual([S3, START, S3]);
+    expect(vi.mocked(fetchImpl).mock.calls.every(([, init]) => init?.redirect === 'manual')).toBe(true);
+    for (const call of calls) expect(Object.keys(call.headers).map((key) => key.toLowerCase())).not.toContain('authorization');
+    expect(getToken).not.toHaveBeenCalled();
+  });
+
+  it('produção revalida redirect saindo do S3 aprovado e não acessa host malicioso', async () => {
+    const S3 = 'https://me-0047-prod.s3.amazonaws.com/pdf/abc.pdf';
+    const evil = 'https://me-0047-prod.s3.amazonaws.com.evil.test/a.pdf';
+    handler = routes({ [S3]: () => redirect(evil), [evil]: pdf });
+    expect(await caught(client(PROD).downloadLabelPdf(S3))).toMatchObject({ code: 'BAD_RESPONSE', fields: ['host_not_allowed'] });
+    expect(calls.map((c) => c.url)).toEqual([S3]);
+  });
+
   it('produção NÃO baixa da URL S3 do Sandbox (nada vai à rede); log só com o host, sem a assinatura', async () => {
     const S3 = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf?X-Amz-Expires=1800&X-Amz-Signature=SEGREDO123';
     handler = routes({ [S3]: pdf });
@@ -569,6 +615,28 @@ describe('download do PDF — redirects validados um a um', () => {
     expect(logs.join(" | ")).toContain('me-0047-sandbox.s3.amazonaws.com');
     expect(logs.join(" | ")).not.toContain('SEGREDO123');
     expect(logs.join(" | ")).not.toContain('/pdf/abc.pdf');
+  });
+
+  it.each(['inicial', 'redirect'] as const)('diagnóstico %s: só hostname, sem porta, credenciais ou partes assinadas', async (stage) => {
+    const blocked = 'https://USUARIOSECRETO:SENHASECRETA@BLOQUEADO.example.test:8443/pdf/ARQUIVOSECRETO?X-Amz-Signature=ASSINATURASECRETA#FRAGMENTOSECRETO';
+    handler = () => redirect(blocked);
+    const error = await caught(client(PROD).downloadLabelPdf(stage === 'inicial' ? blocked : START));
+    expect(error).toMatchObject({ code: 'BAD_RESPONSE', fields: ['host_not_allowed'] });
+    expect(calls).toHaveLength(stage === 'inicial' ? 0 : 1);
+    const prefix = stage === 'inicial' ? 'hostname do PDF NÃO autorizado' : 'redirect para hostname NÃO autorizado';
+    expect(logs).toContain(`[melhor-envio:etiquetas] print.file → ${prefix} (production): bloqueado.example.test`);
+    const log = logs.join(' | ');
+    for (const secret of ['USUARIOSECRETO', 'SENHASECRETA', 'ARQUIVOSECRETO', 'ASSINATURASECRETA', 'FRAGMENTOSECRETO', '8443', 'X-Amz-', 'https://', TOKEN]) {
+      expect(log).not.toContain(secret);
+    }
+  });
+
+  it('diagnóstico preserva hostname DNS válido com mais de 120 caracteres, sem truncamento', async () => {
+    const hostname = `${'a'.repeat(60)}.${'b'.repeat(60)}.example.test`;
+    await caught(client(PROD).downloadLabelPdf(`https://${hostname}/pdf/NAOLOGAR?token=NAOLOGAR`));
+    expect(logs).toContain(`[melhor-envio:etiquetas] print.file → hostname do PDF NÃO autorizado (production): ${hostname}`);
+    expect(logs.join(' | ')).not.toContain('NAOLOGAR');
+    expect(calls).toHaveLength(0);
   });
 
   it('Sandbox: S3 aprovado redirecionando para OUTRO bucket → bloqueado no salto', async () => {

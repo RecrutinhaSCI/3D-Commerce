@@ -79,10 +79,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function render(ov: ApiLabelOverview) {
+async function render(ov: ApiLabelOverview, publicCode?: string) {
   svc.overview.mockResolvedValue(ov);
   root = createRoot(host);
-  await act(async () => root!.render(<ShipmentPanel orderId="o1" />));
+  await act(async () => root!.render(<ShipmentPanel orderId="o1" orderPublicCode={publicCode} />));
 }
 const text = () => document.body.textContent ?? '';
 const actionButtons = () => [...host.querySelectorAll<HTMLButtonElement>('[data-action]')].map((b) => b.dataset.action);
@@ -305,6 +305,18 @@ describe('download, erros e mobile', () => {
     expect(createObjectURL).toHaveBeenCalled();
     expect(byTestId('notice')!.textContent).toContain('Download da etiqueta iniciado');
     expect(anchorClick).toHaveBeenCalled();
+    anchorClick.mockRestore();
+  });
+
+  it('nome do arquivo usa código comercial mas a API continua recebendo o ID técnico', async () => {
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:local'), revokeObjectURL: vi.fn() });
+    let filename = '';
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { filename = this.download; });
+    await render(overview(READY), '3DCOMMERCE00042');
+    svc.file.mockResolvedValue(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+    await click(btn('DOWNLOAD'));
+    expect(filename).toContain('3DCOMMERCE00042.pdf');
+    expect(svc.file).toHaveBeenCalledWith('o1', 'attachment');
     anchorClick.mockRestore();
   });
 

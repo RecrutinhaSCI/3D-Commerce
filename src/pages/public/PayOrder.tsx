@@ -1,3 +1,4 @@
+import { orderReference } from '@/utils/orderReference';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { AlertCircle, Check } from 'lucide-react';
@@ -48,7 +49,7 @@ export default function PayOrder() {
             <Check className="h-7 w-7" />
           </div>
           <h1 className="mt-5 font-display text-3xl font-bold">Pagamento aprovado!</h1>
-          <p className="mt-3 text-ink-mute">Seu pedido foi confirmado. Enviamos a confirmação para o seu e-mail.</p>
+          <p className="mt-3 text-ink-mute">Seu pedido {order ? orderReference(order) : ''} foi confirmado. Enviamos a confirmação para o seu e-mail.</p>
           <Link to="/meus-pedidos" className="btn-primary mt-7 inline-flex">Ver meus pedidos</Link>
         </div>
       </div>
@@ -103,7 +104,7 @@ export default function PayOrder() {
       <p className="eyebrow">Meus pedidos</p>
       <h1 className="section-title">Pagar pedido</h1>
       <p className="mt-2 text-sm text-ink-mute">
-        Pedido <strong>{order.id}</strong> · {order.items.length} item(s) · total {formatBRL(order.total + order.paymentDiscount)}
+        Pedido <strong>{orderReference(order)}</strong> · {order.items.length} item(s) · total {formatBRL(order.total + order.paymentDiscount)}
       </p>
 
       <div className="mt-6 card max-w-2xl p-6">

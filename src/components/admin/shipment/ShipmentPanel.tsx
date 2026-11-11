@@ -64,7 +64,7 @@ const REASON_MODALS = {
  * SÓ `labelId` + token; nenhum preço/estado é calculado aqui. O bloqueio de
  * clique duplo é conforto de tela — a proteção real é o backend.
  */
-export function ShipmentPanel({ orderId }: { orderId: string }) {
+export function ShipmentPanel({ orderId, orderPublicCode }: { orderId: string; orderPublicCode?: string }) {
   const [ov, setOv] = useState<ApiLabelOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyKey | null>(null);
@@ -172,7 +172,7 @@ export function ShipmentPanel({ orderId }: { orderId: string }) {
       if (disposition === 'attachment') {
         const a = document.createElement('a');
         a.href = url;
-        a.download = `etiqueta-${label?.isTest ? 'TESTE-' : ''}${orderId}.pdf`;
+        a.download = `etiqueta-${label?.isTest ? 'TESTE-' : ''}${orderPublicCode ?? ov?.order.publicCode ?? orderId}.pdf`;
         document.body.appendChild(a);
         a.click();
         a.remove();

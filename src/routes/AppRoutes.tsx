@@ -1,4 +1,4 @@
-import { createBrowserRouter, useParams } from 'react-router-dom';
+import { createBrowserRouter, useParams, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { PublicLayout } from '@/components/layout/PublicLayout';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -87,7 +87,8 @@ export const router = createBrowserRouter([
       { path: '/orcamento', element: <L><QuoteWhatsapp /></L> },
       { path: '/sobre', element: <L><About /></L> },
       { path: '/materiais', element: <L><Materials /></L> },
-      { path: '/blog', element: <L><Blog /></L> },
+      { path: '/cursos', element: <L><Blog /></L> },
+      { path: '/blog', element: <Navigate to="/cursos" replace /> },
       { path: '/blog/:slug', element: <L><BlogPost /></L> },
       { path: '/faq', element: <L><FAQ /></L> },
       { path: '/como-comprar', element: <L><HowToBuy /></L> },

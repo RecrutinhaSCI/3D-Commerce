@@ -137,8 +137,8 @@ export function Header() {
             <NavLink to="/materiais" className={({ isActive }) => `nav-link ${isActive ? 'text-ink' : ''}`}>
               Materiais
             </NavLink>
-            <NavLink to="/blog" className={({ isActive }) => `nav-link ${isActive ? 'text-ink' : ''}`}>
-              Blog
+            <NavLink to="/cursos" className={({ isActive }) => `nav-link ${isActive ? 'text-ink' : ''}`}>
+              Cursos
             </NavLink>
             {seasonal && (
               // Cor da campanha (Admin → Categoria sazonal), com contraste AA

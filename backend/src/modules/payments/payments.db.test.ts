@@ -16,7 +16,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { PrismaClient } from '@prisma/client';
 import { DB_LOCK_TIMEOUT_MS, dbEnabled, lockTestDb, TEST_URL } from '../shipping/labels/labels.dbHarness.testdata';
 
-const h = vi.hoisted(() => ({ db: null as unknown as PrismaClient, emails: [] as Array<{ to: string; subject: string }> }));
+const h = vi.hoisted(() => ({ db: null as unknown as PrismaClient, emails: [] as Array<{ to: string; subject: string; html?: string; text?: string }> }));
 
 vi.mock('../../lib/prisma', () => ({
   get prisma() {
@@ -24,8 +24,8 @@ vi.mock('../../lib/prisma', () => ({
   },
 }));
 vi.mock('../../lib/email', () => ({
-  sendEmail: vi.fn(async (m: { to: string; subject: string }) => {
-    h.emails.push({ to: m.to, subject: m.subject });
+  sendEmail: vi.fn(async (m: { to: string; subject: string; html?: string; text?: string }) => {
+    h.emails.push({ to: m.to, subject: m.subject, html: m.html, text: m.text });
     return { sent: true };
   }),
 }));
@@ -175,6 +175,29 @@ describe.skipIf(!dbEnabled)('pagamentos — Postgres real + MP falso', () => {
     installFakeMp();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it('código público não substitui external_reference, webhook, cancelamento ou chave de estorno', async () => {
+    const id = await newOrder(h.db);
+    const code = (await order(id)).publicCode;
+    expect(code).toMatch(/^3DCOMMERCE\d{5,}$/);
+    expect(code).not.toBe(id);
+    const payment = await paymentsService.createPayment(userId, id, PIX);
+    expect(payment.orderId).toBe(id);
+    expect(createCalls()[0].body).toMatchObject({ external_reference: id });
+    const mpId = (await order(id)).mpPaymentId!;
+    setMpStatus(mpId, 'processed', 'processed', 'accredited');
+    expect(await paymentsService.processPaymentWebhook(mpId)).toBe('updated');
+    expect(await paymentsService.processPaymentWebhook(mpId)).toBe('unchanged');
+    expect(await stock()).toBe(8);
+    expect(await order(id)).toMatchObject({ id, publicCode: code, externalReference: id, paymentStatus: 'PAID' });
+    expect(h.emails).toEqual(expect.arrayContaining([expect.objectContaining({ html: expect.stringContaining(code) })]));
+    const result = await paymentsService.cancelOrRefund(id);
+    expect(result).toMatchObject({ orderId: id, result: 'refunded' });
+    expect(mp.calls.find((call) => call.path.endsWith('/refund'))?.idempotencyKey).toBe(`refund-${id}`);
+    expect(await order(id)).toMatchObject({ id, publicCode: code, externalReference: id, paymentStatus: 'REFUNDED' });
+    expect(h.emails.at(-1)).toMatchObject({ html: expect.stringContaining(code) });
+    expect(await stock()).toBe(10);
   });
 
   // -------------------------------------------------------------------------

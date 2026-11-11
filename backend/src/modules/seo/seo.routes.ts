@@ -18,7 +18,7 @@ const STATIC_PAGES: Array<{ path: string; changefreq: string; priority: string }
   { path: '/orcamento', changefreq: 'monthly', priority: '0.6' },
   { path: '/sobre', changefreq: 'monthly', priority: '0.5' },
   { path: '/materiais', changefreq: 'monthly', priority: '0.5' },
-  { path: '/blog', changefreq: 'weekly', priority: '0.5' },
+  { path: '/cursos', changefreq: 'weekly', priority: '0.5' },
   { path: '/faq', changefreq: 'monthly', priority: '0.5' },
   { path: '/como-comprar', changefreq: 'monthly', priority: '0.4' },
   { path: '/trocas-devolucoes', changefreq: 'yearly', priority: '0.3' },

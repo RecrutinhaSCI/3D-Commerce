@@ -34,7 +34,7 @@ export interface CustomerAddress {
 export interface CustomerDetail {
   customer: Customer & { address: CustomerAddress | null };
   stats: { purchaseCount: number; totalSpent: number; totalOnline: number; totalPos: number; lastPurchaseAt: string | null };
-  orders: Array<{ id: string; createdAt: string; total: number; status: string; paymentStatus: string; items: Array<{ productName: string; quantity: number }> }>;
+  orders: Array<{ id: string; publicCode?: string; createdAt: string; total: number; status: string; paymentStatus: string; items: Array<{ productName: string; quantity: number }> }>;
   posSales: Array<{ id: string; number: number; createdAt: string; total: number; status: 'COMPLETED' | 'CANCELED'; paymentMethod: PosPaymentMethod; items: Array<{ productName: string; quantity: number }> }>;
 }
 

@@ -263,6 +263,8 @@ export interface ApiOrderItem {
 
 export interface ApiOrder {
   id: string;
+  /** Commercial reference; optional for compatibility with older API responses. */
+  publicCode?: string;
   userId: string | null;
   customerName: string;
   customerEmail: string;
@@ -519,7 +521,7 @@ export interface ApiSettings {
   /** Capas do Blog por slug do post (Vercel Blob). Ausente em backend antigo. */
   blogCoversJson?: Record<string, string>;
   /** Textos dos posts editados no admin, por slug. Ausente em backend antigo. */
-  blogContentJson?: Record<string, { title?: string; category?: string; excerpt?: string; readTime?: string; content?: string }>;
+  blogContentJson?: Record<string, { active?: boolean; title?: string; category?: string; excerpt?: string; readTime?: string; content?: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -549,6 +551,7 @@ export interface ApiDashboard {
   last7Days: Array<{ date: string; orders: number; revenue: number }>;
   recentOrders: Array<{
     id: string;
+    publicCode?: string;
     customerName: string;
     customerEmail: string;
     customerPhone: string;

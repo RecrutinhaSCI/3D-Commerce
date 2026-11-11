@@ -23,7 +23,7 @@ export const settingsService = {
     return api.post<{ settings: ApiSettings }>(`/api/admin/settings/blog-covers/${encodeURIComponent(slug)}`, form);
   },
   /** Texto do post (substitui a versão salva). Campos vazios voltam ao padrão. */
-  updateBlogContent(slug: string, content: { title?: string; category?: string; excerpt?: string; readTime?: string; content?: string }) {
+  updateBlogContent(slug: string, content: { active?: boolean; title?: string; category?: string; excerpt?: string; readTime?: string; content?: string }) {
     return api.put<{ settings: ApiSettings }>(`/api/admin/settings/blog-posts/${encodeURIComponent(slug)}`, content);
   },
   /** Descarta a versão salva — o post volta ao texto padrão do código. */

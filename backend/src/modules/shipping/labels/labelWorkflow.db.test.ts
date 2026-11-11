@@ -7,7 +7,7 @@
  * teste APAGA etiquetas, pedidos e itens. Ex.:
  *   TEST_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/labels_test npx vitest run labelWorkflow.db
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaClient, type ShipmentLabel } from '@prisma/client';
 import { createLabelWorkflow, CONFIRMATION_TTL_MS, type LabelWorkflow } from './labelWorkflow';
 import type { MeLabelsRuntimeConfig } from './meLabelsClient';
@@ -73,6 +73,18 @@ describe.skipIf(!enabled)('labelWorkflow — Postgres real', () => {
     });
     return o.id;
   }
+
+  it('código público no painel preserva referência técnica do carrinho ME e relação da etiqueta', async () => {
+    const original = await dbA.order.findUniqueOrThrow({ where: { id: orderId } });
+    const client = me.client();
+    const add = vi.spyOn(client, 'addToCart');
+    const workflow = createLabelWorkflow({ db: dbA, client, config: CFG, now: () => new Date(clock), oauthConfigured: true });
+    const prepared = await workflow.prepare(orderId, { package: PKG, fiscal: DECL }, ADMIN);
+    expect(JSON.stringify(add.mock.calls[0][0])).toContain(`pedido-${orderId}`);
+    expect(JSON.stringify(add.mock.calls[0][0])).not.toContain(original.publicCode);
+    expect((await dbA.shipmentLabel.findUniqueOrThrow({ where: { id: prepared.label.id } })).orderId).toBe(orderId);
+    expect((await workflow.overview(orderId)).order).toMatchObject({ id: orderId, publicCode: original.publicCode });
+  });
 
   beforeEach(async () => {
     await seedCredential(dbA);

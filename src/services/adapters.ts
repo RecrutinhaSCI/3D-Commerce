@@ -269,6 +269,7 @@ const SHIPPING_LABELS: Record<ApiShippingMethod, string> = {
 export function apiOrderToInternal(o: ApiOrder): Order {
   return {
     id: o.id,
+    publicCode: o.publicCode,
     createdAt: o.createdAt,
     customerId: o.userId ?? undefined,
     customer: {

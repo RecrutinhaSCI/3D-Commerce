@@ -262,20 +262,26 @@ const MESSAGES: Record<LabelApiErrorCode, string> = {
  *  - `LABEL_FILE_SANDBOX_HOSTS`: hosts EXATOS (nunca sufixo) aceitos SÓ quando
  *    o cliente fala com o Sandbox oficial. Observado em 06/11/2026: o endpoint
  *    autenticado `imprimir/pdf` do Sandbox devolve URL pré-assinada desse
- *    bucket (PDF conferido). Produção NÃO herda: o host de produção só entra
- *    depois de observado na primeira etiqueta real.
+ *    bucket (PDF conferido). Produção NÃO herda os hosts do Sandbox.
+ *  - `LABEL_FILE_PRODUCTION_HOSTS`: host EXATO observado em produção e
+ *    aprovado pelo operador; aceito somente no ambiente production.
  */
 export const LABEL_FILE_ALLOWED_DOMAINS: readonly string[] = ['melhorenvio.com.br'];
 export const LABEL_FILE_SANDBOX_HOSTS: readonly string[] = ['me-0047-sandbox.s3.amazonaws.com'];
+export const LABEL_FILE_PRODUCTION_HOSTS: readonly string[] = ['me-0047-prod.s3.amazonaws.com'];
 export const ME_SANDBOX_HOST = 'sandbox.melhorenvio.com.br';
 export const MAX_LABEL_FILE_REDIRECTS = 3;
 const MAX_LABEL_PDF_BYTES = 10 * 1024 * 1024;
 
-const hostOf = (u: string | URL) => {
+/** Diagnóstico: somente hostname DNS normalizado, nunca porta/credenciais/URL.
+ * Não truncar um hostname válido: a evidência precisa identificar o host EXATO.
+ */
+const hostnameOf = (u: string | URL) => {
   try {
-    return (typeof u === 'string' ? new URL(u) : u).host.slice(0, 120) || '?';
+    const hostname = (typeof u === 'string' ? new URL(u) : u).hostname.toLowerCase().replace(/\.$/, '');
+    return hostname && hostname.length <= 253 ? hostname : '<hostname inválido>';
   } catch {
-    return '<url inválida>';
+    return '<hostname inválido>';
   }
 };
 
@@ -295,8 +301,8 @@ function isOfficialSandbox(ctx: LabelFileContext | undefined): boolean {
 /**
  * URL permitida para baixar o PDF? HTTPS, porta 443, sem credenciais, nunca IP
  * literal/nome local; host do Melhor Envio (ou subdomínio) em qualquer
- * ambiente; host EXATO de `LABEL_FILE_SANDBOX_HOSTS` só no Sandbox oficial.
- * Sem contexto = regra de produção (a mais estrita).
+ * ambiente; hosts S3 EXATOS separados por ambiente.
+ * Sem contexto = somente os domínios oficiais, sem hosts S3.
  */
 export function isAllowedLabelFileUrl(raw: string | URL, ctx?: LabelFileContext): boolean {
   let u: URL;
@@ -311,6 +317,7 @@ export function isAllowedLabelFileUrl(raw: string | URL, ctx?: LabelFileContext)
   // IP literal (v4/v6) ou nome local: nunca, mesmo que a allowlist mude.
   if (/^\[.*\]$/.test(host) || /^\d+(\.\d+){3}$/.test(host) || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
   if (LABEL_FILE_ALLOWED_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`))) return true;
+  if (ctx?.environment === 'production' && LABEL_FILE_PRODUCTION_HOSTS.includes(host)) return true;
   return isOfficialSandbox(ctx) && LABEL_FILE_SANDBOX_HOSTS.includes(host);
 }
 
@@ -566,7 +573,7 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
       const cfg = guard(op);
       if (!isAllowedLabelFileUrl(url, cfg)) {
         // Só o host (nunca a URL assinada): é o dado que o operador precisa para aprovar.
-        log(`[melhor-envio:etiquetas] print.file → host do PDF NÃO autorizado (${cfg.environment}): ${hostOf(url)}`);
+        log(`[melhor-envio:etiquetas] print.file → hostname do PDF NÃO autorizado (${cfg.environment}): ${hostnameOf(url)}`);
         return fail(op, 'BAD_RESPONSE', 'not_sent', { fields: ['host_not_allowed'] });
       }
       let target = new URL(url);
@@ -598,7 +605,7 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
             return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
           }
           if (!isAllowedLabelFileUrl(next, cfg)) {
-            log(`[melhor-envio:etiquetas] print.file → redirect para host NÃO autorizado (${cfg.environment}): ${hostOf(next)}`);
+            log(`[melhor-envio:etiquetas] print.file → redirect para hostname NÃO autorizado (${cfg.environment}): ${hostnameOf(next)}`);
             return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status, fields: ['host_not_allowed'] });
           }
           target = next;

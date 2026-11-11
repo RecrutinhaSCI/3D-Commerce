@@ -15,6 +15,7 @@ const optionalText = (max: number) =>
 
 export const blogPostContentSchema = z
   .object({
+    active: z.boolean().optional(),
     title: optionalText(160),
     category: optionalText(40),
     excerpt: optionalText(400),

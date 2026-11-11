@@ -140,6 +140,8 @@ export interface OrderItem {
 
 export interface Order {
   id: string;
+  /** Commercial reference; optional for compatibility with older API responses. */
+  publicCode?: string;
   createdAt: string;
   customerId?: string;
   customer: {
@@ -268,7 +270,7 @@ export interface StoreSettings {
   /** Capas do Blog por slug do post. Sem capa = ilustração padrão. */
   blogCovers: Record<string, string>;
   /** Textos dos posts editados no admin (sobrescrevem o padrão do código), por slug. */
-  blogContent: Record<string, Partial<Pick<BlogPost, 'title' | 'category' | 'excerpt' | 'readTime' | 'content'>>>;
+  blogContent: Record<string, Partial<Pick<BlogPost, 'title' | 'category' | 'excerpt' | 'readTime' | 'content' | 'active'>>>;
 }
 
 export interface CartItem {
@@ -279,6 +281,7 @@ export interface CartItem {
 }
 
 export interface BlogPost {
+  active?: boolean;
   id: string;
   slug: string;
   title: string;
