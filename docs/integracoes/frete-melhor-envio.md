@@ -60,7 +60,7 @@ Ambiente: backend local + Postgres isolado (`me_homolog`, 127.0.0.1), Melhor Env
 
 ## Capturar hostname bloqueado do PDF em produção
 
-A allowlist de produção continua sem novos hosts até existir evidência do hostname exato. Não comprar nem gerar outra etiqueta para diagnosticar.
+O hostname `me-0047-prod.s3.amazonaws.com` foi capturado em produção e explicitamente aprovado pelo operador. A allowlist aceita somente esse host S3 exato em produção, sem wildcard. Para qualquer novo destino bloqueado, capturar evidência antes de liberar. Não comprar nem gerar outra etiqueta para diagnosticar.
 
 1. No Admin > Pedidos, abrir um pedido com etiqueta **já comprada e gerada** e clicar uma vez em **Baixar etiqueta**. Anotar somente o horário da tentativa.
 2. No Render Dashboard, abrir o serviço **backend da 3DCommerce > Logs**, no intervalo desse horário; filtrar por `[melhor-envio:etiquetas] print.file` e `NÃO autorizado (production)`.
@@ -68,7 +68,7 @@ A allowlist de produção continua sem novos hosts até existir evidência do ho
 4. Copiar **somente o hostname depois do último `: `**, sem caminho, credenciais, parâmetros, assinatura ou URL completa. Não copiar resposta do Melhor Envio, token, dados do pedido ou conteúdo do PDF. Se o log mostrar `<hostname inválido>`, informar esse diagnóstico sem copiar a entrada bruta.
 5. Com a evidência, revisar o hostname e autorizar apenas o destino exato em alteração separada, mantendo HTTPS, validação de cada redirect e demais testes. Depois da liberação e publicação autorizadas, repetir Baixar/Imprimir usando a mesma etiqueta; um bloqueio em outro redirect exige nova evidência, nunca wildcard.
 
-O diagnóstico usa `URL.hostname`, sem porta e sem truncar nomes DNS válidos. As linhas existentes já permitem capturar o bloqueio; esta etapa não executou nenhuma operação em produção e não modificou a allowlist.
+O diagnóstico usa `URL.hostname`, sem porta e sem truncar nomes DNS válidos. As linhas existentes já permitem capturar o bloqueio; a liberação do hostname aprovado foi validada com respostas simuladas, sem operações em produção. HTTPS, redirects validados, limites e validação do PDF permanecem obrigatórios.
 
 ## Resultado da homologação Sandbox — 22/10/2026
 
