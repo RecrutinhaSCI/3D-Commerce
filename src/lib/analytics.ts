@@ -72,3 +72,9 @@ export function trackPageView(path: string) {
   if (!loaded || !window.gtag || !GA_ID) return;
   window.gtag('event', 'page_view', { page_path: path, page_location: window.location.href, page_title: document.title });
 }
+
+/** Course CTA only; never send destination URLs, signed parameters or customer data. */
+export function trackCourseClick(id: string, type: 'external' | 'whatsapp') {
+  if (!loaded || !window.gtag || !GA_ID || !readConsent()?.analytics) return;
+  window.gtag('event', 'course_cta_click', { course_id: id, cta_type: type });
+}

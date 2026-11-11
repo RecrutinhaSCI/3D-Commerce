@@ -95,8 +95,8 @@ export function MobileDrawer() {
           <Link to="/materiais" onClick={close} className="block rounded-lg px-3 py-2.5 hover:bg-ink/5">
             Materiais
           </Link>
-          <Link to="/blog" onClick={close} className="block rounded-lg px-3 py-2.5 hover:bg-ink/5">
-            Blog
+          <Link to="/cursos" onClick={close} className="block rounded-lg px-3 py-2.5 hover:bg-ink/5">
+            Cursos
           </Link>
           <Link to="/sobre" onClick={close} className="block rounded-lg px-3 py-2.5 hover:bg-ink/5">
             Sobre

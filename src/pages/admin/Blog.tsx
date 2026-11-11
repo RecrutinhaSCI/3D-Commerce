@@ -1,3 +1,5 @@
+import { MotionConfig } from 'framer-motion';
+import { CoursesManager } from '@/components/admin/CoursesManager';
 import { useState } from 'react';
 import { ExternalLink, PenLine } from 'lucide-react';
 import { RemoteImageUploader } from '@/components/admin/RemoteImageUploader';
@@ -20,7 +22,7 @@ import { Button } from '@/components/ui/Button';
  * (site_settings.blog_content_json). Capas no Vercel Blob (blog_covers_json).
  */
 export default function AdminBlog() {
-  useSEO('Admin Blog');
+  useSEO('Admin Cursos e Guias');
   const covers = useAdminDataStore((s) => s.settings.blogCovers);
   const overrides = useAdminDataStore((s) => s.settings.blogContent);
   const posts = resolveBlogPosts(seedBlogPosts, overrides, covers);
@@ -34,20 +36,23 @@ export default function AdminBlog() {
   }
 
   return (
+    <MotionConfig reducedMotion="user">
     <div>
       <header className="mb-6">
-        <h1 className="text-2xl font-bold">Blog</h1>
+        <h1 className="text-2xl font-bold">Cursos e Guias</h1>
         <p className="text-sm text-ink-mute">
-          Edite o texto (Markdown) e a capa de cada post. A capa é salva na hora do envio; o texto, ao clicar em “Salvar post”.
+          Gerencie os cursos e preserve seus guias em uma única área.
         </p>
       </header>
 
+      <CoursesManager />
+      <h2 className="mb-4 text-xl font-bold">Guias</h2>
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {posts.map((p, i) => (
           <article key={p.slug} {...editOnDoubleClick(() => setEditing(p.slug))} className="card flex flex-col gap-4 p-5">
             <div>
               <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-ink-mute">
-                {p.category}
+                {p.category} · {p.active ? 'Ativo' : 'Inativo'}
                 <span className={`rounded px-1.5 py-0.5 ${p.customized ? 'bg-emerald-50 text-emerald-700' : 'bg-bg-soft text-ink-mute'}`}>
                   {p.customized ? 'Editado' : 'Texto padrão'}
                 </span>
@@ -105,5 +110,6 @@ export default function AdminBlog() {
         <BlogPostEditor key={editingPost.slug} post={editingPost} base={editingBase} onClose={() => setEditing(null)} />
       )}
     </div>
+    </MotionConfig>
   );
 }

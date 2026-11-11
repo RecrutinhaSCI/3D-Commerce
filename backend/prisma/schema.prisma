@@ -1167,3 +1167,28 @@ model ShipmentLabelEvent {
   @@index([orderId])
   @@map("shipment_label_events")
 }
+
+/// Divulgação comercial de cursos; matrícula e pagamento acontecem fora da loja.
+model Course {
+  id               String   @id @default(cuid())
+  title            String
+  slug             String   @unique
+  eyebrow          String   @default("")
+  description      String   @default("")
+  shortDescription String   @default("") @map("short_description")
+  coverImage       String?  @map("cover_image")
+  levelLabel       String   @default("") @map("level_label")
+  originalPrice    Decimal? @db.Decimal(10, 2) @map("original_price")
+  price            Decimal? @db.Decimal(10, 2)
+  externalUrl      String   @map("external_url")
+  buttonLabel      String   @default("Conhecer curso") @map("button_label")
+  ctaType          String   @default("external") @map("cta_type")
+  featured         Boolean  @default(false)
+  active           Boolean  @default(false)
+  displayOrder     Int      @default(0) @map("display_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([active, displayOrder])
+  @@map("courses")
+}

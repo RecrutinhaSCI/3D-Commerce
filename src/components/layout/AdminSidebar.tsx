@@ -67,7 +67,7 @@ const groups: NavGroup[] = [
     items: [
       { to: '/admin/depoimentos', label: 'Depoimentos', icon: MessageSquareQuote },
       { to: '/admin/scripts', label: 'Scripts', icon: MessageCircle },
-      { to: '/admin/blog', label: 'Blog', icon: Newspaper },
+      { to: '/admin/blog', label: 'Cursos e Guias', icon: Newspaper },
     ],
   },
   {

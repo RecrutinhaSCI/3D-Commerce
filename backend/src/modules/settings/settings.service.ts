@@ -23,6 +23,8 @@ function asContentRecord(v: unknown): Record<string, BlogPostContent> {
       const val = (raw as Record<string, unknown>)[k];
       if (typeof val === 'string' && val.trim()) entry[k] = val;
     }
+    const active = (raw as Record<string, unknown>).active;
+    if (typeof active === 'boolean') entry.active = active;
     if (Object.keys(entry).length) out[slug] = entry;
   }
   return out;
@@ -227,7 +229,7 @@ export const settingsService = {
     const current = await ensureSettings();
     const all = asContentRecord(current.blogContentJson);
     const clean = content
-      ? (Object.fromEntries(Object.entries(content).filter(([, v]) => typeof v === 'string' && v)) as BlogPostContent)
+      ? (Object.fromEntries(Object.entries(content).filter(([key, v]) => key === 'active' ? typeof v === 'boolean' : typeof v === 'string' && v)) as BlogPostContent)
       : null;
     if (clean && Object.keys(clean).length) all[slug] = clean;
     else delete all[slug];

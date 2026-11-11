@@ -65,6 +65,15 @@ describe('capas do blog', () => {
 });
 
 describe('textos do blog (blog_content_json)', () => {
+  it('preserva active=false no JSON/DTO e mantém conteúdo do guia oculto', async () => {
+    const input = blogPostContentSchema.parse({ active: false, title: 'Guia de resina', content: 'Conteúdo preservado' });
+    await settingsService.setBlogContent('resina', input);
+    const result = await settingsService.getPublic();
+    expect(result.blogContentJson.resina).toEqual(input);
+    expect(result.blogContentJson.resina.active).toBe(false);
+    expect(blogPostContentSchema.safeParse({ active: 'false' }).success).toBe(false);
+  });
+
   it('grava os campos enviados por slug e devolve no DTO público', async () => {
     const md = '## Olá\n\n**negrito**';
     const input = blogPostContentSchema.parse({ title: '  Novo título ', content: md });

@@ -270,7 +270,7 @@ A impressora endurece resina líquida com luz UV, camada por camada.
 - Ideal para miniaturas, joias e modelos odontológicos.
 - Exige lavagem, cura UV, luvas e ventilação.
 
-**Para a maioria das pessoas, a primeira impressora deve ser FDM.** Ela atende mais projetos, tem materiais mais baratos e um processo mais simples. Resina faz sentido quando o foco é detalhe extremo — falamos disso em [quando usar resina na impressão 3D](/blog/quando-usar-resina-impressao-3d).
+**Para a maioria das pessoas, a primeira impressora deve ser FDM.** Ela atende mais projetos, tem materiais mais baratos e um processo mais simples. Resina faz sentido quando o foco é detalhe extremo.
 
 ## O que avaliar numa impressora FDM
 
