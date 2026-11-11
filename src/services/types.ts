@@ -263,6 +263,8 @@ export interface ApiOrderItem {
 
 export interface ApiOrder {
   id: string;
+  /** Commercial reference; optional for compatibility with older API responses. */
+  publicCode?: string;
   userId: string | null;
   customerName: string;
   customerEmail: string;
@@ -549,6 +551,7 @@ export interface ApiDashboard {
   last7Days: Array<{ date: string; orders: number; revenue: number }>;
   recentOrders: Array<{
     id: string;
+    publicCode?: string;
     customerName: string;
     customerEmail: string;
     customerPhone: string;

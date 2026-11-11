@@ -140,6 +140,8 @@ export interface OrderItem {
 
 export interface Order {
   id: string;
+  /** Commercial reference; optional for compatibility with older API responses. */
+  publicCode?: string;
   createdAt: string;
   customerId?: string;
   customer: {

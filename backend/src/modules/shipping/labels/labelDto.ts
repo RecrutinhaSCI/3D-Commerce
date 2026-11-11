@@ -49,6 +49,7 @@ export interface LabelsConfigView {
 
 export interface OrderLabelContext {
   id: string;
+  publicCode?: string;
   paid: boolean;
   canceled: boolean;
   /** Entrega com serviço de etiqueta suportado (retirada = false). */

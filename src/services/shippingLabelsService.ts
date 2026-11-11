@@ -116,6 +116,7 @@ export interface ApiLabelMeError {
 export interface ApiLabelOverview {
   order: {
     id: string;
+    publicCode?: string;
     paid: boolean;
     canceled: boolean;
     serviceSupported: boolean;

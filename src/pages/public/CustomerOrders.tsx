@@ -1,3 +1,4 @@
+import { orderReference } from '@/utils/orderReference';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { AlertCircle, ChevronRight, ExternalLink, MapPin, Package, Truck } from 'lucide-react';
@@ -234,7 +235,7 @@ export default function CustomerOrders() {
                 className="card flex w-full items-center justify-between gap-4 p-5 text-left transition hover:-translate-y-0.5 hover:border-ink/20 hover:shadow-card"
               >
                 <div>
-                  <p className="text-sm font-bold tabular-nums">{o.id}</p>
+                  <p className="text-sm font-bold tabular-nums">{orderReference(o)}</p>
                   <p className="mt-0.5 text-xs text-ink-mute">
                     {new Date(o.createdAt).toLocaleDateString('pt-BR')} · {o.items.length} item(s)
                   </p>
@@ -262,7 +263,7 @@ export default function CustomerOrders() {
         </div>
       )}
 
-      <Drawer open={!!active} onClose={() => setActive(null)} title={active?.id ?? 'Pedido'}>
+      <Drawer open={!!active} onClose={() => setActive(null)} title={active ? `Pedido ${orderReference(active)}` : 'Pedido'}>
         {active && (
           <div className="space-y-5 p-5 text-sm">
             <div className="flex items-center justify-between">

@@ -391,9 +391,9 @@ async function closePreviousAttempt(mpOrderId: string): Promise<'paid' | 'closed
 /** Avisa o cliente do cancelamento (não-bloqueante, nunca lança). */
 async function notifyCanceled(orderId: string, reason: 'refunded' | 'canceled' | 'expired'): Promise<void> {
   try {
-    const o = await prisma.order.findUnique({ where: { id: orderId }, select: { customerEmail: true, total: true } });
+    const o = await prisma.order.findUnique({ where: { id: orderId }, select: { customerEmail: true, total: true, publicCode: true } });
     if (!o) return;
-    const content = orderCanceledEmail(orderId, reason, decimalToNumber(o.total) ?? undefined);
+    const content = orderCanceledEmail(o.publicCode ?? orderId, reason, decimalToNumber(o.total) ?? undefined);
     await sendEmail({ to: o.customerEmail, subject: content.subject, html: content.html, text: content.text });
   } catch {
     // eslint-disable-next-line no-console

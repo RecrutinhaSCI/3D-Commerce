@@ -1,3 +1,4 @@
+import { orderReference } from '@/utils/orderReference';
 import { useCallback, useEffect, useState } from 'react';
 import { formatBRL } from '@/utils/price';
 import { Package, ShoppingCart, AlertTriangle, DollarSign, RefreshCw } from 'lucide-react';
@@ -157,7 +158,7 @@ export default function Dashboard() {
               )}
               {recent.map((o) => (
                 <tr key={o.id} className="transition-colors hover:bg-bg-soft/60">
-                  <td className="px-5 py-3 font-semibold tabular-nums">{o.id}</td>
+                  <td className="px-5 py-3 font-semibold tabular-nums">{orderReference(o)}</td>
                   <td className="px-5 py-3 text-ink-soft">{o.customerName}</td>
                   <td className="px-5 py-3 tabular-nums">{formatBRL(o.total)}</td>
                   <td className="px-5 py-3">

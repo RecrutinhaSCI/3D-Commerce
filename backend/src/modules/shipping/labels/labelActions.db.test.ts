@@ -496,7 +496,7 @@ describe.skipIf(!dbEnabled)('arquivo da etiqueta (download/impressão) — Postg
     const gets = me.calls.get;
     const { pdf, filename } = await w.labelFile(orderId, ADMIN);
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
-    expect(filename).toMatch(/^etiqueta-TESTE-/);
+    expect(filename).toBe(`etiqueta-TESTE-${(await db.order.findUniqueOrThrow({ where: { id: orderId } })).publicCode}.pdf`);
     expect(me.calls.get - gets).toBe(1); // revalidou antes de liberar
     expect(me.calls.file).toBe(1);
     const dump = JSON.stringify([await db.shipmentLabel.findMany(), await db.shipmentLabelEvent.findMany()]);

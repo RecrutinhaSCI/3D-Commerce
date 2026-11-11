@@ -1128,7 +1128,7 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
     const order = await client_.order.findUnique({
       where: { id: orderId },
       select: {
-        id: true, paymentStatus: true, status: true, shippingMethod: true, shippingServiceId: true, shippingValue: true,
+        id: true, publicCode: true, paymentStatus: true, status: true, shippingMethod: true, shippingServiceId: true, shippingValue: true,
         shippingServiceName: true, shippingCarrier: true, shippingDeadlineDays: true, addressSnapshot: true, customerCpf: true, trackingCode: true,
         items: { select: { quantity: true, product: { select: { weight: true, width: true, height: true, depth: true } } } },
       },
@@ -1158,6 +1158,7 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
     return buildLabelOverview(label, history, {
       order: {
         id: order.id,
+        publicCode: order.publicCode,
         paid: order.paymentStatus === 'PAID',
         canceled: order.status === 'CANCELED',
         serviceSupported,
@@ -1232,7 +1233,8 @@ export function createLabelWorkflow(deps: LabelWorkflowDeps = {}) {
       throw new HttpError(502, 'LABEL_FILE_UNAVAILABLE', 'O Melhor Envio não entregou o arquivo da etiqueta agora. Tente de novo em instantes.', { error: err.toSafeJSON() });
     }
     await logEvent(row, 'LABEL_FILE_DOWNLOADED', userId, { bytes: pdf.length });
-    return { pdf, filename: `etiqueta-${row.environment === 'production' ? '' : 'TESTE-'}${orderId}.pdf` };
+    const order = await (await db()).order.findUniqueOrThrow({ where: { id: orderId }, select: { publicCode: true } });
+    return { pdf, filename: `etiqueta-${row.environment === 'production' ? '' : 'TESTE-'}${order.publicCode}.pdf` };
   }
 
   async function events(orderId: string) {

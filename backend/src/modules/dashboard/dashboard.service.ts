@@ -136,6 +136,7 @@ export const dashboardService = {
         take: 5,
         select: {
           id: true,
+          publicCode: true,
           customerName: true,
           customerEmail: true,
           customerPhone: true,
@@ -192,6 +193,7 @@ export const dashboardService = {
     // ---- Serialização das listas ----------------------------------------
     const recentOrders = recentOrdersRaw.map((o) => ({
       id: o.id,
+      publicCode: o.publicCode,
       customerName: o.customerName,
       customerEmail: o.customerEmail,
       customerPhone: o.customerPhone,

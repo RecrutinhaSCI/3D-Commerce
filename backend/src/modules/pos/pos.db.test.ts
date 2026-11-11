@@ -332,6 +332,7 @@ describe.skipIf(!dbEnabled)('PDV — Postgres real', () => {
       expect(p).toMatchObject({ initial: 20, ecommerce: -2, pos: -5, internalUse: -1, adjustments: 0, returns: 1, final: 13, expectedFinal: 13, discrepancy: 0 });
       expect(p.movements.map((m) => [m.type, m.delta])).toEqual([['ECOMMERCE_SALE', -2], ['POS_SALE', -5], ['INTERNAL_USE', -1], ['RETURN', 1]]);
       expect(p.movements[0].orderId).toBe(orderId);
+      expect(p.movements[0].reference).toBe(`Pedido ${(await h.db.order.findUniqueOrThrow({ where: { id: orderId } })).publicCode}`);
       expect(p.movements[1].reference).toBe(`Venda #PDV-${v1.number}`);
       expect(p.movements[2].note).toBe('Produção interna');
 
@@ -351,6 +352,17 @@ describe.skipIf(!dbEnabled)('PDV — Postgres real', () => {
       expect(report.payments.find((x) => x.method === 'DEBIT_CARD')).toMatchObject({ count: 0, total: 0 });
       expect(report.cash).toEqual({ opening: 200, expected: 600, counted: 600, difference: 0 });
       expect(closed).toMatchObject({ status: 'CLOSED', salesCount: 2, totalSold: 570 });
+      // Simulates an old closed snapshot: present commercial code without rewriting saved amounts/references.
+      const legacy = structuredClone(report);
+      legacy.stock.products.find((x) => x.productId === preto.id)!.movements[0].reference = `Pedido #${orderId.slice(-6).toUpperCase()}`;
+      await h.db.cashSession.update({ where: { id: session.id }, data: { reportJson: legacy as never } });
+      const read = await posService.getSession(session.id);
+      expect(read.live).toBe(false);
+      expect(read.report.summary).toEqual(legacy.summary);
+      expect(read.report.cash).toEqual(legacy.cash);
+      expect(read.report.stock.totals).toEqual(legacy.stock.totals);
+      expect(read.report.stock.products.find((x) => x.productId === preto.id)!.movements[0]).toMatchObject({ orderId, reference: `Pedido ${(await h.db.order.findUniqueOrThrow({ where: { id: orderId } })).publicCode}` });
+      expect((await h.db.cashSession.findUniqueOrThrow({ where: { id: session.id } })).reportJson).toEqual(legacy);
     });
 
     it('janela lógica: toda origem entra, inicial + colunas = final, e online fica fora do caixa', async () => {

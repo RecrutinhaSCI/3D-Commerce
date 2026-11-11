@@ -17,6 +17,7 @@ vi.mock('../../lib/email', () => ({ sendEmail: vi.fn(async () => ({ sent: true }
 import { applyStockMoves, InsufficientStockError, stockService, setStockAbsolute } from './stock.service';
 import { applyStockForOrder, cancelOrderRecord, restoreStockForOrder } from '../orders/orders.service';
 import { productsService } from '../products/products.service';
+import { movementsQuerySchema } from './stock.schemas';
 
 const actor = { id: 'admin-1', name: 'Operador' };
 const POS = { type: 'POS_SALE', source: 'POS', actor } as const;
@@ -56,6 +57,18 @@ describe.skipIf(!dbEnabled)('estoque — Postgres real', () => {
     await h.db?.$disconnect();
     await unlock?.();
   });
+  it('busca/exibe código público na referência online sem regravar histórico nem alterar orderId', async () => {
+    const p = await product(10);
+    const id = await order(p.id, 2);
+    await applyStockForOrder(id);
+    const code = (await h.db.order.findUniqueOrThrow({ where: { id } })).publicCode;
+    const saved = await h.db.stockMovement.findFirstOrThrow({ where: { orderId: id } });
+    const result = await stockService.listMovements(movementsQuerySchema.parse({ search: code }));
+    expect(result.movements).toHaveLength(1);
+    expect(result.movements[0]).toMatchObject({ orderId: id, referenceLabel: `Pedido ${code}` });
+    expect((await h.db.stockMovement.findUniqueOrThrow({ where: { id: saved.id } })).referenceLabel).toBe(saved.referenceLabel);
+  });
+
   beforeEach(async () => {
     await h.db.$executeRawUnsafe('TRUNCATE stock_movements, order_items, orders, cart_items, product_images, products, categories RESTART IDENTITY CASCADE');
     await h.db.category.create({ data: { id: 'cat-1', name: 'Filamentos', slug: 'filamentos' } });

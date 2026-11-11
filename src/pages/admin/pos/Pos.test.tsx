@@ -586,7 +586,7 @@ describe('Clientes', () => {
     customers.get.mockResolvedValue({
       customer: { ...row, document: '52998224725', address: { street: 'Rua A', number: '10', city: 'Passo Fundo', state: 'RS' } },
       stats: { purchaseCount: 2, totalSpent: 150, totalOnline: 100, totalPos: 50, lastPurchaseAt: '2026-11-10T12:00:00Z' },
-      orders: [{ id: 'ordabc123', createdAt: '2026-11-09T12:00:00Z', total: 100, status: 'CONFIRMED', paymentStatus: 'PAID', items: [{ productName: 'PLA', quantity: 1 }] }],
+      orders: [{ id: 'ordabc123', publicCode: '3DCOMMERCE00042', createdAt: '2026-11-09T12:00:00Z', total: 100, status: 'CONFIRMED', paymentStatus: 'PAID', items: [{ productName: 'PLA', quantity: 1 }] }],
       posSales: [{ id: 'v1', number: 104, createdAt: '2026-11-10T12:00:00Z', total: 50, status: 'COMPLETED', paymentMethod: 'PIX', items: [{ productName: 'PETG', quantity: 1 }] }],
     });
     await render(<Customers />, '/admin/clientes');
@@ -598,7 +598,8 @@ describe('Clientes', () => {
     await flush();
     expect(text()).toContain('529.982.247-25');
     expect(text()).toContain('PDV-104');
-    expect(text()).toContain('Pedido #ABC123');
+    expect(text()).toContain('Pedido 3DCOMMERCE00042');
+    expect(text()).not.toContain('ordabc123');
     expect(text()).toContain('Passo Fundo');
   });
 

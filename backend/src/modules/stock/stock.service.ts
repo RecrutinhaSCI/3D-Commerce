@@ -212,7 +212,7 @@ function toMovementDTO(m: {
   id: string; seq: number; productId: string; productName: string; productSku: string | null;
   type: StockMovementType; source: StockMovementSource; quantityBefore: number; quantityDelta: number;
   quantityAfter: number; userName: string | null; note: string | null; orderId: string | null;
-  referenceLabel: string | null; createdAt: Date;
+  referenceLabel: string | null; createdAt: Date; order?: { publicCode: string } | null;
 }) {
   return {
     id: m.id,
@@ -228,7 +228,7 @@ function toMovementDTO(m: {
     userName: m.userName,
     note: m.note,
     orderId: m.orderId,
-    referenceLabel: m.referenceLabel,
+    referenceLabel: m.order?.publicCode ? `Pedido ${m.order.publicCode}` : m.referenceLabel,
     createdAt: m.createdAt.toISOString(),
   };
 }
@@ -272,6 +272,7 @@ export const stockService = {
         { productName: { contains: query.search, mode: 'insensitive' } },
         { productSku: { contains: query.search, mode: 'insensitive' } },
         { referenceLabel: { contains: query.search, mode: 'insensitive' } },
+        { order: { publicCode: { contains: query.search, mode: 'insensitive' } } },
       ];
     }
     if (query.from || query.to) {
@@ -280,7 +281,7 @@ export const stockService = {
     const skip = (query.page - 1) * query.limit;
     const [total, rows] = await Promise.all([
       prisma.stockMovement.count({ where }),
-      prisma.stockMovement.findMany({ where, orderBy: { seq: 'desc' }, skip, take: query.limit }),
+      prisma.stockMovement.findMany({ where, include: { order: { select: { publicCode: true } } }, orderBy: { seq: 'desc' }, skip, take: query.limit }),
     ]);
     return {
       movements: rows.map(toMovementDTO),

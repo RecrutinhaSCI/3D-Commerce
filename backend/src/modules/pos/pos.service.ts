@@ -146,12 +146,12 @@ async function lockOperatorSession(tx: Tx, operatorId: string): Promise<string> 
 
 async function loadReportData(db: Tx | typeof prisma, sessionId: string, fromSeq: number, toSeq: number) {
   const [movements, sales, returns] = await Promise.all([
-    db.stockMovement.findMany({ where: { seq: { gt: fromSeq, lte: toSeq } }, orderBy: { seq: 'asc' } }),
+    db.stockMovement.findMany({ where: { seq: { gt: fromSeq, lte: toSeq } }, include: { order: { select: { publicCode: true } } }, orderBy: { seq: 'asc' } }),
     db.posSale.findMany({ where: { cashSessionId: sessionId }, include: { items: true }, orderBy: { number: 'asc' } }),
     db.posReturn.findMany({ where: { cashSessionId: sessionId }, include: { sale: { select: { number: true } } }, orderBy: { number: 'asc' } }),
   ]);
   return {
-    movements,
+    movements: movements.map((m) => ({ ...m, referenceLabel: m.order?.publicCode ? `Pedido ${m.order.publicCode}` : m.referenceLabel })),
     sales: sales.map((s) => ({
       id: s.id,
       number: s.number,
@@ -305,7 +305,15 @@ export const posService = {
     const session = await prisma.cashSession.findUnique({ where: { id: sessionId } });
     if (!session) throw HttpError.notFound('Caixa não encontrado.');
     if (session.status === CashSessionStatus.CLOSED && session.reportJson) {
-      return { session: toSessionSummary(session), report: session.reportJson as unknown as SessionReport, live: false };
+      const frozen = session.reportJson as unknown as SessionReport;
+      const ids = [...new Set(frozen.stock.products.flatMap((p) => p.movements.map((m) => m.orderId)).filter((id): id is string => Boolean(id)))];
+      const codes = new Map((ids.length ? await prisma.order.findMany({ where: { id: { in: ids } }, select: { id: true, publicCode: true } }) : []).map((o) => [o.id, o.publicCode]));
+      // Only presentation changes: never recalculate or rewrite frozen financial/stock snapshots.
+      const report = { ...frozen, stock: { ...frozen.stock, products: frozen.stock.products.map((p) => ({ ...p, movements: p.movements.map((m) => {
+        const code = m.orderId ? codes.get(m.orderId) : undefined;
+        return code ? { ...m, reference: `Pedido ${code}` } : m;
+      }) })) } };
+      return { session: toSessionSummary(session), report, live: false };
     }
     const toSeq = await lastMovementSeq(prisma as unknown as Tx);
     const [data, products] = await Promise.all([

@@ -1,3 +1,6 @@
+import { orderService } from '@/services/orderService';
+import { apiOrderToInternal } from '@/services/adapters';
+import { orderReference } from '@/utils/orderReference';
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -37,6 +40,10 @@ export default function Orders() {
   const initialStatus = (params.get('status') ?? 'all') as 'all' | OrderStatus;
   const [filter, setFilter] = useState<'all' | OrderStatus>(initialStatus);
   const [active, setActive] = useState<Order | null>(null);
+  const [search, setSearch] = useState('');
+  const [searchOrders, setSearchOrders] = useState<Order[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchRevision, setSearchRevision] = useState(0);
   const [trackingInput, setTrackingInput] = useState('');
   const [savingTracking, setSavingTracking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -52,7 +59,26 @@ export default function Orders() {
     setTrackingInput(active?.shipping.trackingCode ?? '');
   }, [active]);
 
-  const filtered = orders.filter((o) => {
+  useEffect(() => {
+    const term = search.trim();
+    let cancelled = false;
+    setSearchOrders(null);
+    if (!term) { setSearching(false); return; }
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      orderService.listAdmin({ search: term, limit: 100 }).then(({ orders: found }) => {
+        if (!cancelled) setSearchOrders(found.map(apiOrderToInternal));
+      }).catch((err) => {
+        if (!cancelled) toast.error(errorMessage(err, 'Não foi possível buscar os pedidos.'));
+      }).finally(() => { if (!cancelled) setSearching(false); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [search, searchRevision]);
+
+  const source = searchOrders ?? orders;
+  const filtered = source.filter((o) => {
+    const term = search.trim().toLocaleLowerCase('pt-BR');
+    if (term && ![orderReference(o), o.id, o.customer.name, o.customer.email, o.customer.phone].some((value) => value.toLocaleLowerCase('pt-BR').includes(term))) return false;
     if (filter !== 'all' && o.status !== filter) return false;
     if (couponParam && o.coupon?.code !== couponParam) return false;
     return true;
@@ -68,6 +94,7 @@ export default function Orders() {
     setRefreshing(true);
     try {
       await refreshOrders();
+      setSearchRevision((v) => v + 1);
       toast.success('Pedidos atualizados');
     } catch (err) {
       toast.error(errorMessage(err, 'Não foi possível atualizar os pedidos.'));
@@ -76,12 +103,17 @@ export default function Orders() {
     }
   }
 
+  function updateActiveOrder(order: Order) {
+    setActive(order);
+    setSearchOrders((current) => current?.map((o) => o.id === order.id ? order : o) ?? null);
+  }
+
   async function changeStatus(patch: { status?: OrderStatus; paymentStatus?: PaymentStatus }) {
     if (!active) return;
     setSavingStatus(true);
     try {
       const updated = await updateOrderStatus(active.id, patch);
-      setActive(updated);
+      updateActiveOrder(updated);
       toast.success(
         patch.status
           ? `Status: ${statusLabels[updated.status]}`
@@ -99,7 +131,7 @@ export default function Orders() {
     setCanceling(true);
     try {
       const { order, result } = await cancelOrder(active.id);
-      setActive(order);
+      updateActiveOrder(order);
       toast.success(result === 'refunded' ? 'Pedido cancelado e valor estornado.' : 'Pedido cancelado.');
       setConfirmCancel(false);
     } catch (err) {
@@ -144,6 +176,10 @@ export default function Orders() {
         </div>
       </header>
 
+      <div className="mb-4">
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Buscar pedidos" placeholder="Buscar por pedido, cliente, e-mail, telefone ou ID interno..." />
+        {searching && <p role="status" className="mt-1 text-xs text-ink-mute">Buscando pedidos...</p>}
+      </div>
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-bg-soft text-left text-xs uppercase tracking-wider text-ink-mute">
@@ -159,6 +195,7 @@ export default function Orders() {
             </tr>
           </thead>
           <tbody className="divide-y divide-ink-line">
+            {filtered.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-ink-mute">Nenhum pedido encontrado.</td></tr>}
             {filtered.map((o) => (
               <tr key={o.id} {...editOnDoubleClick(() => setActive(o))} className="hover:bg-bg-soft/50">
                 <td className="px-4 py-3 font-semibold">
@@ -166,7 +203,7 @@ export default function Orders() {
                     {hasAlert(o) && (
                       <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" aria-label="Pedido precisa de revisão" />
                     )}
-                    {o.id}
+                    {orderReference(o)}
                   </span>
                 </td>
                 <td className="px-4 py-3">{o.customer.name}</td>
@@ -194,9 +231,10 @@ export default function Orders() {
         </table>
       </div>
 
-      <Drawer open={!!active} onClose={() => setActive(null)} title={active?.id ?? 'Pedido'} width="w-full sm:max-w-lg">
+      <Drawer open={!!active} onClose={() => setActive(null)} title={active ? `Pedido ${orderReference(active)}` : 'Pedido'} width="w-full sm:max-w-lg">
         {active && (
           <div className="space-y-5 p-5">
+            <p className="break-all text-xs text-ink-mute">ID interno: {active.id}</p>
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={active.status} />
               {active.paymentStatus && <PaymentStatusBadge status={active.paymentStatus} />}
@@ -280,7 +318,7 @@ export default function Orders() {
                     setSavingTracking(true);
                     try {
                       await setTrackingCode(active.id, code);
-                      setActive({ ...active, shipping: { ...active.shipping, trackingCode: code || undefined } });
+                      updateActiveOrder({ ...active, shipping: { ...active.shipping, trackingCode: code || undefined } });
                       toast.success(code ? 'Código de rastreio salvo' : 'Código de rastreio removido');
                     } catch (err) {
                       toast.error(errorMessage(err, 'Não foi possível salvar o código de rastreio.'));
@@ -297,7 +335,7 @@ export default function Orders() {
               </p>
             </div>
 
-            <ShipmentPanel orderId={active.id} />
+            <ShipmentPanel orderId={active.id} orderPublicCode={active.publicCode} />
 
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-ink-mute">Itens</p>
