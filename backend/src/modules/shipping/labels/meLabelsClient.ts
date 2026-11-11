@@ -271,11 +271,15 @@ export const ME_SANDBOX_HOST = 'sandbox.melhorenvio.com.br';
 export const MAX_LABEL_FILE_REDIRECTS = 3;
 const MAX_LABEL_PDF_BYTES = 10 * 1024 * 1024;
 
-const hostOf = (u: string | URL) => {
+/** Diagnóstico: somente hostname DNS normalizado, nunca porta/credenciais/URL.
+ * Não truncar um hostname válido: a evidência precisa identificar o host EXATO.
+ */
+const hostnameOf = (u: string | URL) => {
   try {
-    return (typeof u === 'string' ? new URL(u) : u).host.slice(0, 120) || '?';
+    const hostname = (typeof u === 'string' ? new URL(u) : u).hostname.toLowerCase().replace(/\.$/, '');
+    return hostname && hostname.length <= 253 ? hostname : '<hostname inválido>';
   } catch {
-    return '<url inválida>';
+    return '<hostname inválido>';
   }
 };
 
@@ -566,7 +570,7 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
       const cfg = guard(op);
       if (!isAllowedLabelFileUrl(url, cfg)) {
         // Só o host (nunca a URL assinada): é o dado que o operador precisa para aprovar.
-        log(`[melhor-envio:etiquetas] print.file → host do PDF NÃO autorizado (${cfg.environment}): ${hostOf(url)}`);
+        log(`[melhor-envio:etiquetas] print.file → hostname do PDF NÃO autorizado (${cfg.environment}): ${hostnameOf(url)}`);
         return fail(op, 'BAD_RESPONSE', 'not_sent', { fields: ['host_not_allowed'] });
       }
       let target = new URL(url);
@@ -598,7 +602,7 @@ export function createMeLabelsClient(deps: MeLabelsDeps = {}) {
             return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status });
           }
           if (!isAllowedLabelFileUrl(next, cfg)) {
-            log(`[melhor-envio:etiquetas] print.file → redirect para host NÃO autorizado (${cfg.environment}): ${hostOf(next)}`);
+            log(`[melhor-envio:etiquetas] print.file → redirect para hostname NÃO autorizado (${cfg.environment}): ${hostnameOf(next)}`);
             return fail(op, 'BAD_RESPONSE', 'rejected', { httpStatus: res.status, fields: ['host_not_allowed'] });
           }
           target = next;

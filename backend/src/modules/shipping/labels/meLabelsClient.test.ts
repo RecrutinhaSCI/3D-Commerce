@@ -571,6 +571,28 @@ describe('download do PDF — redirects validados um a um', () => {
     expect(logs.join(" | ")).not.toContain('/pdf/abc.pdf');
   });
 
+  it.each(['inicial', 'redirect'] as const)('diagnóstico %s: só hostname, sem porta, credenciais ou partes assinadas', async (stage) => {
+    const blocked = 'https://USUARIOSECRETO:SENHASECRETA@BLOQUEADO.example.test:8443/pdf/ARQUIVOSECRETO?X-Amz-Signature=ASSINATURASECRETA#FRAGMENTOSECRETO';
+    handler = () => redirect(blocked);
+    const error = await caught(client(PROD).downloadLabelPdf(stage === 'inicial' ? blocked : START));
+    expect(error).toMatchObject({ code: 'BAD_RESPONSE', fields: ['host_not_allowed'] });
+    expect(calls).toHaveLength(stage === 'inicial' ? 0 : 1);
+    const prefix = stage === 'inicial' ? 'hostname do PDF NÃO autorizado' : 'redirect para hostname NÃO autorizado';
+    expect(logs).toContain(`[melhor-envio:etiquetas] print.file → ${prefix} (production): bloqueado.example.test`);
+    const log = logs.join(' | ');
+    for (const secret of ['USUARIOSECRETO', 'SENHASECRETA', 'ARQUIVOSECRETO', 'ASSINATURASECRETA', 'FRAGMENTOSECRETO', '8443', 'X-Amz-', 'https://', TOKEN]) {
+      expect(log).not.toContain(secret);
+    }
+  });
+
+  it('diagnóstico preserva hostname DNS válido com mais de 120 caracteres, sem truncamento', async () => {
+    const hostname = `${'a'.repeat(60)}.${'b'.repeat(60)}.example.test`;
+    await caught(client(PROD).downloadLabelPdf(`https://${hostname}/pdf/NAOLOGAR?token=NAOLOGAR`));
+    expect(logs).toContain(`[melhor-envio:etiquetas] print.file → hostname do PDF NÃO autorizado (production): ${hostname}`);
+    expect(logs.join(' | ')).not.toContain('NAOLOGAR');
+    expect(calls).toHaveLength(0);
+  });
+
   it('Sandbox: S3 aprovado redirecionando para OUTRO bucket → bloqueado no salto', async () => {
     const S3 = 'https://me-0047-sandbox.s3.amazonaws.com/pdf/abc.pdf';
     handler = routes({ [S3]: () => redirect('https://outro-bucket.s3.amazonaws.com/abc.pdf'), 'https://outro-bucket.s3.amazonaws.com/abc.pdf': pdf });
